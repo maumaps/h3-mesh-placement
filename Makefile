@@ -168,6 +168,10 @@ db/test/georgia_roads_geom: tests/georgia_roads_geom.sql db/table/georgia_roads_
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/georgia_roads_geom.sql
 	touch db/test/georgia_roads_geom
 
+db/test/population_h3_r8: tests/population_h3_r8.sql db/table/population_h3_r8 db/raw/kontur_population | db/test ## Check population table stays a 1:1 Kontur H3 cast
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/population_h3_r8.sql
+	touch db/test/population_h3_r8
+
 db/test/h3_los_between_cells: tests/h3_los_between_cells.sql db/function/h3_los_between_cells db/table/mesh_initial_nodes_h3_r8 | db/test ## Validate LOS results for seed nodes
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/h3_los_between_cells.sql
 	touch db/test/h3_los_between_cells
@@ -186,6 +190,6 @@ db/table/mesh_visibility_edges_active: tables/mesh_visibility_edges_active.sql d
 
 db/procedure/mesh_run_greedy: procedures/mesh_run_greedy_prepare.sql procedures/mesh_run_greedy.sql procedures/mesh_run_greedy_finalize.sql db/table/mesh_visibility_edges_active db/table/mesh_surface_h3_r8 | db/procedure ## Execute greedy placement loop
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_run_greedy_prepare.sql
-	bash -lc 'set -euo pipefail; for iter in $$(seq 1 10); do echo ">> Greedy iteration $$iter"; psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_run_greedy.sql; done'
+	bash -lc 'set -euo pipefail; for iter in $$(seq 1 100); do echo ">> Greedy iteration $$iter"; psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_run_greedy.sql; done'
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_run_greedy_finalize.sql
 	touch db/procedure/mesh_run_greedy

@@ -1,11 +1,9 @@
-set client_min_messages = warning;
-
 drop table if exists mesh_initial_nodes_h3_r8;
 -- Create seed towers table projected to H3 resolution 8
 create table mesh_initial_nodes_h3_r8 as
 select
-    h3_latlng_to_cell(ST_Transform(geom, 4326)::geography, 8) as h3,
-    max(coalesce(name, 'seed')) as name,
+    h3_latlng_to_cell(geom, 8) as h3,
+    string_agg(coalesce(name, 'seed'), ‘, ’) as name,
     ST_Collect(geom) as geom
 from mesh_initial_nodes
 group by 1;
