@@ -4,7 +4,8 @@ drop table if exists mesh_surface_h3_r8;
 -- Create core mesh surface table with indicators per H3 cell
 create table mesh_surface_h3_r8 (
     h3 h3index primary key,
-    geom geometry not null,
+    geom geometry generated always as (h3_cell_to_boundary_geometry(h3)) stored,
+    centroid_geog public.geography generated always as (h3_cell_to_geometry(h3)::public.geography) stored,
     ele double precision,
     has_road boolean default false,
     population numeric,
@@ -15,8 +16,8 @@ create table mesh_surface_h3_r8 (
     distance_to_closest_tower double precision
 );
 
-insert into mesh_surface_h3_r8 (h3, geom)
-select h3, geom
+insert into mesh_surface_h3_r8 (h3)
+select h3
 from mesh_surface_domain_h3_r8;
 
 update mesh_surface_h3_r8 s
@@ -44,7 +45,7 @@ where exists (
 );
 
 with tower_points as (
-    select h3, h3::geography as geog
+    select h3, centroid_geog as geog
     from mesh_towers
 )
 update mesh_surface_h3_r8 s
@@ -52,7 +53,7 @@ set distance_to_closest_tower = sub.dist_m
 from (
     select
         s2.h3,
-        min(ST_Distance(s2.h3::geography, t.geog)) as dist_m
+        min(ST_Distance(s2.centroid_geog, t.geog)) as dist_m
     from mesh_surface_h3_r8 s2
     join tower_points t on true
     group by s2.h3
@@ -80,4 +81,7 @@ where can_place_tower is null
   and distance_to_closest_tower >= 5000;
 
 create index if not exists mesh_surface_h3_r8_geom_idx on mesh_surface_h3_r8 using gist (geom);
-create index if not exists mesh_surface_h3_r8_brin_all on mesh_surface_h3_r8 using brin (ele, has_road, population, has_tower, has_reception, can_place_tower, visible_uncovered_population, distance_to_closest_tower);
+create index if not exists mesh_surface_h3_r8_geog_idx on mesh_surface_h3_r8 using gist (centroid_geog);
+create index if not exists mesh_surface_h3_r8_brin_all on mesh_surface_h3_r8 using brin (ele, population, visible_uncovered_population, distance_to_closest_tower);
+-- Create btree index to speed up distance-based eligibility filtering
+create index if not exists mesh_surface_h3_r8_distance_idx on mesh_surface_h3_r8 (distance_to_closest_tower);

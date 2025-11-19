@@ -85,3 +85,6 @@ Make sure every create statement has descriptive comment `--` in front of it.
 `h3_cell_to_boundary(h3)::geometry` should be `h3_cell_to_boundary_geometry(h3)` or SRID will be wrong
 Do not work with GDAL on the filesystem. Import things into database and deal with data there.
 Use h3index type for storing and passing h3 index around.
+
+create brin for all columns when creating table to deal with
+ERROR:  data type boolean has no default operator class for access method "brin"

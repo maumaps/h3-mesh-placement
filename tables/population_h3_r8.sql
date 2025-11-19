@@ -8,11 +8,12 @@ with boundary as (
 ),
 clipped as (
     select
-        ST_CollectionExtract(k.geom, 3) as geom,
+        ST_CollectionExtract(ST_Transform(k.geom, 4326), 3) as geom,
         k.population
     from kontur_population k
     join boundary b
-        on ST_Intersects(k.geom, b.boundary_geom)
+        on ST_Intersects(ST_Transform(k.geom, 4326), b.boundary_geom)
+        and ST_CollectionExtract(ST_Transform(k.geom, 4326), 3) is not null
 )
 select
     cell as h3,

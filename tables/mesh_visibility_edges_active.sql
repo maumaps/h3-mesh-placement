@@ -18,9 +18,9 @@ select
     t2.tower_id as target_id,
     t1.h3 as source_h3,
     t2.h3 as target_h3,
-    ST_Distance((t1.h3)::geography, (t2.h3)::geography) as distance_m,
+    ST_Distance(t1.centroid_geog, t2.centroid_geog) as distance_m,
     h3_los_between_cells(t1.h3, t2.h3) as is_visible,
-    ST_MakeLine(t1.h3::geometry, t2.h3::geometry) as geom
+    ST_MakeLine(t1.centroid_geog::geometry, t2.centroid_geog::geometry) as geom
 from mesh_towers t1
 join mesh_towers t2
     on t1.tower_id < t2.tower_id;

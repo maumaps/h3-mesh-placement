@@ -50,6 +50,9 @@ db/function: | db
 db/procedure: | db
 	mkdir -p db/procedure
 
+db/test: | db
+	mkdir -p db/test
+
 data/in/osm/georgia-latest.osm.pbf: | data/in/osm ## Download Georgia OSM extract
 	curl -L --retry 3 --continue-at - -o data/in/osm/georgia-latest.osm.pbf https://download.geofabrik.de/europe/georgia-latest.osm.pbf
 
@@ -84,6 +87,10 @@ db/table/mesh_towers: tables/mesh_towers.sql db/table/mesh_pipeline_settings | d
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/mesh_towers.sql
 	touch db/table/mesh_towers
 
+db/table/mesh_los_cache: tables/mesh_los_cache.sql db/table/postgis_extension | db/table ## Store cached LOS evaluations
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/mesh_los_cache.sql
+	touch db/table/mesh_los_cache
+
 db/table/mesh_greedy_iterations: tables/mesh_greedy_iterations.sql db/table/postgis_extension | db/table ## Create greedy iterations log table
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/mesh_greedy_iterations.sql
 	touch db/table/mesh_greedy_iterations
@@ -103,7 +110,7 @@ data/mid/osm/georgia_boundary.geojson: db/table/osm_georgia | data/mid/osm ## Ex
 
 db/raw/kontur_population: data/mid/population/kontur_population_20231101.gpkg db/table/postgis_extension | db/raw ## Import Kontur population
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "drop table if exists kontur_population;"
-	ogr2ogr -f PostgreSQL PG:"" data/mid/population/kontur_population_20231101.gpkg -nln kontur_population -nlt MULTIPOLYGON -lco GEOMETRY_NAME=geom -overwrite -a_srs EPSG:4326
+	ogr2ogr -f PostgreSQL PG:"" data/mid/population/kontur_population_20231101.gpkg -nln kontur_population -nlt MULTIPOLYGON -lco GEOMETRY_NAME=geom -overwrite -t_srs EPSG:4326
 	touch db/raw/kontur_population
 
 db/raw/gebco_elevation: data/mid/gebco/gebco_2024_geotiffs_unzip db/table/georgia_convex_hull db/table/postgis_extension | db/raw ## Import GEBCO rasters for Georgia extent
@@ -150,11 +157,20 @@ db/table/gebco_elevation_h3_r8: scripts/raster_values_into_h3.sql db/raw/gebco_e
 		-v resolution=8 \
 		-v clip_table=georgia_convex_hull \
 		-f scripts/raster_values_into_h3.sql
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "create index if not exists gebco_elevation_h3_r8_h3_idx on gebco_elevation_h3_r8 using btree (h3) include (ele);"
 	touch db/table/gebco_elevation_h3_r8
 
-db/function/h3_los_between_cells: functions/h3_los_between_cells.sql db/table/gebco_elevation_h3_r8 | db/function ## Install LOS helper
+db/function/h3_los_between_cells: functions/h3_los_between_cells.sql db/table/gebco_elevation_h3_r8 db/table/mesh_surface_h3_r8 db/table/mesh_los_cache | db/function ## Install LOS helper
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f functions/h3_los_between_cells.sql
 	touch db/function/h3_los_between_cells
+
+db/test/georgia_roads_geom: tests/georgia_roads_geom.sql db/table/georgia_roads_geom | db/test ## Verify only car-capable highways stay in roads layer
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/georgia_roads_geom.sql
+	touch db/test/georgia_roads_geom
+
+db/test/h3_los_between_cells: tests/h3_los_between_cells.sql db/function/h3_los_between_cells db/table/mesh_initial_nodes_h3_r8 | db/test ## Validate LOS results for seed nodes
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/h3_los_between_cells.sql
+	touch db/test/h3_los_between_cells
 
 db/table/mesh_surface_h3_r8: tables/mesh_surface_h3_r8.sql db/table/mesh_surface_domain_h3_r8 db/table/roads_h3_r8 db/table/population_h3_r8 db/table/mesh_towers db/table/gebco_elevation_h3_r8 | db/table ## Populate mesh_surface_h3_r8 table
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/mesh_surface_h3_r8.sql
@@ -168,6 +184,8 @@ db/table/mesh_visibility_edges_active: tables/mesh_visibility_edges_active.sql d
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/mesh_visibility_edges_active.sql
 	touch db/table/mesh_visibility_edges_active
 
-db/procedure/mesh_run_greedy: procedures/mesh_run_greedy.sql db/table/mesh_visibility_edges_active db/table/mesh_surface_h3_r8 | db/procedure ## Execute greedy placement loop
-	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_run_greedy.sql
+db/procedure/mesh_run_greedy: procedures/mesh_run_greedy_prepare.sql procedures/mesh_run_greedy.sql procedures/mesh_run_greedy_finalize.sql db/table/mesh_visibility_edges_active db/table/mesh_surface_h3_r8 | db/procedure ## Execute greedy placement loop
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_run_greedy_prepare.sql
+	bash -lc 'set -euo pipefail; for iter in $$(seq 1 10); do echo ">> Greedy iteration $$iter"; psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_run_greedy.sql; done'
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_run_greedy_finalize.sql
 	touch db/procedure/mesh_run_greedy
