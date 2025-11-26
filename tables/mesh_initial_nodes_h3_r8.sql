@@ -3,7 +3,7 @@ drop table if exists mesh_initial_nodes_h3_r8;
 create table mesh_initial_nodes_h3_r8 as
 select
     h3_latlng_to_cell(geom, 8) as h3,
-    string_agg(coalesce(name, 'seed'), ‘, ’) as name,
+    string_agg(coalesce(name, 'seed'), ', ') as name,
     ST_Collect(geom) as geom
 from mesh_initial_nodes
 group by 1;

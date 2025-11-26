@@ -23,16 +23,20 @@ All thresholds (resolution 8, 60 km link limit, 5 km separation) come from the t
 
 ## Database Layout
 Everything lives directly in the default PostgreSQL namespace, so table names are globally unique: `osm_georgia`, `kontur_population`, `georgia_boundary`, `mesh_surface_h3_r8`, etc.
-The final surface table exposes the columns requested in the talk: `h3`, `geom`, `ele`, `has_road`, `population`, `has_tower`, `has_reception`, `can_place_tower`, `visible_uncovered_population`, `distance_to_closest_tower`.
+The final surface table exposes `h3`, `geom`, `ele`, `has_road`, `population`, `has_tower`, `has_reception`, `is_in_boundaries`, `is_in_unfit_area`, `min_distance_to_closest_tower`, `visible_uncovered_population`, `distance_to_closest_tower`, and the generated `can_place_tower` flag.
 Indexes use BRIN where possible so we can vacuum and freeze quickly even as the dataset grows.
 
 ## SQL Execution Order
 `tables/mesh_pipeline_settings.sql`, `tables/mesh_towers.sql`, and `tables/mesh_greedy_iterations.sql` install the core bookkeeping tables.
 `tables/georgia_boundary.sql`, `tables/georgia_convex_hull.sql`, `tables/mesh_surface_domain_h3_r8.sql`, `tables/georgia_roads_geom.sql`, `tables/roads_h3_r8.sql`, `tables/population_h3_r8.sql`, and `scripts/raster_values_into_h3.sql` (for GEBCO) harmonize all imported layers into the H3 resolution 8 domain.
 `functions/h3_los_between_cells.sql` defines the helper needed for line-of-sight checks on top of `h3_pg` primitives.
-`tables/mesh_surface_h3_r8.sql` builds the final surface table, fills the requested indicator columns, and sets up constraints plus indexes.
-`tables/mesh_visibility_edges_seed.sql` and `tables/mesh_visibility_edges_active.sql` materialize visibility layers so we can inspect the expected connectivity.
+`tables/mesh_surface_h3_r8.sql` builds the final surface table, fills the requested indicator columns, tracks `visible_tower_count` (the number of towers with LOS within 70 km), and sets up constraints plus indexes.
+`tables/mesh_visibility_edges.sql` materializes the visibility layer for every tower pair so we can inspect the expected connectivity.
 `procedures/mesh_run_greedy.sql` implements the loop from the talk: fill missing fields, find the best candidate, promote it to a tower, invalidate nearby caches, and repeat until no population remains uncovered.
+It only promotes candidates whose `visible_tower_count` is at least two so both bridge and greedy placements always see multiple existing towers.
+When several bridge-mode candidates tie on blocked-cluster metrics, the tiebreaker first prefers the option that unlocks the most new road-accessible cells whose `visible_tower_count` is still below two before comparing populations, and the greedy fallback applies the same preference.
+`functions/mesh_surface_refresh_reception_metrics.sql` recomputes `clearance` and `path_loss` for the cells whose metrics were invalidated around the most recent tower, so there are no null “holes” in QGIS after an iteration finishes.
+`functions/mesh_surface_refresh_visible_tower_counts.sql` recomputes `visible_tower_count` in the 70 km radius around every accepted tower, keeping eligibility filters accurate during the greedy loop.
 
 ## Running The Pipeline
 Make sure PostgreSQL accepts local socket connections under your current user so the inline `psql` calls succeed.

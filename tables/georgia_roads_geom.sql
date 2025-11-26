@@ -1,13 +1,12 @@
 set client_min_messages = warning;
 
 drop table if exists georgia_roads_geom;
--- Create cleaned multiline geometry for Georgia roads that are driveable by cars
 create table georgia_roads_geom as
 select ST_Multi(
            geog::geometry
        ) as geom,
        tags ->> 'highway' as highway
-from osm_georgia
+from osm_caucasus
 where tags ? 'highway'
   and (tags ->> 'highway') = any (
         array[

@@ -15,6 +15,7 @@
     "natural=coastline"
   ],
   "area_tags": [
+    "boundary=administrative",
     "aeroway",
     "amenity",
     "building",

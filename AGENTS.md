@@ -31,7 +31,6 @@ CI: The project is using Github Actions. Make sure its configuration is kept up-
 Style: Start sentences at new lines in docs for cleaner git diffs.
 AI: Try to make a patch to fix/improve things even if user's request sounds like a question.
 Style: Do not mix tabs and spaces in code.
-SQL: SQL is lowercase, PostGIS functions follow their spelling from the manual (`st_segmentize` -> `ST_Segmentize`).
 Pull requests: Branch names should match branch name recorded by Fibery if provided (e.g. "21648-switch-page-after-login-to-map").
 Python: Write docstrings, they will get used for call graph and generated documentation.
 SQL: SQL files should to be idempotent: drop table if exists; add some comments to make people grasp quereies faster.
@@ -76,15 +75,33 @@ You are explicitly forbidden to use variables in Makefile.
 You are explicitly forbidden to use SQL schemas.
 File names of .sql files have to match function or table or procedure name in that file.
 Environment is restricted by default. If name resolution or socket connection fails, you need to re-run the command requesting elevated permissions.
-Do not use geometry typmod (things like geometry(multilinestring, 4326)) - use plain geometry or geography instead.
-Consult https://pgxn.org/dist/h3/docs/api.html for h3_pg functions before writing h3 code.
 Make sure every create statement has descriptive comment `--` in front of it.
+Do not work with GDAL on the filesystem. Import things into database and deal with data there.
+Use h3index type for storing and passing h3 index around.
+create brin for all columns when creating table to deal with
+ERROR:  data type boolean has no default operator class for access method "brin"
+
+
+Consult https://pgxn.org/dist/h3/docs/api.html for h3_pg functions before writing h3 code.
+Do not use geometry typmod (things like geometry(multilinestring, 4326)) - use plain geometry or geography instead.
+
 `ST_PointOnSurface(h3_cell_to_boundary(p.h3)::geometry)::geography` is just `h3::geography`
 `ST_PointOnSurface(h3_cell_to_boundary_geometry(h3))` is just `h3::geometry`
 `ST_Distance(a.h3::geography, b.h3::geography) <= 60000` is just `ST_DWithin(a.h3::geography, b.h3::geography, 60000)`
 `h3_cell_to_boundary(h3)::geometry` should be `h3_cell_to_boundary_geometry(h3)` or SRID will be wrong
-Do not work with GDAL on the filesystem. Import things into database and deal with data there.
-Use h3index type for storing and passing h3 index around.
+`ST_UnaryUnion(ST_Collect(geom))` is just `ST_Union(geom)`
+`ST_UnaryUnion` is a sign you're doing something wrong
+`select min(ST_Distance(..))` should be `select ST_Distance() ... order by a <-> b limit 1` to enable knn gist
+`row_number() ...  = 1` can likely be redone as `order by + limit 1` (possibly with `distinct on` or `lateral`) -->
+`order by ST_Distance(c.geog, t.geog)` should be `order by c.geog <-> t.geog`
+`sum(case when A then 1 else 0 end)` is just `count() filter (where A)`
+SQL: SQL is lowercase, PostGIS functions follow their spelling from the manual (`st_segmentize` -> `ST_Segmentize`).
 
-create brin for all columns when creating table to deal with
-ERROR:  data type boolean has no default operator class for access method "brin"
+if you have cache table that has a primary key, it makes sense to add values into `including` on same index for faster lookup
+you can't just create ordered table and then rely on it to be ordered on scan without `order by`
+
+
+profile_make_lint comes from `sudo pip3 install https://github.com/maumaps/make-profiler/archive/master.zip --break-system-packages` and helps check hierarchy of the Makefile.
+don't run one SQL file from other SQL file - this quickly becomes a mess with relative file paths.
+psql can’t connect to /var/run/postgresql/.s.PGSQL.5432 -> rerun with elevated permissions/user confirmation
+When make step depends on a directory, mark that dependency as order only (after |)

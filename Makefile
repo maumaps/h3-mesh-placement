@@ -1,56 +1,50 @@
-.PHONY: all clean
+all: db/procedure/mesh_run_greedy ## [FINAL] Build entire pipeline end-to-end
 
-all: db/procedure/mesh_run_greedy ## Build entire pipeline end-to-end
+test: db/test/georgia_roads_geom db/test/population_h3_r8 db/test/h3_los_between_cells db/test/mesh_surface_visible_towers db/test/mesh_surface_refresh_reception_metrics db/test/mesh_surface_refresh_visible_tower_counts db/test/mesh_visibility_edges ## [FINAL] Run verification suite
 
-clean: ## Remove intermediate data and build markers
-	rm -rf data/mid data/out db
+clean: ## [FINAL] Remove intermediate data and build markers
+	@if [ -n "$(filter clean,$(MAKECMDGOALS))" ]; then rm -rf data/mid data/out db; fi
 
-data:
+data: ## Ensure data staging directory exists
 	mkdir -p data
 
-data/in: | data
+data/in: | data ## Ensure raw data input directory exists
 	mkdir -p data/in
 
-data/in/osm: | data/in
+data/in/osm: | data/in ## Ensure raw OSM input directory exists
 	mkdir -p data/in/osm
 
-data/in/population: | data/in
+data/in/population: | data/in ## Ensure raw population input directory exists
 	mkdir -p data/in/population
 
-data/in/gebco: | data/in
+data/in/gebco: | data/in ## Ensure raw GEBCO input directory exists
 	mkdir -p data/in/gebco
 
-data/mid: | data
+data/mid: | data ## Ensure intermediate data directory exists
 	mkdir -p data/mid
 
-data/mid/osm: | data/mid
-	mkdir -p data/mid/osm
-
-data/mid/population: | data/mid
+data/mid/population: | data/mid ## Ensure intermediate population directory exists
 	mkdir -p data/mid/population
 
-data/mid/gebco: | data/mid
+data/mid/gebco: | data/mid ## Ensure intermediate GEBCO directory exists
 	mkdir -p data/mid/gebco
 
-data/out: | data
-	mkdir -p data/out
-
-db:
+db: ## Ensure database artifacts directory exists
 	mkdir -p db
 
-db/raw: | db
+db/raw: | db ## Ensure raw database marker directory exists
 	mkdir -p db/raw
 
-db/table: | db
+db/table: | db ## Ensure table marker directory exists
 	mkdir -p db/table
 
-db/function: | db
+db/function: | db ## Ensure function marker directory exists
 	mkdir -p db/function
 
-db/procedure: | db
+db/procedure: | db ## Ensure procedure marker directory exists
 	mkdir -p db/procedure
 
-db/test: | db
+db/test: | db ## Ensure test marker directory exists
 	mkdir -p db/test
 
 data/in/osm/georgia-latest.osm.pbf: | data/in/osm ## Download Georgia OSM extract
@@ -105,9 +99,6 @@ db/table/osm_georgia: data/in/osm/georgia-latest.osm.pbf db/table/postgis_extens
 	osmium export -i sparse_mem_array -c osmium.config.json -f pg data/in/osm/georgia-latest.osm.pbf -v --progress | psql --no-psqlrc --set=ON_ERROR_STOP=1 -1 -c "create table osm_georgia(geog geography, osm_type text, osm_id bigint, version int, osm_user text, ts timestamptz, way_nodes bigint[], tags jsonb); alter table osm_georgia alter geog set storage external, alter osm_type set storage main, alter osm_user set storage main, alter way_nodes set storage external, alter tags set storage external, set (fillfactor=100); copy osm_georgia from stdin freeze;"
 	touch db/table/osm_georgia
 
-data/mid/osm/georgia_boundary.geojson: db/table/osm_georgia | data/mid/osm ## Export Georgia boundary for debugging
-	ogr2ogr -overwrite -f GeoJSON data/mid/osm/georgia_boundary.geojson PG:"" -sql "select st_multi(st_union(geog::geometry)) as geom from osm_georgia where tags ? 'boundary' and tags ->> 'boundary' = 'administrative' and tags ->> 'admin_level' = '2'"
-
 db/raw/kontur_population: data/mid/population/kontur_population_20231101.gpkg db/table/postgis_extension | db/raw ## Import Kontur population
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "drop table if exists kontur_population;"
 	ogr2ogr -f PostgreSQL PG:"" data/mid/population/kontur_population_20231101.gpkg -nln kontur_population -nlt MULTIPOLYGON -lco GEOMETRY_NAME=geom -overwrite -t_srs EPSG:4326
@@ -160,9 +151,21 @@ db/table/gebco_elevation_h3_r8: scripts/raster_values_into_h3.sql db/raw/gebco_e
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "create index if not exists gebco_elevation_h3_r8_h3_idx on gebco_elevation_h3_r8 using btree (h3) include (ele);"
 	touch db/table/gebco_elevation_h3_r8
 
-db/function/h3_los_between_cells: functions/h3_los_between_cells.sql db/table/gebco_elevation_h3_r8 db/table/mesh_surface_h3_r8 db/table/mesh_los_cache | db/function ## Install LOS helper
+db/function/h3_los_between_cells: functions/h3_los_between_cells.sql db/table/gebco_elevation_h3_r8 db/table/mesh_los_cache | db/function ## Install LOS helper
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f functions/h3_los_between_cells.sql
 	touch db/function/h3_los_between_cells
+
+db/function/mesh_surface_fill_visible_population: functions/mesh_surface_fill_visible_population.sql db/function/h3_los_between_cells | db/function ## Fill visible population for a single candidate cell
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f functions/mesh_surface_fill_visible_population.sql
+	touch db/function/mesh_surface_fill_visible_population
+
+db/function/mesh_surface_refresh_reception_metrics: functions/mesh_surface_refresh_reception_metrics.sql db/function/h3_los_between_cells db/table/mesh_surface_h3_r8 db/table/mesh_towers | db/function ## Refresh reception metrics near a new tower
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f functions/mesh_surface_refresh_reception_metrics.sql
+	touch db/function/mesh_surface_refresh_reception_metrics
+
+db/function/mesh_surface_refresh_visible_tower_counts: functions/mesh_surface_refresh_visible_tower_counts.sql db/function/h3_los_between_cells db/table/mesh_surface_h3_r8 db/table/mesh_towers | db/function ## Refresh visible tower counts near a new tower
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f functions/mesh_surface_refresh_visible_tower_counts.sql
+	touch db/function/mesh_surface_refresh_visible_tower_counts
 
 db/test/georgia_roads_geom: tests/georgia_roads_geom.sql db/table/georgia_roads_geom | db/test ## Verify only car-capable highways stay in roads layer
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/georgia_roads_geom.sql
@@ -176,20 +179,34 @@ db/test/h3_los_between_cells: tests/h3_los_between_cells.sql db/function/h3_los_
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/h3_los_between_cells.sql
 	touch db/test/h3_los_between_cells
 
-db/table/mesh_surface_h3_r8: tables/mesh_surface_h3_r8.sql db/table/mesh_surface_domain_h3_r8 db/table/roads_h3_r8 db/table/population_h3_r8 db/table/mesh_towers db/table/gebco_elevation_h3_r8 | db/table ## Populate mesh_surface_h3_r8 table
+db/test/mesh_surface_visible_towers: tests/mesh_surface_visible_towers.sql db/table/mesh_surface_h3_r8 db/function/h3_los_between_cells db/table/mesh_towers | db/test ## Confirm visible_tower_count matches sampled LOS tower counts
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_surface_visible_towers.sql
+	touch db/test/mesh_surface_visible_towers
+
+db/test/mesh_surface_refresh_reception_metrics: tests/mesh_surface_refresh_reception_metrics.sql db/function/mesh_surface_refresh_reception_metrics db/table/mesh_surface_h3_r8 db/table/mesh_towers | db/test ## Ensure localized reception refresh restores clearance and path loss
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_surface_refresh_reception_metrics.sql
+	touch db/test/mesh_surface_refresh_reception_metrics
+
+db/test/mesh_surface_refresh_visible_tower_counts: tests/mesh_surface_refresh_visible_tower_counts.sql db/function/mesh_surface_refresh_visible_tower_counts db/table/mesh_surface_h3_r8 db/table/mesh_towers | db/test ## Ensure localized visible tower refresh repopulates counts
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_surface_refresh_visible_tower_counts.sql
+	touch db/test/mesh_surface_refresh_visible_tower_counts
+
+db/table/mesh_surface_h3_r8: tables/mesh_surface_h3_r8.sql db/table/mesh_surface_domain_h3_r8 db/table/roads_h3_r8 db/table/population_h3_r8 db/table/mesh_towers db/table/gebco_elevation_h3_r8 db/function/h3_los_between_cells | db/table ## Populate mesh_surface_h3_r8 table
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/mesh_surface_h3_r8.sql
 	touch db/table/mesh_surface_h3_r8
 
-db/table/mesh_visibility_edges_seed: tables/mesh_visibility_edges_seed.sql db/table/mesh_initial_nodes_h3_r8 db/function/h3_los_between_cells | db/table ## Materialize seed visibility diagnostics
-	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/mesh_visibility_edges_seed.sql
-	touch db/table/mesh_visibility_edges_seed
+db/table/mesh_visibility_edges: tables/mesh_visibility_edges.sql scripts/mesh_visibility_edges_refresh.sql db/table/mesh_towers db/table/mesh_surface_h3_r8 db/function/h3_los_between_cells | db/table ## Materialize visibility diagnostics for seed and active towers
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/mesh_visibility_edges.sql
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_visibility_edges_refresh.sql
+	touch db/table/mesh_visibility_edges
 
-db/table/mesh_visibility_edges_active: tables/mesh_visibility_edges_active.sql db/function/h3_los_between_cells db/table/mesh_towers | db/table ## Materialize active visibility diagnostics
-	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/mesh_visibility_edges_active.sql
-	touch db/table/mesh_visibility_edges_active
+db/test/mesh_visibility_edges: tests/mesh_visibility_edges.sql db/table/mesh_visibility_edges db/table/mesh_initial_nodes_h3_r8 db/function/h3_los_between_cells | db/test ## Validate seed visibility diagnostics stay accurate
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_visibility_edges.sql
+	touch db/test/mesh_visibility_edges
 
-db/procedure/mesh_run_greedy: procedures/mesh_run_greedy_prepare.sql procedures/mesh_run_greedy.sql procedures/mesh_run_greedy_finalize.sql db/table/mesh_visibility_edges_active db/table/mesh_surface_h3_r8 | db/procedure ## Execute greedy placement loop
+db/procedure/mesh_run_greedy: procedures/mesh_run_greedy_prepare.sql procedures/mesh_run_greedy.sql procedures/mesh_run_greedy_finalize.sql scripts/mesh_visibility_edges_refresh.sql db/table/mesh_visibility_edges db/table/mesh_surface_h3_r8 db/table/mesh_greedy_iterations db/function/mesh_surface_refresh_reception_metrics db/function/mesh_surface_refresh_visible_tower_counts db/function/mesh_surface_fill_visible_population db/table/mesh_initial_nodes_h3_r8 | db/procedure ## Execute greedy placement loop
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_run_greedy_prepare.sql
-	bash -lc 'set -euo pipefail; for iter in $$(seq 1 100); do echo ">> Greedy iteration $$iter"; psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_run_greedy.sql; done'
+	bash -lc 'set -euo pipefail; for iter in $$(seq 1 100); do echo ">> Greedy iteration $$iter"; psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_run_greedy.sql; psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_visibility_edges_refresh.sql; done'
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_run_greedy_finalize.sql
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_visibility_edges_refresh.sql
 	touch db/procedure/mesh_run_greedy
