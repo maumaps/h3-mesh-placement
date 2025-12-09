@@ -121,7 +121,7 @@ with prioritized_pairs as (
         mp.priority
     from mesh_route_missing_pairs mp
     order by mp.priority, mp.src_h3, mp.dst_h3
-    limit 1000000
+    limit 40000000
 )
 select
     mp.src_h3,

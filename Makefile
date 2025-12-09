@@ -1,6 +1,6 @@
 all: db/procedure/mesh_run_greedy ## [FINAL] Build entire pipeline end-to-end
 
-test: db/test/georgia_roads_geom db/test/population_h3_r8 db/test/h3_los_between_cells db/test/mesh_surface_visible_towers db/test/mesh_surface_refresh_reception_metrics db/test/mesh_surface_refresh_visible_tower_counts db/test/mesh_visibility_edges db/test/mesh_visibility_invisible_route_geom db/test/mesh_run_greedy_prepare db/test/mesh_route_cache_graph_priority db/test/mesh_route_corridor_between_towers db/test/mesh_route ## [FINAL] Run verification suite
+test: db/test/georgia_roads_geom db/test/population_h3_r8 db/test/h3_los_between_cells db/test/mesh_surface_visible_towers db/test/mesh_surface_refresh_reception_metrics db/test/mesh_surface_refresh_visible_tower_counts db/test/mesh_visibility_edges db/test/mesh_visibility_invisible_route_geom db/test/mesh_run_greedy_prepare db/test/mesh_route_cache_graph_priority db/test/mesh_route_corridor_between_towers db/test/mesh_route db/test/mesh_route_cluster_slim db/test/mesh_tower_wiggle ## [FINAL] Run verification suite
 
 clean: ## [FINAL] Remove intermediate data and build markers
 	@if [ -n "$(filter clean,$(MAKECMDGOALS))" ]; then rm -rf data/mid data/out db; fi
@@ -200,7 +200,7 @@ db/test/mesh_surface_refresh_visible_tower_counts: tests/mesh_surface_refresh_vi
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_surface_refresh_visible_tower_counts.sql
 	touch db/test/mesh_surface_refresh_visible_tower_counts
 
-db/table/mesh_surface_h3_r8: tables/mesh_surface_h3_r8.sql db/table/mesh_surface_domain_h3_r8 db/table/roads_h3_r8 db/table/population_h3_r8 db/table/mesh_towers db/table/gebco_elevation_h3_r8 db/function/h3_los_between_cells | db/table ## Populate mesh_surface_h3_r8 table
+db/table/mesh_surface_h3_r8: tables/mesh_surface_h3_r8.sql db/table/mesh_surface_domain_h3_r8 db/table/roads_h3_r8 db/table/population_h3_r8 db/table/mesh_initial_nodes_h3_r8 db/table/mesh_towers db/table/gebco_elevation_h3_r8 db/function/h3_los_between_cells | db/table ## Populate mesh_surface_h3_r8 table
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/mesh_surface_h3_r8.sql
 	touch db/table/mesh_surface_h3_r8
 
@@ -245,6 +245,16 @@ db/test/mesh_route: tests/mesh_route.sql procedures/mesh_route_cache_graph.sql p
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_route.sql
 	touch db/test/mesh_route
 
+db/test/mesh_route_cluster_slim: tests/mesh_route_cluster_slim.sql procedures/mesh_route_cluster_slim.sql db/table/mesh_route_cluster_slim_failures | db/test ## Verify cluster slim iterates once and prefers seed endpoints
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_route_cluster_slim.sql
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_route_cluster_slim.sql
+	touch db/test/mesh_route_cluster_slim
+
+db/test/mesh_tower_wiggle: tests/mesh_tower_wiggle.sql procedures/mesh_tower_wiggle.sql db/function/h3_los_between_cells db/function/mesh_surface_fill_visible_population db/function/mesh_surface_refresh_reception_metrics db/function/mesh_surface_refresh_visible_tower_counts db/procedure/mesh_visibility_edges_refresh | db/test ## Validate bridge/cluster-slim wiggle pass relocates toward higher visible population
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_tower_wiggle.sql
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_tower_wiggle.sql
+	touch db/test/mesh_tower_wiggle
+
 db/procedure/mesh_route_cache_graph: procedures/mesh_route_cache_graph.sql db/table/mesh_surface_h3_r8 db/table/mesh_towers db/table/mesh_los_cache db/table/mesh_visibility_edges | db/procedure ## Cache LOS metrics and build routing graph
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_route_cache_graph.sql
 	touch db/procedure/mesh_route_cache_graph
@@ -253,13 +263,24 @@ db/procedure/mesh_route_bridge: procedures/mesh_route_bridge.sql db/procedure/me
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_route_bridge.sql
 	touch db/procedure/mesh_route_bridge
 
+db/procedure/mesh_tower_wiggle: procedures/mesh_tower_wiggle.sql db/procedure/mesh_route db/procedure/mesh_route_cluster_slim db/procedure/mesh_visibility_edges_refresh db/function/mesh_surface_fill_visible_population db/function/mesh_surface_refresh_reception_metrics db/function/mesh_surface_refresh_visible_tower_counts db/table/mesh_surface_h3_r8 db/table/mesh_towers db/table/mesh_visibility_edges | db/procedure ## Recenter bridge and cluster-slim towers toward denser visible population
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_tower_wiggle.sql
+	@bash -lc 'set -euo pipefail; iter=0; max_iters=$${WIGGLE_ITERATIONS:-0}; reset=true; while :; do iter=$$((iter+1)); echo ">> Wiggle iteration $$iter"; moved=$$(psql --no-psqlrc --set=ON_ERROR_STOP=1 -At -c "select mesh_tower_wiggle($$reset);"); reset=false; moved=$${moved:-0}; if [ "$$moved" -eq 0 ]; then echo ">> Wiggle converged after $$((iter-1)) iteration(s)"; break; fi; if [ "$$max_iters" -gt 0 ] && [ "$$iter" -ge "$$max_iters" ]; then echo ">> Wiggle hit iteration cap $$max_iters"; break; fi; done'
+	touch db/procedure/mesh_tower_wiggle
+
 db/procedure/mesh_visibility_edges_refresh: procedures/mesh_visibility_edges_refresh.sql db/table/mesh_towers db/table/mesh_surface_h3_r8 db/table/gebco_elevation_h3_r8 db/function/h3_los_between_cells db/function/mesh_visibility_invisible_route_geom | db/procedure ## Install visibility refresh procedure
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_visibility_edges_refresh.sql
 	touch db/procedure/mesh_visibility_edges_refresh
 
-db/procedure/mesh_route_cluster_slim: procedures/mesh_route_cluster_slim.sql scripts/mesh_route_cluster_slim.sql db/procedure/mesh_route_bridge db/procedure/mesh_route_cache_graph db/function/mesh_route_corridor_between_towers db/function/mesh_surface_refresh_reception_metrics db/function/mesh_surface_refresh_visible_tower_counts db/procedure/mesh_visibility_edges_refresh | db/procedure ## Shorten long intra-cluster hops with routing towers
+
+db/table/mesh_route_cluster_slim_failures: tables/mesh_route_cluster_slim_failures.sql | db/table ## Track cluster slim outcomes between iterations
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/mesh_route_cluster_slim_failures.sql
+	touch db/table/mesh_route_cluster_slim_failures
+
+db/procedure/mesh_route_cluster_slim: procedures/mesh_route_cluster_slim.sql db/table/mesh_route_cluster_slim_failures db/procedure/mesh_route_bridge db/procedure/mesh_route_cache_graph db/function/mesh_route_corridor_between_towers db/function/mesh_surface_refresh_reception_metrics db/function/mesh_surface_refresh_visible_tower_counts db/procedure/mesh_visibility_edges_refresh | db/procedure ## Shorten long intra-cluster hops with routing towers
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_route_cluster_slim.sql
-	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_route_cluster_slim.sql
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "truncate mesh_route_cluster_slim_failures;"
+	bash -lc 'set -euo pipefail; max_iters=$${SLIM_ITERATIONS:-0}; iter=0; while :; do iter=$$((iter+1)); echo ">> Cluster slim iteration $$iter"; promoted=$$(psql --no-psqlrc --set=ON_ERROR_STOP=1 -At -c "call mesh_route_cluster_slim($$iter, null);"); promoted=$${promoted:-0}; if [ "$$promoted" -eq 0 ]; then echo ">> Cluster slim converged after $$((iter-1)) iteration(s)"; break; fi; if [ "$$max_iters" -gt 0 ] && [ "$$iter" -ge "$$max_iters" ]; then echo ">> Cluster slim hit iteration cap $$max_iters"; break; fi; done'
 	touch db/procedure/mesh_route_cluster_slim
 
 db/procedure/mesh_route_refresh_visibility: scripts/mesh_visibility_edges_refresh.sql db/table/mesh_visibility_edges db/procedure/mesh_route_cluster_slim db/procedure/mesh_visibility_edges_refresh | db/procedure ## Rebuild visibility diagnostics after routing stages
@@ -269,7 +290,7 @@ db/procedure/mesh_route_refresh_visibility: scripts/mesh_visibility_edges_refres
 db/procedure/mesh_route: db/procedure/mesh_route_refresh_visibility | db/procedure ## Build PG routing bridges between tower clusters
 	touch db/procedure/mesh_route
 
-db/procedure/mesh_run_greedy: procedures/mesh_run_greedy_prepare.sql procedures/mesh_run_greedy.sql procedures/mesh_run_greedy_finalize.sql scripts/mesh_visibility_edges_refresh.sql db/procedure/mesh_route db/table/mesh_visibility_edges db/table/mesh_surface_h3_r8 db/table/mesh_greedy_iterations db/function/mesh_surface_refresh_reception_metrics db/function/mesh_surface_refresh_visible_tower_counts db/function/mesh_surface_fill_visible_population db/table/mesh_initial_nodes_h3_r8 | db/procedure ## Execute greedy placement loop
+db/procedure/mesh_run_greedy: procedures/mesh_run_greedy_prepare.sql procedures/mesh_run_greedy.sql procedures/mesh_run_greedy_finalize.sql scripts/mesh_visibility_edges_refresh.sql db/procedure/mesh_route db/procedure/mesh_tower_wiggle db/table/mesh_visibility_edges db/table/mesh_surface_h3_r8 db/table/mesh_greedy_iterations db/function/mesh_surface_refresh_reception_metrics db/function/mesh_surface_refresh_visible_tower_counts db/function/mesh_surface_fill_visible_population db/table/mesh_initial_nodes_h3_r8 | db/procedure ## Execute greedy placement loop
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_run_greedy_prepare.sql
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "call mesh_run_greedy_prepare();"
 	bash -lc 'set -euo pipefail; for iter in $$(seq 1 100); do echo ">> Greedy iteration $$iter"; psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_run_greedy.sql; psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_visibility_edges_refresh.sql; done'
