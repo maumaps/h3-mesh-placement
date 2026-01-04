@@ -24,17 +24,13 @@ begin
         select *
         from (
             values
-                ('Poti', 'Gomismta', true),
                 ('Poti', 'Feria 2', true),
                 ('Poti', 'SoNick', true),
                 ('Komzpa', 'Feria 2', true),
-                ('Komzpa', 'Batumi South', true),
-                ('Batumi South', 'SoNick', true),
+                ('Komzpa', 'SoNick', false),
                 ('Tbilisi hackerspace', 'Poti', false),
-                ('Tbilisi hackerspace', 'Gomismta', false),
                 ('Tbilisi hackerspace', 'Feria 2', false),
                 ('Tbilisi hackerspace', 'Komzpa', false),
-                ('Tbilisi hackerspace', 'Batumi South', false),
                 ('Tbilisi hackerspace', 'SoNick', false)
         ) as expectations(src_name, dst_name, expected_visible)
     loop

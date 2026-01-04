@@ -18,12 +18,12 @@
     {
       "type": "Feature",
       "properties": {
-        "name": "Batumi South"
+        "name": "Jvari"
       },
       "geometry": {
         "coordinates": [
-          41.579016966574784,
-          41.60800301682207
+          41.5843259,
+          41.5653334
         ],
         "type": "Point"
       },
