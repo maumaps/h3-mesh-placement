@@ -24,6 +24,31 @@ create index if not exists mesh_route_candidate_cells_geog_idx
     on mesh_route_candidate_cells
     using gist (centroid_geog);
 
+-- Sanity check: every non-tower candidate must satisfy can_place_tower filters so routing avoids unplaceable cells.
+do
+$$
+declare
+    invalid_candidates integer;
+begin
+    select count(*)
+    into invalid_candidates
+    from mesh_route_candidate_cells c
+    join mesh_surface_h3_r8 s on s.h3 = c.h3
+    where s.has_tower is not true
+      and (
+        s.is_in_unfit_area
+        or s.is_in_boundaries is not true
+        or s.has_road is not true
+        or coalesce(s.distance_to_closest_tower >= s.min_distance_to_closest_tower, false) is not true
+    );
+
+    if invalid_candidates > 0 then
+        raise exception 'mesh_route_candidate_cells contains % unplaceable rows; expected only towers or can_place_tower=true entries',
+            invalid_candidates;
+    end if;
+end;
+$$;
+
 -- Precompute how close every candidate sits to an existing blocked visibility edge so reruns can clear the worst blind spots first.
 drop table if exists mesh_route_candidate_invisible_dist;
 create table mesh_route_candidate_invisible_dist as

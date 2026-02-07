@@ -21,6 +21,7 @@ create table mesh_surface_h3_r8 (
     is_in_unfit_area boolean default false,
     min_distance_to_closest_tower double precision default 5000,
     visible_population numeric,
+    population_70km numeric,
     visible_uncovered_population numeric,
     -- Track how many existing towers a cell can see with LOS
     visible_tower_count integer default 0,
@@ -68,6 +69,11 @@ set population = p.population
 from population_h3_r8 p
 where s.h3 = p.h3::h3index;
 
+-- Spatial indexes to accelerate neighborhood lookups (population rings, distance filters).
+create index if not exists mesh_surface_h3_r8_geom_idx on mesh_surface_h3_r8 using gist (geom);
+create index if not exists mesh_surface_h3_r8_geog_idx on mesh_surface_h3_r8 using gist (centroid_geog);
+create index if not exists mesh_surface_h3_r8_geog_population_idx on mesh_surface_h3_r8 using gist (centroid_geog) where (population > 0);
+
 update mesh_surface_h3_r8 s
 set has_tower = true
 where exists (
@@ -89,6 +95,16 @@ from (
     group by s2.h3
 ) sub
 where s.h3 = sub.h3;
+
+-- Sum population within 70 km (no LOS) only for tower-eligible cells to speed up clustering weights.
+update mesh_surface_h3_r8 s
+set population_70km = coalesce((
+    select sum(pop.population)
+    from mesh_surface_h3_r8 pop
+    where pop.population > 0
+      and ST_DWithin(pop.centroid_geog, s.centroid_geog, 70000)
+), 0)
+where s.can_place_tower;
 
 with tower_points as (
     select h3, centroid_geog
@@ -120,12 +136,10 @@ update mesh_surface_h3_r8
 set visible_tower_count = 0
 where visible_tower_count is null;
 
-create index if not exists mesh_surface_h3_r8_geom_idx on mesh_surface_h3_r8 using gist (geom);
-create index if not exists mesh_surface_h3_r8_geog_idx on mesh_surface_h3_r8 using gist (centroid_geog);
-create index if not exists mesh_surface_h3_r8_geog_population_idx on mesh_surface_h3_r8 using gist (centroid_geog) where (population > 0);
 create index if not exists mesh_surface_h3_r8_brin_all on mesh_surface_h3_r8 using brin (
     ele,
     population,
+    population_70km,
     visible_population,
     visible_uncovered_population,
     visible_tower_count,

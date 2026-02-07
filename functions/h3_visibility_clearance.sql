@@ -39,6 +39,7 @@ declare
     clearance_val  double precision;
     worst_d1       double precision;
     worst_d2       double precision;
+    -- Effective Earth radius (4/3) to account for atmospheric refraction.
     effective_radius constant double precision := (4.0 / 3.0) * 6371000.0;
     speed_of_light   constant double precision := 299792458.0;
     wavelength     double precision;
@@ -113,9 +114,11 @@ begin
     wavelength := speed_of_light / norm_frequency;
     line_geom := ST_MakeLine(norm_src::geometry, norm_dst::geometry);
 
+    -- Build the discrete H3 path between the two endpoints.
     with path as (
         select h3_grid_path_cells(norm_src, norm_dst) as h3
     ),
+    -- Sample elevation values along the path and project them onto the line fraction.
     samples as (
         select
             p.h3,
@@ -131,6 +134,7 @@ begin
         join mesh_surface_h3_r8 ms
           on ms.h3 = p.h3
     ),
+    -- Compute Fresnel clearance at each sample point along the link.
     calc as (
         select
             s.h3,
@@ -146,10 +150,12 @@ begin
             ) as clearance_value
         from samples s
     ),
+    -- Gather summary stats for diagnostics and safety checks.
     stats as (
         select count(*)::integer as sample_count
         from calc
     ),
+    -- Choose the worst (minimum) clearance sample as the link clearance.
     worst as (
         select
             c.clearance_value,

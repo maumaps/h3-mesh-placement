@@ -26,20 +26,21 @@ declare
     diffraction_loss double precision := 0;
 begin
     if distance_m is null or distance_m <= 0 then
-        raise exception 'distance_m must be positive (got %)', distance_m;
+        raise exception 'distance_m must be positive in meters (got %)', distance_m;
     end if;
 
     if frequency_hz is null or frequency_hz <= 0 then
-        raise exception 'frequency_hz must be positive (got %)', frequency_hz;
+        raise exception 'frequency_hz must be positive in hertz (got %)', frequency_hz;
     end if;
 
     if clearance_m is null then
-        raise exception 'clearance_m cannot be null';
+        raise exception 'clearance_m cannot be null when computing path loss';
     end if;
 
     distance_km := distance_m / 1000.0;
     freq_mhz := frequency_hz / 1000000.0;
 
+    -- Free-space path loss in dB with distance in km and frequency in MHz.
     fspl := 20 * log10(distance_km) + 20 * log10(freq_mhz) + 32.44;
 
     if d1_m is null or d1_m <= 0 or d2_m is null or d2_m <= 0 then
@@ -54,6 +55,7 @@ begin
         raise exception 'Invalid section distances (d1 %, d2 % kilometers)', d1_km, d2_km;
     end if;
 
+    -- First Fresnel zone radius in meters, with distances in km and frequency in MHz.
     r1 := 17.32 * sqrt(d1_km * d2_km / (freq_mhz * (d1_km + d2_km)));
 
     if clearance_m < 0 then

@@ -7,6 +7,7 @@ create table mesh_visibility_edges (
     target_id integer not null,
     source_h3 h3index not null,
     target_h3 h3index not null,
+    type text not null,
     distance_m double precision not null,
     is_visible boolean not null,
     is_between_clusters boolean not null default false,
@@ -16,6 +17,9 @@ create table mesh_visibility_edges (
 
 comment on table mesh_visibility_edges is
     'Pairs of towers with their LOS results for quick inspection.';
+
+comment on column mesh_visibility_edges.type is
+    'Canonical pair of tower sources ordered by source priority (e.g., seed-route) for grouping.';
 
 create index if not exists mesh_visibility_edges_geom_idx on mesh_visibility_edges using gist (geom);
 create index if not exists mesh_visibility_edges_source_idx on mesh_visibility_edges using btree (source_id) include (target_id, distance_m, is_visible);

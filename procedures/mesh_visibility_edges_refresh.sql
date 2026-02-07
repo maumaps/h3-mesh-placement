@@ -30,8 +30,18 @@ end if;
     where ge.h3 is null;
 
     with eligible_towers as (
-        -- Filter towers that have elevation samples so LOS math stays reliable.
-        select t.*
+        -- Filter towers that have elevation samples so LOS math stays reliable and assign source ranks for type labels.
+        select
+            t.*,
+            case t.source
+                when 'seed' then 1
+                when 'population' then 2
+                when 'route' then 3
+                when 'bridge' then 4
+                when 'cluster_slim' then 5
+                when 'greedy' then 6
+                else 99
+            end as source_rank
         from mesh_towers t
         where not exists (
             select 1
@@ -45,12 +55,18 @@ end if;
         from mesh_tower_clusters()
     ),
     edge_pairs as (
-        -- Build all tower-to-tower distances plus LOS flag and straight-line geometry.
+        -- Build all tower-to-tower distances plus LOS flag, source-pair type, and straight-line geometry.
         select
             t1.tower_id as source_id,
             t2.tower_id as target_id,
             t1.h3 as source_h3,
             t2.h3 as target_h3,
+            case
+                when t1.source_rank < t2.source_rank then t1.source || '-' || t2.source
+                when t1.source_rank > t2.source_rank then t2.source || '-' || t1.source
+                when t1.source <= t2.source then t1.source || '-' || t2.source
+                else t2.source || '-' || t1.source
+            end as type,
             ST_Distance(t1.centroid_geog, t2.centroid_geog) as distance_m,
             h3_los_between_cells(t1.h3, t2.h3) as is_visible,
             (src.cluster_id <> dst.cluster_id) as is_between_clusters,
@@ -66,6 +82,7 @@ end if;
         target_id,
         source_h3,
         target_h3,
+        type,
         distance_m,
         is_visible,
         is_between_clusters,
@@ -76,6 +93,7 @@ end if;
         target_id,
         source_h3,
         target_h3,
+        type,
         distance_m,
         is_visible,
         is_between_clusters,

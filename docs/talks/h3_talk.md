@@ -1,3 +1,6 @@
+This is a rough talk outline and scratchpad.
+For the implemented pipeline and its calculation details, see `docs/pipeline.md` and `docs/calculations.md`.
+
 Hi! I'm Darafei, from PostGIS PSC, 
 I also run consulting company Maumap, we make maps. AI-enabled decision making systems, web maps, UX research, data pipelines.
 

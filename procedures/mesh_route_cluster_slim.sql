@@ -14,7 +14,11 @@ declare
     refresh_radius constant double precision := 70000;
     separation constant double precision := 5000;
     hop_limit constant integer := 7;
-    candidate_batch constant integer := 512;
+    -- Keep this batch high by default: evaluating more candidates in one pass helps
+    -- pick a stronger corridor early, which usually shrinks the next-iteration search
+    -- space much faster than many tiny batches.
+    default_candidate_batch constant integer := 512;
+    candidate_batch integer;
     candidate_count integer;
     blocked_node_count integer;
     path_row_count integer;
@@ -38,10 +42,16 @@ declare
     has_existing boolean;
     iteration_number integer;
 begin
+    perform set_config('statement_timeout', '0', true);
+
     if promoted is null then
         promoted := 0;
     end if;
     iteration_number := coalesce(iteration_label, 1);
+    candidate_batch := coalesce(
+        nullif(current_setting('mesh.cluster_slim_candidate_batch', true), '')::integer,
+        default_candidate_batch
+    );
     if to_regclass('mesh_route_nodes') is null then
         raise notice 'mesh_route_nodes table missing, skipping cluster slimming';
         return;
@@ -66,7 +76,11 @@ begin
         raise exception 'mesh_route_cluster_slim_failures table missing; run db/table/mesh_route_cluster_slim_failures first';
     end if;
 
-    call mesh_visibility_edges_refresh();
+    -- Full visibility refresh is needed before the first slim pass.
+    -- Later iterations already run this refresh at the end when towers are promoted.
+    if iteration_number = 1 then
+        call mesh_visibility_edges_refresh();
+    end if;
 
     if to_regclass('pg_temp.mesh_route_cluster_slim_candidates') is not null then
         drop table mesh_route_cluster_slim_candidates;
@@ -126,6 +140,19 @@ begin
     -- Keeps pgRouting endpoints so we never block them.
     create temporary table mesh_route_cluster_slim_endpoints (
         node_id integer primary key
+    ) on commit preserve rows;
+
+    if to_regclass('pg_temp.mesh_route_unblocked_edges') is not null then
+        drop table mesh_route_unblocked_edges;
+    end if;
+    -- Cache currently-routable edges once per iteration so pgr_dijkstra does not
+    -- rescan and filter mesh_route_edges for every candidate pair.
+    create temporary table mesh_route_unblocked_edges (
+        id bigint primary key,
+        source integer not null,
+        target integer not null,
+        cost double precision not null,
+        reverse_cost double precision not null
     ) on commit preserve rows;
 
     iteration_started_at := clock_timestamp();
@@ -264,6 +291,36 @@ begin
 
         stage_started_at := clock_timestamp();
 
+        truncate mesh_route_unblocked_edges;
+
+        -- Materialize currently allowed routing edges once; each pgr_dijkstra call
+        -- then runs on this reduced graph instead of re-evaluating anti-joins.
+        insert into mesh_route_unblocked_edges (id, source, target, cost, reverse_cost)
+        select
+            e.edge_id as id,
+            e.source,
+            e.target,
+            e.cost,
+            e.reverse_cost
+        from mesh_route_edges e
+        where not exists (
+                select 1
+                from mesh_route_blocked_nodes blocked
+                where blocked.node_id = e.source
+            )
+          and not exists (
+                select 1
+                from mesh_route_blocked_nodes blocked
+                where blocked.node_id = e.target
+            );
+
+        raise notice 'Cluster slim iteration % prepared % unblocked edge(s) in %.1f s',
+            iteration_number,
+            (select count(*) from mesh_route_unblocked_edges),
+            extract(epoch from clock_timestamp() - stage_started_at);
+
+        stage_started_at := clock_timestamp();
+
         -- Materialize corridor nodes for this candidate batch so later steps can compute sharing
         -- scores and promotion counts without re-running pgRouting multiple times.
         insert into mesh_route_cluster_slim_batch_path (pair_id, seq, h3, centroid_geog, has_tower)
@@ -277,14 +334,12 @@ begin
         cross join lateral (
             select *
             from pgr_dijkstra(
-                'select edge_id as id,
+                'select id,
                         source,
                         target,
                         cost,
                         reverse_cost
-                 from mesh_route_edges
-                 where source not in (select node_id from mesh_route_blocked_nodes)
-                   and target not in (select node_id from mesh_route_blocked_nodes)',
+                 from mesh_route_unblocked_edges',
                 cp.source_node_id,
                 cp.target_node_id,
                 false

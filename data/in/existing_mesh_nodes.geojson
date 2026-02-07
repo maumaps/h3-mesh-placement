@@ -126,6 +126,20 @@
         "type": "Point"
       },
       "id": 9
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Zhar"
+      },
+      "geometry": {
+        "coordinates": [
+          41.7399589,
+          41.6383965
+        ],
+        "type": "Point"
+      },
+      "id": 10
     }
   ]
 }

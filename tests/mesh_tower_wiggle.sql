@@ -200,4 +200,89 @@ begin
 end;
 $$;
 
+do
+$$
+declare
+    population_anchor h3index := h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(0.0, 1.0), 4326), 8);
+    population_candidate h3index := h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(0.0, 1.2), 4326), 8);
+    population_extra h3index := h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(0.0, 1.8), 4326), 8);
+    relocated_h3 h3index;
+    moved_count integer;
+    population_recalc integer;
+begin
+    -- Reset the staging tables so the population scenario runs in isolation.
+    truncate mesh_surface_h3_r8, mesh_towers, mesh_tower_wiggle_queue restart identity;
+
+    insert into mesh_surface_h3_r8 (
+        h3,
+        centroid_geog,
+        is_in_boundaries,
+        has_road,
+        is_in_unfit_area,
+        has_tower,
+        visible_population,
+        population,
+        min_distance_to_closest_tower,
+        distance_to_closest_tower
+    )
+    values
+        -- Population tower starts here with minimal nearby demand.
+        (population_anchor, h3_cell_to_geometry(population_anchor)::public.geography, true, true, false, true, 5, 5, 5000, 0),
+        -- Candidate spot is close enough to keep LOS and neighbors but sees more people.
+        (population_candidate, h3_cell_to_geometry(population_candidate)::public.geography, true, true, false, false, 0, 20, 5000, 0),
+        -- Extra population only visible from the candidate hex to force a move.
+        (population_extra, h3_cell_to_geometry(population_extra)::public.geography, true, true, false, false, 0, 200, 5000, 0);
+
+    insert into mesh_towers (h3, source)
+    values (population_anchor, 'population');
+
+    select mesh_tower_wiggle(true) into moved_count;
+
+    if moved_count <> 1 then
+        raise exception 'Population wiggle should process the anchor tower after reset, saw %', moved_count;
+    end if;
+
+    select h3, recalculation_count
+    into relocated_h3, population_recalc
+    from mesh_towers
+    where source = 'population';
+
+    if relocated_h3 is distinct from population_candidate then
+        raise exception 'Population tower should move toward denser visible population; expected % but found %',
+            population_candidate::text,
+            coalesce(relocated_h3::text, '<null>');
+    end if;
+
+    if population_recalc <> 1 then
+        raise exception 'Population tower recalculation_count should increment to 1 after wiggle, got % at %',
+            population_recalc,
+            relocated_h3::text;
+    end if;
+
+    if exists (
+        select 1
+        from mesh_surface_h3_r8
+        where h3 = population_anchor
+          and has_tower
+    ) then
+        raise exception 'Old population anchor % still marked as tower after relocation', population_anchor::text;
+    end if;
+
+    if not exists (
+        select 1
+        from mesh_surface_h3_r8
+        where h3 = population_candidate
+          and has_tower
+    ) then
+        raise exception 'Population candidate % not marked as tower after relocation', population_candidate::text;
+    end if;
+
+    select mesh_tower_wiggle(false) into moved_count;
+
+    if moved_count <> 0 then
+        raise exception 'Population wiggle should idle once the queue is clean, last call returned %', moved_count;
+    end if;
+end;
+$$;
+
 rollback;

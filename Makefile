@@ -1,6 +1,6 @@
-all: db/procedure/mesh_run_greedy ## [FINAL] Build entire pipeline end-to-end
+all: db/procedure/mesh_run_greedy ## [FINAL] Build pipeline through routing (greedy disabled)
 
-test: db/test/georgia_roads_geom db/test/population_h3_r8 db/test/h3_los_between_cells db/test/mesh_surface_visible_towers db/test/mesh_surface_refresh_reception_metrics db/test/mesh_surface_refresh_visible_tower_counts db/test/mesh_visibility_edges db/test/mesh_visibility_invisible_route_geom db/test/mesh_run_greedy_prepare db/test/mesh_route_cache_graph_priority db/test/mesh_route_corridor_between_towers db/test/mesh_route db/test/mesh_route_cluster_slim db/test/mesh_tower_wiggle ## [FINAL] Run verification suite
+test: db/test/georgia_roads_geom db/test/georgia_unfit_areas db/test/population_h3_r8 db/test/h3_los_between_cells db/test/mesh_surface_visible_towers db/test/mesh_surface_refresh_reception_metrics db/test/mesh_surface_refresh_visible_tower_counts db/test/mesh_visibility_edges db/test/mesh_visibility_edges_type db/test/mesh_visibility_invisible_route_geom db/test/mesh_run_greedy_prepare db/test/fill_mesh_los_cache_priority db/test/mesh_route_corridor_between_towers db/test/mesh_route db/test/mesh_route_cluster_slim db/test/mesh_tower_wiggle ## [FINAL] Run verification suite
 
 clean: ## [FINAL] Remove intermediate data and build markers
 	@if [ -n "$(filter clean,$(MAKECMDGOALS))" ]; then rm -rf data/mid data/out db; fi
@@ -26,8 +26,14 @@ data/mid: | data ## Ensure intermediate data directory exists
 data/mid/population: | data/mid ## Ensure intermediate population directory exists
 	mkdir -p data/mid/population
 
+data/mid/osm: | data/mid ## Ensure intermediate OSM directory exists
+	mkdir -p data/mid/osm
+
 data/mid/gebco: | data/mid ## Ensure intermediate GEBCO directory exists
 	mkdir -p data/mid/gebco
+
+data/out: | data ## Ensure output directory exists
+	mkdir -p data/out
 
 db: ## Ensure database artifacts directory exists
 	mkdir -p db
@@ -49,6 +55,12 @@ db/test: | db ## Ensure test marker directory exists
 
 data/in/osm/georgia-latest.osm.pbf: | data/in/osm ## Download Georgia OSM extract
 	curl -L --retry 3 --continue-at - -o data/in/osm/georgia-latest.osm.pbf https://download.geofabrik.de/europe/georgia-latest.osm.pbf
+
+data/in/osm/armenia-latest.osm.pbf: | data/in/osm ## Download Armenia OSM extract
+	curl -L --retry 3 --continue-at - -o data/in/osm/armenia-latest.osm.pbf https://download.geofabrik.de/asia/armenia-latest.osm.pbf
+
+data/mid/osm/osm_for_mesh_placement.osm.pbf: data/in/osm/georgia-latest.osm.pbf data/in/osm/armenia-latest.osm.pbf | data/mid/osm ## Merge Georgia and Armenia OSM extracts for mesh placement
+	osmium merge data/in/osm/georgia-latest.osm.pbf data/in/osm/armenia-latest.osm.pbf -o data/mid/osm/osm_for_mesh_placement.osm.pbf -f pbf
 
 data/in/population/kontur_population_20231101.gpkg.gz: | data/in/population ## Download Kontur population archive
 	rm -f data/in/population/kontur_population_20231101.gpkg.gz
@@ -91,30 +103,68 @@ db/table/mesh_greedy_iterations: tables/mesh_greedy_iterations.sql db/table/post
 	touch db/table/mesh_greedy_iterations
 
 db/raw/initial_nodes: data/in/existing_mesh_nodes.geojson db/table/mesh_towers | db/raw ## Import seed tower locations
-	psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "drop table if exists mesh_initial_nodes;"
-	ogr2ogr -f PostgreSQL PG:"" data/in/existing_mesh_nodes.geojson -nln mesh_initial_nodes -nlt POINT -lco GEOMETRY_NAME=geom -overwrite -a_srs EPSG:4326
-	touch db/raw/initial_nodes
+	@if psql --no-psqlrc --set=ON_ERROR_STOP=1 -Atc "select to_regclass('mesh_initial_nodes')" | grep -q mesh_initial_nodes; then \
+		echo "mesh_initial_nodes already exists, skipping import"; \
+	else \
+		ogr2ogr -f PostgreSQL PG:\"\" data/in/existing_mesh_nodes.geojson -nln mesh_initial_nodes -nlt POINT -lco GEOMETRY_NAME=geom -overwrite -a_srs EPSG:4326; \
+	fi
+	@if psql --no-psqlrc --set=ON_ERROR_STOP=1 -Atc "select to_regclass('mesh_initial_nodes')" | grep -q mesh_initial_nodes; then \
+		touch db/raw/initial_nodes; \
+	else \
+		echo "mesh_initial_nodes table missing after import; remove marker and retry"; \
+		exit 1; \
+	fi
 
-db/table/osm_georgia: data/in/osm/georgia-latest.osm.pbf db/table/postgis_extension | db/table ## Import full Georgia OSM extract
-	psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "drop table if exists osm_georgia;"
-	osmium export -i sparse_mem_array -c osmium.config.json -f pg data/in/osm/georgia-latest.osm.pbf -v --progress | psql --no-psqlrc --set=ON_ERROR_STOP=1 -1 -c "create table osm_georgia(geog geography, osm_type text, osm_id bigint, version int, osm_user text, ts timestamptz, way_nodes bigint[], tags jsonb); alter table osm_georgia alter geog set storage external, alter osm_type set storage main, alter osm_user set storage main, alter way_nodes set storage external, alter tags set storage external, set (fillfactor=100); copy osm_georgia from stdin freeze;"
-	touch db/table/osm_georgia
+db/table/osm_for_mesh_placement: data/mid/osm/osm_for_mesh_placement.osm.pbf db/table/postgis_extension | db/table ## Import merged Georgia + Armenia OSM extract
+	@if psql --no-psqlrc --set=ON_ERROR_STOP=1 -Atc "select to_regclass('osm_for_mesh_placement')" | grep -q osm_for_mesh_placement; then \
+		echo "osm_for_mesh_placement already exists, skipping import"; \
+	else \
+		osmium export -i sparse_mem_array -c osmium.config.json -f pg data/mid/osm/osm_for_mesh_placement.osm.pbf -v --progress | psql --no-psqlrc --set=ON_ERROR_STOP=1 -1 -c "create table osm_for_mesh_placement(geog geography, osm_type text, osm_id bigint, version int, osm_user text, ts timestamptz, way_nodes bigint[], tags jsonb); alter table osm_for_mesh_placement alter geog set storage external, alter osm_type set storage main, alter osm_user set storage main, alter way_nodes set storage external, alter tags set storage external, set (fillfactor=100); copy osm_for_mesh_placement from stdin freeze;"; \
+	fi
+	@if psql --no-psqlrc --set=ON_ERROR_STOP=1 -Atc "select to_regclass('osm_for_mesh_placement')" | grep -q osm_for_mesh_placement; then \
+		touch db/table/osm_for_mesh_placement; \
+	else \
+		echo "osm_for_mesh_placement table missing after import; remove marker and retry"; \
+		exit 1; \
+	fi
 
 db/raw/kontur_population: data/mid/population/kontur_population_20231101.gpkg db/table/postgis_extension | db/raw ## Import Kontur population
-	psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "drop table if exists kontur_population;"
-	ogr2ogr -f PostgreSQL PG:"" data/mid/population/kontur_population_20231101.gpkg -nln kontur_population -nlt MULTIPOLYGON -lco GEOMETRY_NAME=geom -overwrite -t_srs EPSG:4326
-	touch db/raw/kontur_population
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -c 'do $$body$$begin if to_regclass('"'kontur_population'"') is null then raise notice '"'kontur_population missing, importing'"'; end if; end$$body$$;'
+	@if psql --no-psqlrc --set=ON_ERROR_STOP=1 -Atc "select to_regclass('kontur_population')" | grep -q kontur_population; then \
+		echo "kontur_population already exists, skipping import"; \
+	else \
+		ogr2ogr -f PostgreSQL PG:\"\" data/mid/population/kontur_population_20231101.gpkg -nln kontur_population -nlt MULTIPOLYGON -lco GEOMETRY_NAME=geom -overwrite -t_srs EPSG:4326; \
+	fi
+	@if psql --no-psqlrc --set=ON_ERROR_STOP=1 -Atc "select to_regclass('kontur_population')" | grep -q kontur_population; then \
+		touch db/raw/kontur_population; \
+	else \
+		echo "kontur_population table missing after import; remove marker and retry"; \
+		exit 1; \
+	fi
 
-db/raw/gebco_elevation: data/mid/gebco/gebco_2024_geotiffs_unzip db/table/georgia_convex_hull db/table/postgis_extension | db/raw ## Import GEBCO rasters for Georgia extent
-	psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "drop table if exists gebco_elevation cascade;"
-	raster2pgsql -I -C -M -s 4326 -t auto data/mid/gebco/*.tif gebco_elevation_all | psql --no-psqlrc --set=ON_ERROR_STOP=1 -q
-	psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "create table gebco_elevation as select * from gebco_elevation_all where ST_Intersects(rast, (select geom from georgia_convex_hull));"
-	psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "drop table gebco_elevation_all;"
-	touch db/raw/gebco_elevation
+db/raw/gebco_elevation: data/mid/gebco/gebco_2024_geotiffs_unzip db/table/georgia_convex_hull db/table/postgis_extension | db/raw ## Import GEBCO raster tile covering Georgia + Armenia extent
+	@if psql --no-psqlrc --set=ON_ERROR_STOP=1 -Atc "select to_regclass('gebco_elevation')" | grep -q gebco_elevation; then \
+		echo "gebco_elevation already exists, skipping import"; \
+	else \
+		psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "drop table if exists gebco_elevation_all cascade;"; \
+		raster2pgsql -I -C -M -s 4326 -t auto data/mid/gebco/gebco_2024_n90.0_s0.0_w0.0_e90.0.tif gebco_elevation_all | psql --no-psqlrc --set=ON_ERROR_STOP=1 -q; \
+		psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "create table gebco_elevation as select * from gebco_elevation_all where ST_Intersects(rast, (select geom from georgia_convex_hull));"; \
+		psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "drop table if exists gebco_elevation_all;"; \
+	fi
+	@if psql --no-psqlrc --set=ON_ERROR_STOP=1 -Atc "select to_regclass('gebco_elevation')" | grep -q gebco_elevation; then \
+		touch db/raw/gebco_elevation; \
+	else \
+		echo "gebco_elevation table missing after import; remove marker and retry"; \
+		exit 1; \
+	fi
 
-db/table/georgia_boundary: tables/georgia_boundary.sql db/table/osm_georgia | db/table ## Build Georgia boundary table
+db/table/georgia_boundary: tables/georgia_boundary.sql db/table/osm_for_mesh_placement | db/table ## Build Georgia + Armenia boundary table
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/georgia_boundary.sql
 	touch db/table/georgia_boundary
+
+db/table/georgia_unfit_areas: tables/georgia_unfit_areas.sql db/table/osm_for_mesh_placement | db/table ## Build forbidden placement polygons
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/georgia_unfit_areas.sql
+	touch db/table/georgia_unfit_areas
 
 db/table/georgia_convex_hull: tables/georgia_convex_hull.sql db/table/georgia_boundary | db/table ## Build convex hull for Georgia
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/georgia_convex_hull.sql
@@ -128,7 +178,7 @@ db/table/mesh_surface_domain_h3_r8: tables/mesh_surface_domain_h3_r8.sql db/tabl
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/mesh_surface_domain_h3_r8.sql
 	touch db/table/mesh_surface_domain_h3_r8
 
-db/table/georgia_roads_geom: tables/georgia_roads_geom.sql db/table/osm_georgia | db/table ## Extract Georgia roads geometries
+db/table/georgia_roads_geom: tables/georgia_roads_geom.sql db/table/osm_for_mesh_placement | db/table ## Extract Georgia + Armenia roads geometries
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/georgia_roads_geom.sql
 	touch db/table/georgia_roads_geom
 
@@ -136,7 +186,7 @@ db/table/roads_h3_r8: tables/roads_h3_r8.sql db/table/georgia_roads_geom | db/ta
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/roads_h3_r8.sql
 	touch db/table/roads_h3_r8
 
-db/table/population_h3_r8: tables/population_h3_r8.sql db/raw/kontur_population db/table/georgia_boundary | db/table ## Aggregate population into H3
+db/table/population_h3_r8: tables/population_h3_r8.sql db/table/georgia_boundary | db/table ## Aggregate population into H3 without rebuild
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/population_h3_r8.sql
 	touch db/table/population_h3_r8
 
@@ -172,13 +222,17 @@ db/function/mesh_visibility_invisible_route_geom: functions/mesh_visibility_invi
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f functions/mesh_visibility_invisible_route_geom.sql
 	touch db/function/mesh_visibility_invisible_route_geom
 
-db/function/mesh_route_corridor_between_towers: functions/mesh_route_corridor_between_towers.sql db/procedure/mesh_route_cache_graph | db/function ## Produce pgRouting corridors between specific tower pairs
+db/function/mesh_route_corridor_between_towers: functions/mesh_route_corridor_between_towers.sql db/procedure/fill_mesh_los_cache | db/function ## Produce pgRouting corridors between specific tower pairs
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f functions/mesh_route_corridor_between_towers.sql
 	touch db/function/mesh_route_corridor_between_towers
 
 db/test/georgia_roads_geom: tests/georgia_roads_geom.sql db/table/georgia_roads_geom | db/test ## Verify only car-capable highways stay in roads layer
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/georgia_roads_geom.sql
 	touch db/test/georgia_roads_geom
+
+db/test/georgia_unfit_areas: tests/georgia_unfit_areas.sql db/table/georgia_unfit_areas | db/test ## Verify unfit area polygons include expected regions
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/georgia_unfit_areas.sql
+	touch db/test/georgia_unfit_areas
 
 db/test/population_h3_r8: tests/population_h3_r8.sql db/table/population_h3_r8 db/raw/kontur_population | db/test ## Check population table stays a 1:1 Kontur H3 cast
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/population_h3_r8.sql
@@ -200,7 +254,7 @@ db/test/mesh_surface_refresh_visible_tower_counts: tests/mesh_surface_refresh_vi
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_surface_refresh_visible_tower_counts.sql
 	touch db/test/mesh_surface_refresh_visible_tower_counts
 
-db/table/mesh_surface_h3_r8: tables/mesh_surface_h3_r8.sql db/table/mesh_surface_domain_h3_r8 db/table/roads_h3_r8 db/table/population_h3_r8 db/table/mesh_initial_nodes_h3_r8 db/table/mesh_towers db/table/gebco_elevation_h3_r8 db/function/h3_los_between_cells | db/table ## Populate mesh_surface_h3_r8 table
+db/table/mesh_surface_h3_r8: tables/mesh_surface_h3_r8.sql db/table/mesh_surface_domain_h3_r8 db/table/roads_h3_r8 db/table/population_h3_r8 db/table/mesh_initial_nodes_h3_r8 db/table/mesh_towers db/table/georgia_unfit_areas db/table/gebco_elevation_h3_r8 db/function/h3_los_between_cells | db/table ## Populate mesh_surface_h3_r8 table
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/mesh_surface_h3_r8.sql
 	touch db/table/mesh_surface_h3_r8
 
@@ -221,6 +275,10 @@ db/test/mesh_visibility_edges: tests/mesh_visibility_edges.sql db/table/mesh_vis
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_visibility_edges.sql
 	touch db/test/mesh_visibility_edges
 
+db/test/mesh_visibility_edges_type: tests/mesh_visibility_edges_type.sql db/procedure/mesh_visibility_edges_refresh | db/test ## Validate visibility edge type labels stay canonical
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_visibility_edges_type.sql
+	touch db/test/mesh_visibility_edges_type
+
 db/test/mesh_visibility_invisible_route_geom: tests/mesh_visibility_invisible_route_geom.sql db/function/mesh_visibility_invisible_route_geom db/table/mesh_surface_h3_r8 db/table/mesh_route_graph db/table/mesh_route_graph_cache | db/test ## Ensure invisible visibility edges gain routed geometries
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_visibility_invisible_route_geom.sql
 	touch db/test/mesh_visibility_invisible_route_geom
@@ -230,17 +288,17 @@ db/test/mesh_run_greedy_prepare: tests/mesh_run_greedy_prepare.sql procedures/me
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_run_greedy_prepare.sql
 	touch db/test/mesh_run_greedy_prepare
 
-db/test/mesh_route_cache_graph_priority: tests/mesh_route_cache_graph_priority.sql db/table/mesh_surface_h3_r8 db/table/mesh_towers db/table/mesh_los_cache db/table/mesh_visibility_edges | db/test ## Validate LOS cache prioritizes nearest invisible edges
-	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_route_cache_graph_priority.sql
-	touch db/test/mesh_route_cache_graph_priority
+db/test/fill_mesh_los_cache_priority: tests/fill_mesh_los_cache_priority.sql db/table/mesh_surface_h3_r8 db/table/mesh_towers db/table/mesh_los_cache db/table/mesh_visibility_edges | db/test ## Validate LOS cache prioritizes nearest invisible edges
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/fill_mesh_los_cache_priority.sql
+	touch db/test/fill_mesh_los_cache_priority
 
 db/test/mesh_route_corridor_between_towers: tests/mesh_route_corridor_between_towers.sql db/function/mesh_route_corridor_between_towers | db/test ## Validate corridor extraction between tower pairs
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_route_corridor_between_towers.sql
 	touch db/test/mesh_route_corridor_between_towers
 
 
-db/test/mesh_route: tests/mesh_route.sql procedures/mesh_route_cache_graph.sql procedures/mesh_route_bridge.sql db/table/mesh_surface_h3_r8 db/table/mesh_towers db/table/mesh_los_cache | db/test ## Validate mesh_route cache/bridge stages
-	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_route_cache_graph.sql
+db/test/mesh_route: tests/mesh_route.sql procedures/fill_mesh_los_cache.sql procedures/mesh_route_bridge.sql db/table/mesh_surface_h3_r8 db/table/mesh_towers db/table/mesh_los_cache | db/test ## Validate mesh_route cache/bridge stages
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/fill_mesh_los_cache.sql
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_route_bridge.sql
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_route.sql
 	touch db/test/mesh_route
@@ -255,17 +313,21 @@ db/test/mesh_tower_wiggle: tests/mesh_tower_wiggle.sql procedures/mesh_tower_wig
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_tower_wiggle.sql
 	touch db/test/mesh_tower_wiggle
 
-db/procedure/mesh_route_cache_graph: procedures/mesh_route_cache_graph.sql db/table/mesh_surface_h3_r8 db/table/mesh_towers db/table/mesh_los_cache db/table/mesh_visibility_edges | db/procedure ## Cache LOS metrics and build routing graph
-	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_route_cache_graph.sql
-	touch db/procedure/mesh_route_cache_graph
+db/procedure/mesh_population: procedures/mesh_population.sql db/table/mesh_surface_h3_r8 db/table/mesh_towers db/function/h3_los_between_cells | db/procedure ## Install population towers ahead of routing stages
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_population.sql
+	touch db/procedure/mesh_population
 
-db/procedure/mesh_route_bridge: procedures/mesh_route_bridge.sql db/procedure/mesh_route_cache_graph db/function/mesh_surface_refresh_reception_metrics db/function/mesh_surface_refresh_visible_tower_counts | db/procedure ## Bridge farthest tower clusters via pgRouting
+db/procedure/fill_mesh_los_cache: procedures/fill_mesh_los_cache.sql db/table/mesh_surface_h3_r8 db/table/mesh_towers db/table/mesh_los_cache db/table/mesh_visibility_edges db/procedure/mesh_population | db/procedure ## Fill missing LOS cache entries and build routing graph
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/fill_mesh_los_cache.sql
+	touch db/procedure/fill_mesh_los_cache
+
+db/procedure/mesh_route_bridge: procedures/mesh_route_bridge.sql db/procedure/fill_mesh_los_cache db/function/mesh_surface_refresh_reception_metrics db/function/mesh_surface_refresh_visible_tower_counts | db/procedure ## Bridge farthest tower clusters via pgRouting
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_route_bridge.sql
 	touch db/procedure/mesh_route_bridge
 
-db/procedure/mesh_tower_wiggle: procedures/mesh_tower_wiggle.sql db/procedure/mesh_route db/procedure/mesh_route_cluster_slim db/procedure/mesh_visibility_edges_refresh db/function/mesh_surface_fill_visible_population db/function/mesh_surface_refresh_reception_metrics db/function/mesh_surface_refresh_visible_tower_counts db/table/mesh_surface_h3_r8 db/table/mesh_towers db/table/mesh_visibility_edges | db/procedure ## Recenter bridge and cluster-slim towers toward denser visible population
+db/procedure/mesh_tower_wiggle: procedures/mesh_tower_wiggle.sql db/procedure/mesh_route db/procedure/mesh_route_cluster_slim db/procedure/mesh_visibility_edges_refresh db/function/mesh_surface_fill_visible_population db/function/mesh_surface_refresh_reception_metrics db/function/mesh_surface_refresh_visible_tower_counts db/table/mesh_surface_h3_r8 db/table/mesh_towers db/table/mesh_visibility_edges | db/procedure ## Recenter population, route, bridge, and cluster-slim towers toward denser visible population
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_tower_wiggle.sql
-	@bash -lc 'set -euo pipefail; iter=0; max_iters=$${WIGGLE_ITERATIONS:-0}; reset=true; while :; do iter=$$((iter+1)); echo ">> Wiggle iteration $$iter"; moved=$$(psql --no-psqlrc --set=ON_ERROR_STOP=1 -At -c "select mesh_tower_wiggle($$reset);"); reset=false; moved=$${moved:-0}; if [ "$$moved" -eq 0 ]; then echo ">> Wiggle converged after $$((iter-1)) iteration(s)"; break; fi; if [ "$$max_iters" -gt 0 ] && [ "$$iter" -ge "$$max_iters" ]; then echo ">> Wiggle hit iteration cap $$max_iters"; break; fi; done'
+	bash -lc 'set -euo pipefail; iter=0; max_iters=$${WIGGLE_ITERATIONS:-0}; reset=true; while :; do iter=$$((iter+1)); echo ">> Wiggle iteration $$iter"; moved=$$(psql --no-psqlrc --set=ON_ERROR_STOP=1 -At -c "select mesh_tower_wiggle($$reset);"); reset=false; moved=$${moved:-0}; if [ "$$moved" -eq 0 ]; then echo ">> Wiggle converged after $$((iter-1)) iteration(s)"; break; fi; if [ "$$max_iters" -gt 0 ] && [ "$$iter" -ge "$$max_iters" ]; then echo ">> Wiggle hit iteration cap $$max_iters"; break; fi; done'
 	touch db/procedure/mesh_tower_wiggle
 
 db/procedure/mesh_visibility_edges_refresh: procedures/mesh_visibility_edges_refresh.sql db/table/mesh_towers db/table/mesh_surface_h3_r8 db/table/gebco_elevation_h3_r8 db/function/h3_los_between_cells db/function/mesh_visibility_invisible_route_geom | db/procedure ## Install visibility refresh procedure
@@ -277,10 +339,9 @@ db/table/mesh_route_cluster_slim_failures: tables/mesh_route_cluster_slim_failur
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/mesh_route_cluster_slim_failures.sql
 	touch db/table/mesh_route_cluster_slim_failures
 
-db/procedure/mesh_route_cluster_slim: procedures/mesh_route_cluster_slim.sql db/table/mesh_route_cluster_slim_failures db/procedure/mesh_route_bridge db/procedure/mesh_route_cache_graph db/function/mesh_route_corridor_between_towers db/function/mesh_surface_refresh_reception_metrics db/function/mesh_surface_refresh_visible_tower_counts db/procedure/mesh_visibility_edges_refresh | db/procedure ## Shorten long intra-cluster hops with routing towers
-	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_route_cluster_slim.sql
-	psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "truncate mesh_route_cluster_slim_failures;"
-	bash -lc 'set -euo pipefail; max_iters=$${SLIM_ITERATIONS:-0}; iter=0; while :; do iter=$$((iter+1)); echo ">> Cluster slim iteration $$iter"; promoted=$$(psql --no-psqlrc --set=ON_ERROR_STOP=1 -At -c "call mesh_route_cluster_slim($$iter, null);"); promoted=$${promoted:-0}; if [ "$$promoted" -eq 0 ]; then echo ">> Cluster slim converged after $$((iter-1)) iteration(s)"; break; fi; if [ "$$max_iters" -gt 0 ] && [ "$$iter" -ge "$$max_iters" ]; then echo ">> Cluster slim hit iteration cap $$max_iters"; break; fi; done'
+db/procedure/mesh_route_cluster_slim: procedures/mesh_route_cluster_slim.sql db/table/mesh_route_cluster_slim_failures db/procedure/mesh_route_bridge db/procedure/fill_mesh_los_cache db/function/mesh_route_corridor_between_towers db/function/mesh_surface_refresh_reception_metrics db/function/mesh_surface_refresh_visible_tower_counts db/procedure/mesh_visibility_edges_refresh | db/procedure ## Shorten long intra-cluster hops with routing towers
+	bash -lc 'set -euo pipefail; PGOPTIONS="$${PGOPTIONS:-} -c statement_timeout=0" psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_route_cluster_slim.sql'
+	bash -lc 'set -euo pipefail; max_iters=$${SLIM_ITERATIONS:-0}; iter=0; while :; do iter=$$((iter+1)); echo ">> Cluster slim iteration $$iter"; promoted=$$(PGOPTIONS="$${PGOPTIONS:-} -c statement_timeout=0" psql --no-psqlrc --set=ON_ERROR_STOP=1 -At -c "call mesh_route_cluster_slim($$iter, null);"); promoted=$${promoted:-0}; if [ "$$promoted" -eq 0 ]; then echo ">> Cluster slim converged after $$((iter-1)) iteration(s)"; break; fi; if [ "$$max_iters" -gt 0 ] && [ "$$iter" -ge "$$max_iters" ]; then echo ">> Cluster slim hit iteration cap $$max_iters"; break; fi; done'
 	touch db/procedure/mesh_route_cluster_slim
 
 db/procedure/mesh_route_refresh_visibility: scripts/mesh_visibility_edges_refresh.sql db/table/mesh_visibility_edges db/procedure/mesh_route_cluster_slim db/procedure/mesh_visibility_edges_refresh | db/procedure ## Rebuild visibility diagnostics after routing stages
@@ -290,10 +351,28 @@ db/procedure/mesh_route_refresh_visibility: scripts/mesh_visibility_edges_refres
 db/procedure/mesh_route: db/procedure/mesh_route_refresh_visibility | db/procedure ## Build PG routing bridges between tower clusters
 	touch db/procedure/mesh_route
 
-db/procedure/mesh_run_greedy: procedures/mesh_run_greedy_prepare.sql procedures/mesh_run_greedy.sql procedures/mesh_run_greedy_finalize.sql scripts/mesh_visibility_edges_refresh.sql db/procedure/mesh_route db/procedure/mesh_tower_wiggle db/table/mesh_visibility_edges db/table/mesh_surface_h3_r8 db/table/mesh_greedy_iterations db/function/mesh_surface_refresh_reception_metrics db/function/mesh_surface_refresh_visible_tower_counts db/function/mesh_surface_fill_visible_population db/table/mesh_initial_nodes_h3_r8 | db/procedure ## Execute greedy placement loop
+db/procedure/mesh_run_greedy: procedures/mesh_run_greedy_prepare.sql procedures/mesh_run_greedy.sql procedures/mesh_run_greedy_finalize.sql scripts/mesh_visibility_edges_refresh.sql db/procedure/mesh_route db/procedure/mesh_tower_wiggle db/table/mesh_visibility_edges db/table/mesh_surface_h3_r8 db/table/mesh_greedy_iterations db/function/mesh_surface_refresh_reception_metrics db/function/mesh_surface_refresh_visible_tower_counts db/function/mesh_surface_fill_visible_population db/table/mesh_initial_nodes_h3_r8 | db/procedure ## Skip greedy placement loop (use mesh_run_greedy_full)
+	echo ">> Greedy placement disabled for now (use db/procedure/mesh_run_greedy_full)"
+	touch db/procedure/mesh_run_greedy
+
+db/procedure/mesh_run_greedy_full: procedures/mesh_run_greedy_prepare.sql procedures/mesh_run_greedy.sql procedures/mesh_run_greedy_finalize.sql scripts/mesh_visibility_edges_refresh.sql db/procedure/mesh_route db/procedure/mesh_tower_wiggle db/table/mesh_visibility_edges db/table/mesh_surface_h3_r8 db/table/mesh_greedy_iterations db/function/mesh_surface_refresh_reception_metrics db/function/mesh_surface_refresh_visible_tower_counts db/function/mesh_surface_fill_visible_population db/table/mesh_initial_nodes_h3_r8 | db/procedure ## Execute greedy placement loop (explicit)
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_run_greedy_prepare.sql
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "call mesh_run_greedy_prepare();"
 	bash -lc 'set -euo pipefail; for iter in $$(seq 1 100); do echo ">> Greedy iteration $$iter"; psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_run_greedy.sql; psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_visibility_edges_refresh.sql; done'
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_run_greedy_finalize.sql
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_visibility_edges_refresh.sql
-	touch db/procedure/mesh_run_greedy
+	touch db/procedure/mesh_run_greedy_full
+
+data/out/visuals: | data/out ## Ensure visuals output directory exists
+	mkdir -p data/out/visuals
+
+data/out/visuals/mesh_surface.png: scripts/render_mapnik.py mapnik/styles/mesh_style.xml db/procedure/mesh_route_bridge | data/out/visuals ## Render static mesh surface map
+	python scripts/render_mapnik.py --output data/out/visuals/mesh_surface.png
+
+data/out/visuals/longfast: scripts/render_longfast_animation.py scripts/longfast_animation_lib.py mapnik/styles/mesh_style.xml db/procedure/mesh_tower_wiggle | data/out/visuals ## Render LongFast animation frames
+	python scripts/render_longfast_animation.py --output-dir data/out/visuals/longfast --no-video
+
+data/out/visuals/longfast.mp4: data/out/visuals/longfast | data/out/visuals ## Assemble LongFast video
+	ffmpeg -y -framerate 24 -i data/out/visuals/longfast/frame_%04d.png -vf "scale=1920:-1:flags=lanczos,format=yuv420p" data/out/visuals/longfast.mp4
+
+visuals: data/out/visuals/mesh_surface.png data/out/visuals/longfast data/out/visuals/longfast.mp4 ## Render static map and LongFast animation frames

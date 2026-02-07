@@ -13,9 +13,12 @@ declare
     norm_dst      h3index;
     distance_m    double precision;
     clearance     double precision;
-    max_distance  constant double precision := 70000;      -- hard cut at 70 km
-    default_mast_height constant double precision := 28;   -- tower height above ground, meters
-    default_frequency_hz constant double precision := 868e6; -- assume 868 MHz backhaul planning
+    -- Hard cut at 70 km to match the planning radius.
+    max_distance  constant double precision := 70000;
+    -- Tower height above ground in meters.
+    default_mast_height constant double precision := 28;
+    -- Planning frequency in hertz (868 MHz).
+    default_frequency_hz constant double precision := 868e6;
 begin
     if h3_a is null or h3_b is null then
         return false;
@@ -34,6 +37,7 @@ begin
         return false;
     end if;
 
+    -- Use the cached visibility helper to avoid recomputing clearance.
     clearance := h3_visibility_clearance(
         norm_src,
         norm_dst,

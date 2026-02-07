@@ -3,7 +3,7 @@ set client_min_messages = notice;
 drop procedure if exists mesh_tower_wiggle();
 drop function if exists mesh_tower_wiggle();
 
--- Recenter one bridge/cluster-slim tower toward denser visible population while preserving current LOS neighbors.
+-- Recenter one population/route/bridge/cluster-slim tower toward denser visible population while preserving current LOS neighbors.
 create or replace function mesh_tower_wiggle(reset_run boolean default false)
     returns integer
     language plpgsql
@@ -12,7 +12,7 @@ $$
 declare
     max_distance constant double precision := 70000;
     separation_default constant double precision := 5000;
-    target_sources constant text[] := array['route', 'cluster_slim', 'bridge'];
+    target_sources constant text[] := array['route', 'cluster_slim', 'bridge', 'population'];
     processed integer := 0;
     anchor record;
     best record;

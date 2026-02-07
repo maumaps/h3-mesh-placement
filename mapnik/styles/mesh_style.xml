@@ -1,0 +1,225 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE Map>
+<Map srs="+proj=utm +zone=38 +datum=WGS84 +units=m +no_defs" background-color="#16203a">
+  <Style name="population-density">
+    <Rule>
+      <PolygonSymbolizer fill="[density_color]" fill-opacity="0.35"/>
+      <LineSymbolizer stroke="#1b2b45" stroke-width="0.2" stroke-opacity="0.25"/>
+    </Rule>
+  </Style>
+
+  <Style name="population-density-anim">
+    <Rule>
+      <PolygonSymbolizer fill="[density_color]" fill-opacity="0.13"/>
+    </Rule>
+  </Style>
+
+  <Style name="elevation-empty">
+    <Rule>
+      <PolygonSymbolizer fill="[elev_color]" fill-opacity="0.7"/>
+    </Rule>
+  </Style>
+
+  <Style name="roads-overlay">
+    <Rule>
+      <PolygonSymbolizer fill="#243a5a" fill-opacity="0.35"/>
+    </Rule>
+  </Style>
+
+  <Style name="boundary-outline">
+    <Rule>
+      <LineSymbolizer stroke="#7aa6c2" stroke-width="1.1" stroke-opacity="0.85"/>
+    </Rule>
+  </Style>
+
+  <Style name="country-border">
+    <Rule>
+      <LineSymbolizer stroke="#9fb7d1" stroke-width="1.6" stroke-opacity="0.9"/>
+    </Rule>
+  </Style>
+
+  <Style name="tower-points">
+    <Rule>
+      <Filter>[source]='seed'</Filter>
+      <MarkersSymbolizer width="9" height="9" fill="#f8fafc" fill-opacity="0.95" stroke="#0f172a" stroke-width="1.2"/>
+    </Rule>
+    <Rule>
+      <Filter>[source] != 'seed'</Filter>
+      <MarkersSymbolizer width="8" height="8" fill="#38bdf8" fill-opacity="0.9" stroke="#0c4a6e" stroke-width="1"/>
+    </Rule>
+    <Rule>
+      <MarkersSymbolizer width="7" height="7" fill="#e2e8f0" fill-opacity="0.85" stroke="#0f172a" stroke-width="0.8"/>
+    </Rule>
+  </Style>
+
+  <Style name="tower-active">
+    <Rule>
+      <MarkersSymbolizer width="32" height="32" fill="#fef08a" fill-opacity="0.22" stroke="#f59e0b" stroke-width="1.2"/>
+      <MarkersSymbolizer width="20" height="20" fill="#fef08a" fill-opacity="0.4" stroke="#f59e0b" stroke-width="1.2"/>
+      <MarkersSymbolizer width="12" height="12" fill="#f97316" fill-opacity="0.98" stroke="#7c2d12" stroke-width="1.2"/>
+    </Rule>
+  </Style>
+
+  <Style name="received-tier-1">
+    <Rule>
+      <PolygonSymbolizer fill="#fff7d1" fill-opacity="0.2"/>
+    </Rule>
+  </Style>
+  <Style name="received-tier-2">
+    <Rule>
+      <PolygonSymbolizer fill="#ffedb3" fill-opacity="0.2"/>
+    </Rule>
+  </Style>
+  <Style name="received-tier-3">
+    <Rule>
+      <PolygonSymbolizer fill="#ffe395" fill-opacity="0.2"/>
+    </Rule>
+  </Style>
+  <Style name="received-tier-4">
+    <Rule>
+      <PolygonSymbolizer fill="#ffd879" fill-opacity="0.2"/>
+    </Rule>
+  </Style>
+  <Style name="received-tier-5">
+    <Rule>
+      <PolygonSymbolizer fill="#fece5a" fill-opacity="0.2"/>
+    </Rule>
+  </Style>
+  <Style name="received-tier-6">
+    <Rule>
+      <PolygonSymbolizer fill="#fcc436" fill-opacity="0.2"/>
+    </Rule>
+  </Style>
+  <Style name="received-tier-7">
+    <Rule>
+      <PolygonSymbolizer fill="#f9b61d" fill-opacity="0.2"/>
+    </Rule>
+  </Style>
+  <Style name="received-tier-8">
+    <Rule>
+      <PolygonSymbolizer fill="#f6a410" fill-opacity="0.2"/>
+    </Rule>
+  </Style>
+  <Style name="received-tier-9">
+    <Rule>
+      <PolygonSymbolizer fill="#f68e0f" fill-opacity="0.2"/>
+    </Rule>
+  </Style>
+  <Style name="received-tier-10">
+    <Rule>
+      <PolygonSymbolizer fill="#f97715" fill-opacity="0.2"/>
+    </Rule>
+  </Style>
+  <Style name="received-tier-11">
+    <Rule>
+      <PolygonSymbolizer fill="#f26711" fill-opacity="0.2"/>
+    </Rule>
+  </Style>
+  <Style name="received-tier-12">
+    <Rule>
+      <PolygonSymbolizer fill="#ea580c" fill-opacity="0.2"/>
+    </Rule>
+  </Style>
+
+  <Style name="transmit-tier-1">
+    <Rule>
+      <PolygonSymbolizer fill="#fff7d1" fill-opacity="0.55"/>
+    </Rule>
+  </Style>
+  <Style name="transmit-tier-2">
+    <Rule>
+      <PolygonSymbolizer fill="#ffedb3" fill-opacity="0.55"/>
+    </Rule>
+  </Style>
+  <Style name="transmit-tier-3">
+    <Rule>
+      <PolygonSymbolizer fill="#ffe395" fill-opacity="0.55"/>
+    </Rule>
+  </Style>
+  <Style name="transmit-tier-4">
+    <Rule>
+      <PolygonSymbolizer fill="#ffd879" fill-opacity="0.55"/>
+    </Rule>
+  </Style>
+  <Style name="transmit-tier-5">
+    <Rule>
+      <PolygonSymbolizer fill="#fece5a" fill-opacity="0.55"/>
+    </Rule>
+  </Style>
+  <Style name="transmit-tier-6">
+    <Rule>
+      <PolygonSymbolizer fill="#fcc436" fill-opacity="0.55"/>
+    </Rule>
+  </Style>
+  <Style name="transmit-tier-7">
+    <Rule>
+      <PolygonSymbolizer fill="#f9b61d" fill-opacity="0.55"/>
+    </Rule>
+  </Style>
+  <Style name="transmit-tier-8">
+    <Rule>
+      <PolygonSymbolizer fill="#f6a410" fill-opacity="0.55"/>
+    </Rule>
+  </Style>
+  <Style name="transmit-tier-9">
+    <Rule>
+      <PolygonSymbolizer fill="#f68e0f" fill-opacity="0.55"/>
+    </Rule>
+  </Style>
+  <Style name="transmit-tier-10">
+    <Rule>
+      <PolygonSymbolizer fill="#f97715" fill-opacity="0.55"/>
+    </Rule>
+  </Style>
+  <Style name="transmit-tier-11">
+    <Rule>
+      <PolygonSymbolizer fill="#f26711" fill-opacity="0.55"/>
+    </Rule>
+  </Style>
+  <Style name="transmit-tier-12">
+    <Rule>
+      <PolygonSymbolizer fill="#ea580c" fill-opacity="0.55"/>
+    </Rule>
+  </Style>
+
+  <Style name="link-lines">
+    <Rule>
+      <LineSymbolizer stroke="#93c5fd" stroke-width="2.0" stroke-opacity="0.85"/>
+    </Rule>
+  </Style>
+
+  <Style name="link-lines-past">
+    <Rule>
+      <LineSymbolizer stroke="#93c5fd" stroke-width="1.7" stroke-opacity="0.78"/>
+    </Rule>
+  </Style>
+
+  <Style name="route-lines">
+    <Rule>
+      <LineSymbolizer stroke="#c084fc" stroke-width="1.2" stroke-opacity="0.8"/>
+    </Rule>
+  </Style>
+
+  <Style name="frame-label-panel">
+    <Rule>
+      <PolygonSymbolizer fill="#0b1220" fill-opacity="0.82"/>
+      <LineSymbolizer stroke="#3b4a63" stroke-width="1"/>
+    </Rule>
+  </Style>
+
+  <Style name="frame-label">
+    <Rule>
+      <TextSymbolizer face-name="DejaVu Sans Book"
+                      size="16"
+                      fill="#f8fafc"
+                      halo-fill="#0b1020"
+                      halo-radius="2"
+                      horizontal-alignment="left"
+                      vertical-alignment="top"
+                      placement="point"
+                      allow-overlap="true">
+        [label]
+      </TextSymbolizer>
+    </Rule>
+  </Style>
+</Map>

@@ -2,6 +2,11 @@
 Debugging: Use docs/todo.md as to put issues, inconveniences and impediments that you noticed that you are not fixing on this iteration.
 SQL: Format queries in a way so it's easy to copy them out of the codebase and debug standalone.
 Make: Makefile: If you need intermediate result from other target, split it into two and depend on the intermediate result.
+Make: Always run `make -n <target>` before running `make <target>`, and fix any unexpected commands that would run.
+Make: Do not use `.PHONY` targets; use real file/directory targets and correct marker handling instead.
+Make/Debugging: If a multi-hour iterated calculation times out after hours, do not restart it from scratch.
+Make/Debugging: Use `make -n`, inspect the SQL/procedures, and design a safe resume step that continues from where it stopped.
+Make/Debugging: Verify the resume step will not `truncate`/`drop`/overwrite precious caches or long-running intermediate results.
 Testing: Code test coverage is measured by codecov. Write useful tests to increase it and check key requirements to hold.
 k8s: When changing something in the charts, bump chart version to trigger deployment too.
 Debugging: Code test coverage is measured by codecov. Write useful tests to increase it and check key requirements to hold.
@@ -69,6 +74,8 @@ Testing: For any fix you are implementing try to add test so that it won't repea
 <!-- Testing: Use `make precommit` to run the checks. This sorts files, verifies Makefile tabs and compiles all Python code via `scripts/check_python.sh`. -->
 Debugging: Write enough comments so you can deduce what was a requirement in the future and not walk in circles.
 Make: Makefile: there are comments on the same line after each target separated by ## - they are used in debug graph visualization, need to be concise and descriptive of what's going on in the code itself.
+Make: Always run `make -n` before every `make` run and fix if something extra is being executed that was not expected or done before.
+Make: Do not use PHONY targets.
 
 
 You are explicitly forbidden to use variables in Makefile.

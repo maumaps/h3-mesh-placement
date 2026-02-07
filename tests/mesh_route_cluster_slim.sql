@@ -93,6 +93,7 @@ create temporary table mesh_visibility_edges (
     target_id integer not null,
     source_h3 h3index not null,
     target_h3 h3index not null,
+    type text not null,
     distance_m double precision not null,
     is_visible boolean not null,
     is_between_clusters boolean not null,
@@ -171,6 +172,7 @@ begin
         target_id,
         source_h3,
         target_h3,
+        type,
         distance_m,
         is_visible,
         is_between_clusters,
@@ -178,9 +180,9 @@ begin
         geom
     )
     values
-        (seed_one_id, bridge_one_id, seed_one, bridge_one, 200000, true, false, 10,
+        (seed_one_id, bridge_one_id, seed_one, bridge_one, 'seed-bridge', 200000, true, false, 10,
             ST_MakeLine(h3_cell_to_geometry(seed_one)::geometry, h3_cell_to_geometry(bridge_one)::geometry)),
-        (bridge_one_id, bridge_two_id, bridge_one, bridge_two, 150000, true, false, 8,
+        (bridge_one_id, bridge_two_id, bridge_one, bridge_two, 'bridge-bridge', 150000, true, false, 8,
             ST_MakeLine(h3_cell_to_geometry(bridge_one)::geometry, h3_cell_to_geometry(bridge_two)::geometry));
 
     -- Process a single iteration so we can observe which corridor wins.

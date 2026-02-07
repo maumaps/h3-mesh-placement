@@ -17,7 +17,7 @@ $$
 declare
     start_vids integer[];
     end_vids integer[];
-    separation constant double precision := 5000;
+    separation constant double precision := 500;
     start_h3s h3index[];
     end_h3s h3index[];
 begin

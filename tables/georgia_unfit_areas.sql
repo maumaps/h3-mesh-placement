@@ -4,6 +4,7 @@ drop table if exists georgia_unfit_areas;
 -- Create dissolved polygons for regions where node placement is forbidden
 create table georgia_unfit_areas as
 with admin_regions as (
+    -- Load administrative polygons from the merged OSM extract to find forbidden regions.
     select
         lower(
             coalesce(
@@ -14,12 +15,13 @@ with admin_regions as (
             )
         ) as normalized_name,
         geog::geometry as geom
-    from osm_caucasus
+    from osm_for_mesh_placement
     where tags ? 'boundary'
       and tags ->> 'boundary' = 'administrative'
       and ST_GeometryType(geog::geometry) in ('ST_Polygon', 'ST_MultiPolygon')
 ),
 matched_regions as (
+    -- Match administrative regions we want to exclude from candidate placement.
     select
         case
             when normalized_name like '%abkhazia%' then 'abkhazia'
