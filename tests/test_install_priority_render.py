@@ -1,0 +1,471 @@
+"""Rendering and presentation tests for the installer-priority handout."""
+
+from __future__ import annotations
+
+import unittest
+
+from scripts.export_install_priority import (
+    build_output_row,
+    choose_primary_previous_tower_id,
+)
+from scripts.install_priority_cluster_bounds import (
+    fetch_cluster_bound_features,
+)
+from scripts.install_priority_enrichment import enrich_tower_records
+from scripts.install_priority_lib import (
+    CSV_COLUMNS,
+    PlanRow,
+    TowerRecord,
+    build_display_name,
+    format_location_description,
+    render_html_document,
+)
+
+
+class InstallPriorityRenderTests(unittest.TestCase):
+    """Verify display labels, output rows, and HTML rendering."""
+
+    def test_cluster_bound_query_uses_geodesic_buffer_mask_for_voronoi_clip(self) -> None:
+        """Voronoi bounds should be clipped by a meter-based geography buffer, not degree padding."""
+
+        class FakeCursor:
+            def __init__(self) -> None:
+                self.query = ""
+                self.params = []
+
+            def execute(self, query, params) -> None:
+                self.query = str(query)
+                self.params = list(params)
+
+            def fetchall(self):
+                return [
+                    (
+                        "seed:1",
+                        "Batumi",
+                        '{"type":"Polygon","coordinates":[[[41.58,41.68],[41.63,41.68],[41.63,41.73],[41.58,41.73],[41.58,41.68]]]}',
+                    )
+                ]
+
+        fake_cursor = FakeCursor()
+
+        fetch_cluster_bound_features(
+            fake_cursor,
+            [
+                {
+                    "cluster_key": "seed:1",
+                    "cluster_label": "Batumi",
+                    "tower_id": 1,
+                    "lon": 41.60,
+                    "lat": 41.70,
+                },
+                {
+                    "cluster_key": "seed:2",
+                    "cluster_label": "Mtirala",
+                    "tower_id": 2,
+                    "lon": 41.72,
+                    "lat": 41.84,
+                },
+            ],
+        )
+
+        self.assertIn(
+            "ST_Buffer(",
+            fake_cursor.query,
+            msg=f"Cluster-bound query should build a buffered clip mask, got SQL {fake_cursor.query!r}",
+        )
+        self.assertIn(
+            "::geography",
+            fake_cursor.query,
+            msg=f"Cluster-bound query should buffer in geography meters, got SQL {fake_cursor.query!r}",
+        )
+        self.assertIn(
+            "ST_Intersection",
+            fake_cursor.query,
+            msg=f"Cluster-bound query should intersect Voronoi cells with the clip mask, got SQL {fake_cursor.query!r}",
+        )
+        self.assertNotIn(
+            "ST_Expand(",
+            fake_cursor.query,
+            msg=f"Cluster-bound query should not fall back to degree-based ST_Expand padding, got SQL {fake_cursor.query!r}",
+        )
+
+    def test_single_point_cluster_bound_uses_geodesic_buffer(self) -> None:
+        """A one-point cluster should still get a meter-based geodesic polygon."""
+
+        class FakeCursor:
+            def __init__(self) -> None:
+                self.query = ""
+                self.params = []
+
+            def execute(self, query, params) -> None:
+                self.query = str(query)
+                self.params = list(params)
+
+            def fetchone(self):
+                return (
+                    '{"type":"Polygon","coordinates":[[[41.59,41.69],[41.61,41.69],[41.61,41.71],[41.59,41.71],[41.59,41.69]]]}',
+                )
+
+        fake_cursor = FakeCursor()
+
+        fetch_cluster_bound_features(
+            fake_cursor,
+            [
+                {
+                    "cluster_key": "seed:1",
+                    "cluster_label": "Batumi",
+                    "tower_id": 1,
+                    "lon": 41.60,
+                    "lat": 41.70,
+                }
+            ],
+        )
+
+        self.assertIn(
+            "ST_Buffer(",
+            fake_cursor.query,
+            msg=f"Single-point cluster bounds should still come from a PostGIS buffer, got SQL {fake_cursor.query!r}",
+        )
+        self.assertIn(
+            "::geography",
+            fake_cursor.query,
+            msg=f"Single-point cluster bounds should use geography meters, got SQL {fake_cursor.query!r}",
+        )
+
+    def test_choose_primary_previous_tower_id_prefers_latest_ranked_step(self) -> None:
+        """Map route segments should follow the rollout corridor instead of the smallest id."""
+
+        plan_row = PlanRow(
+            cluster_key="am:seed:1",
+            cluster_label="Armenia / Gyumri",
+            cluster_install_rank=5,
+            is_next_for_cluster=False,
+            rollout_status="planned",
+            installed=False,
+            tower_id=74,
+            label="cluster_slim #74",
+            source="cluster_slim",
+            impact_score=0,
+            impact_tower_count=0,
+            next_unlock_count=0,
+            backlink_count=2,
+            previous_connection_ids=(61, 73),
+            next_connection_ids=(),
+            lon=43.9,
+            lat=40.7,
+        )
+
+        primary_previous_tower_id = choose_primary_previous_tower_id(
+            plan_row,
+            {
+                61: 2,
+                73: 4,
+            },
+        )
+
+        self.assertEqual(
+            primary_previous_tower_id,
+            73,
+            msg=f"Primary map predecessor should prefer the latest earlier rollout step, got {primary_previous_tower_id!r} for row {plan_row!r}",
+        )
+
+    def test_build_display_name_prefers_place_road_and_hides_raw_numbering(self) -> None:
+        """Human display names should be location-first instead of raw source-number labels."""
+
+        tower = TowerRecord(70, "cluster_slim", 42.3, 42.0, "cluster_slim #70", False)
+
+        display_name = build_display_name(
+            tower=tower,
+            place_name="Zemo Abasha",
+            road_name="Sajavakho - Chokhatauri - Ozurgeti - Kobuleti",
+        )
+
+        self.assertEqual(
+            display_name,
+            "Zemo Abasha / Sajavakho - Chokhatauri - Ozurgeti - Kobuleti",
+            msg=f"Display names should lead with place and road, got {display_name!r}",
+        )
+
+    def test_format_location_description_prefers_place_and_road_over_address_style(self) -> None:
+        """Field descriptions should read like road/place hints rather than postal addresses."""
+
+        location_en = format_location_description(
+            locale="en",
+            road_name="Mtirala access road",
+            place_name="Mtirala ridge",
+            admin_context={
+                "city": "Chakvi",
+                "district": None,
+                "province": "Adjara",
+                "country": "Georgia",
+            },
+            lon=41.70,
+            lat=41.80,
+        )
+        location_ru = format_location_description(
+            locale="ru",
+            road_name="Дорога к Мтирале",
+            place_name="Хребет Мтирала",
+            admin_context={
+                "city": "Чакви",
+                "district": None,
+                "province": "Аджария",
+                "country": "Грузия",
+            },
+            lon=41.70,
+            lat=41.80,
+        )
+
+        self.assertEqual(
+            location_en,
+            "Mtirala ridge, near Mtirala access road, Chakvi, Adjara, Georgia",
+            msg=f"English field description should combine place, road, and admin context, got {location_en!r}",
+        )
+        self.assertEqual(
+            location_ru,
+            "Хребет Мтирала, рядом с Дорога к Мтирале, Чакви, Аджария, Грузия",
+            msg=f"Russian field description should combine place, road, and admin context, got {location_ru!r}",
+        )
+
+    def test_output_row_and_html_include_maplibre_and_true_next_summary_only(self) -> None:
+        """Serialized rows and HTML should keep maps, human names, and only real next rows in the summary."""
+
+        towers_by_id = enrich_tower_records(
+            towers_by_id={
+                1: TowerRecord(1, "seed", 41.60, 41.70, "Batumi", True),
+                3: TowerRecord(3, "route", 41.61, 41.71, "route #3", False),
+            },
+            local_context_by_tower_id={
+                1: {
+                    "road_en": "Batumi road",
+                    "road_ru": "Батумская дорога",
+                    "place_en": "Batumi",
+                    "place_ru": "Батуми",
+                    "population_place_en": "Batumi",
+                    "population_place_id": "node:batumi",
+                    "population_est": 1000,
+                },
+                3: {
+                    "road_en": "Mtirala access road",
+                    "road_ru": "Дорога к Мтирале",
+                    "place_en": "Mtirala ridge",
+                    "place_ru": "Хребет Мтирала",
+                    "population_place_en": "Chakvi",
+                    "population_place_id": "node:chakvi",
+                    "population_est": 2500,
+                },
+            },
+        )
+        next_plan_row = PlanRow(
+            cluster_key="seed:1",
+            cluster_label="Batumi",
+            cluster_install_rank=1,
+            is_next_for_cluster=True,
+            rollout_status="next",
+            installed=False,
+            tower_id=3,
+            label="route #3",
+            source="route",
+            impact_score=2500,
+            impact_tower_count=2,
+            next_unlock_count=1,
+            backlink_count=1,
+            previous_connection_ids=(1,),
+            next_connection_ids=(),
+            lon=41.610000,
+            lat=41.710000,
+        )
+        installed_plan_row = PlanRow(
+            cluster_key="seed:1",
+            cluster_label="Batumi",
+            cluster_install_rank=0,
+            is_next_for_cluster=False,
+            rollout_status="installed",
+            installed=True,
+            tower_id=1,
+            label="Batumi",
+            source="seed",
+            impact_score=0,
+            impact_tower_count=0,
+            next_unlock_count=0,
+            backlink_count=0,
+            previous_connection_ids=(),
+            next_connection_ids=(),
+            lon=41.600000,
+            lat=41.700000,
+        )
+
+        output_rows = [
+            build_output_row(
+                plan_row=installed_plan_row,
+                towers_by_id=towers_by_id,
+                local_context={
+                    "road_en": "Batumi road",
+                    "road_ru": "Батумская дорога",
+                    "place_en": "Batumi",
+                    "place_ru": "Батуми",
+                },
+                admin_context_en={
+                    "city": "Batumi",
+                    "district": None,
+                    "province": "Adjara",
+                    "country": "Georgia",
+                },
+                admin_context_ru={
+                    "city": "Батуми",
+                    "district": None,
+                    "province": "Аджария",
+                    "country": "Грузия",
+                },
+                geocoder_status_en="ok",
+                geocoder_status_ru="ok",
+            ),
+            build_output_row(
+                plan_row=next_plan_row,
+                towers_by_id=towers_by_id,
+                local_context={
+                    "road_en": "Mtirala access road",
+                    "road_ru": "Дорога к Мтирале",
+                    "place_en": "Mtirala ridge",
+                    "place_ru": "Хребет Мтирала",
+                },
+                admin_context_en={
+                    "city": "Chakvi",
+                    "district": None,
+                    "province": "Adjara",
+                    "country": "Georgia",
+                },
+                admin_context_ru={
+                    "city": "Чакви",
+                    "district": None,
+                    "province": "Аджария",
+                    "country": "Грузия",
+                },
+                geocoder_status_en="ok",
+                geocoder_status_ru="ok",
+            ),
+        ]
+        html_text = render_html_document(
+            rows=output_rows,
+            generated_at="2026-04-09T00:00:00+00:00",
+            geocoder_base_url="https://geocoder.batu.market",
+            cluster_bound_features=[
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [[
+                            [41.58, 41.68],
+                            [41.63, 41.68],
+                            [41.63, 41.73],
+                            [41.58, 41.73],
+                            [41.58, 41.68],
+                        ]],
+                    },
+                    "properties": {
+                        "cluster_key": "seed:1",
+                        "cluster_label": "Batumi",
+                    },
+                }
+            ],
+        )
+
+        self.assertEqual(
+            set(output_rows[1]),
+            set(CSV_COLUMNS),
+            msg=f"Output row should expose the full CSV schema, got keys {sorted(output_rows[1])}",
+        )
+        self.assertEqual(
+            output_rows[1]["display_name"],
+            "Mtirala ridge / Mtirala access road",
+            msg=f"Output rows should store the new location-first display name, got {output_rows[1]['display_name']!r}",
+        )
+        self.assertEqual(
+            output_rows[1]["impact_people_est"],
+            2500,
+            msg=f"Output rows should expose estimated people reach, got row {output_rows[1]!r}",
+        )
+        self.assertEqual(
+            output_rows[1]["primary_previous_tower_id"],
+            1,
+            msg=f"Output rows should keep the chosen predecessor tower for map route segments, got row {output_rows[1]!r}",
+        )
+        self.assertEqual(
+            output_rows[1]["inter_cluster_neighbor_ids"],
+            "",
+            msg=f"Output rows should default to no inter-cluster connector ids until the exporter fills them, got row {output_rows[1]!r}",
+        )
+        self.assertIn(
+            "maplibre-gl.js",
+            html_text,
+            msg="HTML handout should include the MapLibre bootstrap script.",
+        )
+        self.assertIn(
+            "tiles.openfreemap.org/styles/liberty",
+            html_text,
+            msg="HTML handout should use a basemap style that does not depend on referrer-based tile access.",
+        )
+        self.assertIn(
+            "overview-map",
+            html_text,
+            msg="HTML handout should include the overview map container.",
+        )
+        self.assertIn(
+            "cluster-map-seed-1",
+            html_text,
+            msg="HTML handout should include the per-cluster mini map container.",
+        )
+        self.assertIn(
+            "addRouteLayers",
+            html_text,
+            msg="HTML handout should render route segments so installers can follow the rollout path on the map.",
+        )
+        self.assertIn(
+            "addContextLayers",
+            html_text,
+            msg="HTML handout should render dashed context connectors so neighboring rollout clusters are easier to understand.",
+        )
+        self.assertIn(
+            "map_order_label",
+            html_text,
+            msg="HTML handout should embed on-map order labels for the rollout sequence.",
+        )
+        self.assertIn(
+            "FullscreenControl",
+            html_text,
+            msg="HTML handout should expose fullscreen controls for overview and cluster maps.",
+        )
+        self.assertIn(
+            "Cheapest cluster connector",
+            html_text,
+            msg="HTML handout should explain that dashed connector lines show the cheapest cluster corridor.",
+        )
+        self.assertIn(
+            "Cluster bounds",
+            html_text,
+            msg="HTML handout should explain the overview cluster bounds in the legend.",
+        )
+        self.assertIn(
+            "\"cluster_bounds\"",
+            html_text,
+            msg="HTML handout should embed cluster-bound GeoJSON in the map payload.",
+        )
+        self.assertIn(
+            "[41.58, 41.68]",
+            html_text,
+            msg="HTML handout should preserve the exporter-provided cluster polygon coordinates instead of rebuilding generic rectangles in the browser.",
+        )
+        self.assertIn(
+            "<h2>Next Node Per Cluster</h2>",
+            html_text,
+            msg="The HTML handout should still include the next-node summary section.",
+        )
+        self.assertNotIn(
+            "<td>Batumi</td>\n<td>\n<div class='node-title'>Batumi</div>",
+            html_text,
+            msg="Installed seed rows should not leak into the next-node summary table.",
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

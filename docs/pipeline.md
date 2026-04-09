@@ -6,6 +6,7 @@ See `docs/calculations.md` for a step-by-step description of every calculation a
 See `docs/placement_strategies.md` for the terminology used for each placement stage.
 See `docs/radio_model.md` for the radio model assumptions and LongFast defaults.
 See `docs/visuals_mapnik.md` for rendering and animation instructions.
+See `docs/install_priority_handout.md` for the cluster-local installer handout export.
 
 ## Data Sources
 Georgia roads come from `https://download.geofabrik.de/europe/georgia-latest.osm.pbf`.
@@ -31,6 +32,7 @@ Some `db/procedure` markers represent pipeline stage scripts rather than actual 
 `make all` runs the workflow from downloads through routing with greedy placement disabled by default.
 Use `make db/procedure/mesh_run_greedy_full` when you want to execute the greedy placement loop.
 Intermediate targets such as `db/table/osm_for_mesh_placement` or `db/table/mesh_surface_h3_r8` can be executed independently to debug single steps.
+Use `make data/out/install_priority.html` when you want the installer handout after routing or greedy placement.
 
 The key stage order is:
 - Import sources → derive boundary/roads/population/elevation layers → build `mesh_surface_h3_r8`.
@@ -62,5 +64,6 @@ Run tests against a disposable database if you want to keep an existing pipeline
 Make sure PostgreSQL accepts local socket connections under your current user so the inline `psql` calls succeed.
 Execute `make all` to refresh every artifact from downloads through routing.
 Run `make db/procedure/mesh_run_greedy_full` to execute greedy placement when you are ready.
+Run `make data/out/install_priority.html` to build the field handout in HTML and CSV.
 Each SQL file is idempotent, so you can re-run `psql -f tables/<file>` (or `functions/<file>`, `procedures/<file>`) for debugging without destroying prior work.
 Any missing credentials or tooling gaps should be recorded in `docs/todo.md`.

@@ -17,6 +17,9 @@ Each sentence is on its own line for clean diffs.
 ## Visuals
 - `docs/visuals_mapnik.md` for Mapnik rendering and animation instructions.
 
+## Field handouts
+- `docs/install_priority_handout.md` for the cluster-local installer priority export used by field teams.
+
 ## LinkedIn-ready notes
 - `docs/posts/` contains post drafts for sharing insights.
 

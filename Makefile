@@ -1,6 +1,6 @@
 all: db/procedure/mesh_run_greedy ## [FINAL] Build pipeline through routing (greedy disabled)
 
-test: db/test/georgia_roads_geom db/test/georgia_unfit_areas db/test/population_h3_r8 db/test/h3_los_between_cells db/test/mesh_surface_visible_towers db/test/mesh_surface_refresh_reception_metrics db/test/mesh_surface_refresh_visible_tower_counts db/test/mesh_visibility_edges db/test/mesh_visibility_edges_type db/test/mesh_visibility_invisible_route_geom db/test/mesh_run_greedy_prepare db/test/fill_mesh_los_cache_priority db/test/mesh_route_corridor_between_towers db/test/mesh_route db/test/mesh_route_cluster_slim db/test/mesh_tower_wiggle ## [FINAL] Run verification suite
+test: db/test/georgia_roads_geom db/test/georgia_unfit_areas db/test/population_h3_r8 db/test/h3_los_between_cells db/test/mesh_surface_visible_towers db/test/mesh_surface_refresh_reception_metrics db/test/mesh_surface_refresh_visible_tower_counts db/test/mesh_visibility_edges db/test/mesh_visibility_edges_type db/test/mesh_visibility_invisible_route_geom db/test/mesh_run_greedy_prepare db/test/fill_mesh_los_cache_priority db/test/mesh_route_corridor_between_towers db/test/mesh_route db/test/mesh_route_cluster_slim db/test/mesh_tower_wiggle db/test/install_priority_py ## [FINAL] Run verification suite
 
 clean: ## [FINAL] Remove intermediate data and build markers
 	@if [ -n "$(filter clean,$(MAKECMDGOALS))" ]; then rm -rf data/mid data/out db; fi
@@ -313,6 +313,10 @@ db/test/mesh_tower_wiggle: tests/mesh_tower_wiggle.sql procedures/mesh_tower_wig
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_tower_wiggle.sql
 	touch db/test/mesh_tower_wiggle
 
+db/test/install_priority_py: tests/test_install_priority.py tests/test_install_priority_render.py scripts/export_install_priority.py scripts/install_priority_cluster_bounds.py scripts/install_priority_cluster_helpers.py scripts/install_priority_connectors.py scripts/install_priority_enrichment.py scripts/install_priority_geocoder.py scripts/install_priority_graph.py scripts/install_priority_graph_support.py scripts/install_priority_lib.py scripts/install_priority_map_payload.py scripts/install_priority_maplibre.py scripts/install_priority_points.py scripts/install_priority_render.py scripts/install_priority_sources.py | db/test ## Run installer-priority Python unit tests
+	python -m unittest discover -s tests -p 'test_install_priority*.py'
+	touch db/test/install_priority_py
+
 db/procedure/mesh_population: procedures/mesh_population.sql db/table/mesh_surface_h3_r8 db/table/mesh_towers db/function/h3_los_between_cells | db/procedure ## Install population towers ahead of routing stages
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_population.sql
 	touch db/procedure/mesh_population
@@ -365,6 +369,12 @@ db/procedure/mesh_run_greedy_full: procedures/mesh_run_greedy_prepare.sql proced
 
 data/out/visuals: | data/out ## Ensure visuals output directory exists
 	mkdir -p data/out/visuals
+
+data/out/install_priority.html: scripts/export_install_priority.py scripts/install_priority_cluster_bounds.py scripts/install_priority_cluster_helpers.py scripts/install_priority_connectors.py scripts/install_priority_enrichment.py scripts/install_priority_geocoder.py scripts/install_priority_graph.py scripts/install_priority_graph_support.py scripts/install_priority_lib.py scripts/install_priority_map_payload.py scripts/install_priority_maplibre.py scripts/install_priority_points.py scripts/install_priority_render.py scripts/install_priority_sources.py db/table/mesh_towers db/table/mesh_visibility_edges db/table/mesh_initial_nodes_h3_r8 | data/out ## Export installer-priority HTML handout and CSV table
+	python scripts/export_install_priority.py --csv-output data/out/install_priority.csv --html-output data/out/install_priority.html
+
+data/out/install_priority.csv: data/out/install_priority.html | data/out ## Ensure installer-priority CSV exists after export
+	test -f data/out/install_priority.csv
 
 data/out/visuals/mesh_surface.png: scripts/render_mapnik.py mapnik/styles/mesh_style.xml db/procedure/mesh_route_bridge | data/out/visuals ## Render static mesh surface map
 	python scripts/render_mapnik.py --output data/out/visuals/mesh_surface.png
