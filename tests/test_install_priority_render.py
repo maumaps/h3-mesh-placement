@@ -398,7 +398,12 @@ class InstallPriorityRenderTests(unittest.TestCase):
         self.assertIn(
             "maplibre-gl.js",
             html_text,
-            msg="HTML handout should include the MapLibre bootstrap script.",
+            msg="HTML handout should inline the vendored MapLibre bootstrap so forwarded Telegram files do not depend on loading an external script.",
+        )
+        self.assertNotIn(
+            "https://unpkg.com/maplibre-gl",
+            html_text,
+            msg="HTML handout should not depend on external MapLibre JS or CSS URLs because mobile content:// viewers can refuse those requests.",
         )
         self.assertIn(
             "tiles.openfreemap.org/styles/liberty",
@@ -429,6 +434,16 @@ class InstallPriorityRenderTests(unittest.TestCase):
             "map_order_label",
             html_text,
             msg="HTML handout should embed on-map order labels for the rollout sequence.",
+        )
+        self.assertIn(
+            "map.isStyleLoaded()",
+            html_text,
+            msg="HTML handout should bootstrap overlays even when the basemap style is already cached or preloaded in an in-app browser.",
+        )
+        self.assertIn(
+            "Install priority overlay step failed",
+            html_text,
+            msg="HTML handout should isolate overlay failures so one broken layer does not hide all vector overlays.",
         )
         self.assertIn(
             "FullscreenControl",

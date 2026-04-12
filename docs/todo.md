@@ -15,4 +15,5 @@ The current live `kom` database schema has drift from the checked-in SQL for `me
 The installer handout exporter now works around that drift, but the database should still be refreshed and aligned with the repository definition when convenient.
 The handout's `impact_people_est` currently relies on nearby populated OSM localities because the live `mesh_surface_h3_r8` table no longer exposes the geometry/H3 key needed to attach true stored `visible_population` to towers.
 The live DB also lacks the deployed H3 visibility helper and keyed LOS cache columns the checked-in SQL expects, so the installer handout currently uses route-derived corridor preference as the RF-loss proxy when ranking cluster connectors.
-The installer handout HTML currently instantiates one MapLibre map per cluster plus the overview map, which triggers WebGL context warnings in Chromium after enough mini maps are opened during scrolling.
+The installer handout still triggers one MapLibre warning about a `null` numeric feature property in Chromium, even though the overlays render correctly after the standalone bootstrap fix.
+`db/test/install_priority_py` uses a marker file that can stay up to date even when the underlying Python tests changed, so routine `make` runs may skip fresh test execution unless forced with `make -B`.

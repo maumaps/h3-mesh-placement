@@ -15,12 +15,20 @@ try:
         normalize_rows,
         render_map_assets,
     )
+    from scripts.install_priority_render_sections import (
+        render_cluster_section,
+        render_summary_section,
+    )
 except ModuleNotFoundError:
     from install_priority_graph import TowerRecord  # type: ignore[no-redef]
     from install_priority_maplibre import (  # type: ignore[no-redef]
         cluster_map_id,
         normalize_rows,
         render_map_assets,
+    )
+    from install_priority_render_sections import (  # type: ignore[no-redef]
+        render_cluster_section,
+        render_summary_section,
     )
 
 
@@ -176,24 +184,6 @@ def format_location_description(
     return f"{lat:.5f}, {lon:.5f}"
 
 
-def summarize_connection_list(raw_text: object, *, max_items: int = 3) -> str:
-    """Shorten long unlock lists so the HTML table stays scannable."""
-
-    normalized_text = str(raw_text or "").strip()
-
-    if not normalized_text:
-        return ""
-
-    items = [item.strip() for item in normalized_text.split(", ") if item.strip()]
-
-    if len(items) <= max_items:
-        return ", ".join(items)
-
-    remaining_count = len(items) - max_items
-
-    return f"{', '.join(items[:max_items])} + {remaining_count} more"
-
-
 def google_maps_url(lon: float, lat: float) -> str:
     """Build a Google Maps deep link."""
 
@@ -237,7 +227,6 @@ def render_html_document(
         "<meta name='viewport' content='width=device-width, initial-scale=1'>",
         "<link rel='icon' href='data:,'>",
         "<title>Installer Priority Handout</title>",
-        "<link rel='stylesheet' href='https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css'>",
         "<style>",
         "body{font-family:'Trebuchet MS','Segoe UI',sans-serif;margin:0;background:linear-gradient(180deg,#efe7d7 0%,#f7f4ee 45%,#fcfbf8 100%);color:#1f2328;}",
         ".page{max-width:1360px;margin:0 auto;padding:20px;}",
@@ -248,11 +237,17 @@ def render_html_document(
         ".cluster h2,.summary h2,.map-panel h2{margin:0 0 10px;font-size:1.3rem;}",
         ".meta{color:#55606d;font-size:0.95rem;margin:6px 0 0;}",
         ".overview-map{height:480px;border-radius:16px;overflow:hidden;border:1px solid #d8d2c5;}",
-        ".cluster-map{height:240px;border-radius:14px;overflow:hidden;border:1px solid #e2ddd3;margin:14px 0 10px;}",
-        ".table-wrap{overflow-x:auto;}",
+        ".cluster-map{height:220px;border-radius:14px;overflow:hidden;border:1px solid #e2ddd3;margin:14px 0 10px;}",
+        ".table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:14px;}",
+        ".table-wrap:focus-visible,a:focus-visible{outline:3px solid #d97706;outline-offset:3px;}",
         "table{width:100%;border-collapse:collapse;min-width:980px;}",
+        ".summary-table{min-width:760px;}",
+        ".cluster-detail-table{min-width:980px;}",
+        "caption{caption-side:top;padding:0 0 10px;text-align:left;}",
         "th,td{padding:10px 8px;border-bottom:1px solid #e6e1d8;vertical-align:top;text-align:left;}",
-        "th{font-size:0.82rem;text-transform:uppercase;letter-spacing:0.03em;color:#5a6673;background:#fbfaf7;position:sticky;top:0;}",
+        "thead th{font-size:0.82rem;text-transform:uppercase;letter-spacing:0.03em;color:#5a6673;background:#fbfaf7;position:sticky;top:0;}",
+        "tbody th{font-weight:700;color:#1f2328;background:transparent;position:static;text-transform:none;letter-spacing:0;}",
+        ".name-header{font-size:1rem;text-transform:none;letter-spacing:0;background:transparent;color:#1f2328;}",
         "tr.next-row{background:#fff8de;}",
         "tr.installed-row{background:#f3f7fb;}",
         ".pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:0.82rem;font-weight:600;background:#e7edf4;color:#17324d;}",
@@ -262,7 +257,8 @@ def render_html_document(
         ".pill.installed{background:#dce8f4;color:#1f4056;}",
         ".node-title{font-weight:700;line-height:1.3;}",
         ".node-subtitle{color:#63707d;font-size:0.86rem;margin-top:2px;}",
-        ".maps a{margin-right:8px;white-space:nowrap;}",
+        ".maps{display:flex;flex-wrap:wrap;gap:8px;}",
+        ".maps a{white-space:nowrap;}",
         ".legend{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 0;}",
         ".legend span{display:inline-flex;align-items:center;gap:6px;color:#55606d;font-size:0.9rem;}",
         ".legend i{display:inline-block;width:10px;height:10px;border-radius:50%;}",
@@ -270,17 +266,31 @@ def render_html_document(
         ".legend .bounds-sample{width:18px;height:10px;border-radius:3px;background:rgba(139,94,60,0.08);border:2px solid rgba(139,94,60,0.7);}",
         ".map-note{margin:10px 0 0;color:#55606d;font-size:0.92rem;line-height:1.45;}",
         ".map-fallback{display:none;padding:12px 0;color:#6d5f50;font-size:0.95rem;}",
-        ".order-marker{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:700 12px/1 'Trebuchet MS','Segoe UI',sans-serif;color:#fff;border:2px solid rgba(255,255,255,0.95);box-shadow:0 1px 6px rgba(0,0,0,0.25);pointer-events:none;}",
+        ".order-marker{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:700 11px/1 'Trebuchet MS','Segoe UI',sans-serif;color:#fff;border:2px solid rgba(255,255,255,0.95);box-shadow:0 1px 6px rgba(0,0,0,0.25);pointer-events:none;}",
         ".order-marker.overview{width:18px;height:18px;font-size:10px;}",
+        ".order-marker.cluster{width:12px;height:12px;font-size:7px;border-width:1px;box-shadow:0 1px 3px rgba(0,0,0,0.18);}",
         ".order-marker.installed{background:#27548a;}",
         ".order-marker.next{background:#d97706;}",
         ".order-marker.planned{background:#4b8b3b;}",
         ".order-marker.blocked{background:#b45309;}",
         ".blocked-note{color:#7f2525;max-width:34rem;}",
+        ".cluster-cards{display:none;}",
+        ".cluster-card-list{list-style:none;margin:0;padding:0;display:grid;gap:12px;}",
+        ".cluster-card{border:1px solid #e6e1d8;border-radius:16px;padding:14px;background:#fbfaf7;box-shadow:0 4px 14px rgba(23,50,77,0.05);}",
+        ".cluster-card.next-row{background:#fff8de;}",
+        ".cluster-card.installed-row{background:#f3f7fb;}",
+        ".cluster-card-header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;}",
+        ".cluster-rank{margin:0;font-weight:700;color:#17324d;}",
+        ".cluster-card-title{margin:0 0 4px;font-size:1.02rem;line-height:1.35;}",
+        ".cluster-card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px;margin:12px 0;}",
+        ".cluster-card-grid dt{font-size:0.76rem;text-transform:uppercase;letter-spacing:0.03em;color:#5a6673;}",
+        ".cluster-card-grid dd{margin:4px 0 0;line-height:1.4;}",
+        ".sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}",
         "a{color:#0d5ea8;text-decoration:none;}",
         "a:hover{text-decoration:underline;}",
         ".maplibregl-popup-content{max-width:280px;font:14px/1.4 'Trebuchet MS','Segoe UI',sans-serif;}",
-        "@media (max-width: 720px){.page{padding:14px}.hero,.summary,.cluster,.map-panel{padding:14px}.hero h1{font-size:1.5rem}.overview-map{height:360px}.cluster-map{height:220px}}",
+        "@media (max-width: 920px){.page{padding:14px}.hero,.summary,.cluster,.map-panel{padding:14px}.hero h1{font-size:1.6rem}.overview-map{height:360px}.cluster-map{height:220px}.cluster-table-wrap{display:none}.cluster-cards{display:block}}",
+        "@media (max-width: 640px){.overview-map{height:300px}.cluster-map{height:220px}.cluster-card{padding:12px}.cluster-card-grid{grid-template-columns:1fr}.legend span{font-size:0.84rem}.summary-table{min-width:680px}}",
         "</style>",
         "</head>",
         "<body>",
@@ -293,8 +303,8 @@ def render_html_document(
         "</section>",
         "<section class='map-panel'>",
         "<h2>Overview Map</h2>",
-        "<div id='overview-map' class='overview-map'></div>",
-        "<div id='map-fallback' class='map-fallback'>Interactive map could not load. The tables below still contain the full handout.</div>",
+        "<div id='overview-map' class='overview-map' role='img' aria-label='Overview rollout map for all installer clusters'></div>",
+        "<div id='map-fallback' class='map-fallback' role='status' aria-live='polite'>Interactive map could not load. The tables below still contain the full handout.</div>",
         "<div class='legend'>",
         "<span><i style='background:#27548a'></i>Installed seed</span>",
         "<span><i style='background:#d97706'></i>Next suggested node</span>",
@@ -305,36 +315,8 @@ def render_html_document(
         "</div>",
         "<p class='map-note'>The overview map now shows every local order badge and an outline around each rollout cluster. Mini maps show the same order directly on the nodes. Follow the solid line from the installed seed toward rank 1, then 2, then onward. Dashed gray lines show the cheapest visible connector between rollout clusters. A blocked node has no visible path from an installed seed yet. Use the fullscreen button when a team needs to inspect one route in detail.</p>",
         "</section>",
-        "<section class='summary'>",
-        "<h2>Next Node Per Cluster</h2>",
-        "<div class='table-wrap'>",
-        "<table>",
-        "<thead><tr><th>Cluster</th><th>Next node</th><th>Est. New Reach</th><th>Unlocks</th><th>Connects to now</th><th>Location</th><th>Maps</th></tr></thead>",
-        "<tbody>",
     ]
-
-    for row in sorted(summary_rows, key=lambda item: str(item["cluster_label"]).lower()):
-        html_parts.extend(
-            [
-                "<tr>",
-                f"<td>{escape(str(row['cluster_label']))}</td>",
-                "<td>"
-                f"<div class='node-title'>{escape(str(row['display_name']))}</div>"
-                f"<div class='node-subtitle'>{escape(str(row['display_type']))}</div>"
-                "</td>",
-                f"<td>{escape(str(row['impact_people_est']))}</td>",
-                f"<td>{escape(str(row['impact_tower_count']))} towers</td>",
-                f"<td>{escape(str(row['previous_connections']))}</td>",
-                f"<td>{escape(str(row['location_en']))}</td>",
-                "<td class='maps'>"
-                f"<a href='{escape(str(row['google_maps_url']))}'>Google</a>"
-                f"<a href='{escape(str(row['osm_url']))}'>OSM</a>"
-                "</td>",
-                "</tr>",
-            ]
-        )
-
-    html_parts.extend(["</tbody></table></div></section>"])
+    html_parts.extend(render_summary_section(summary_rows))
 
     for cluster_label in sorted(grouped_rows, key=str.lower):
         cluster_rows = grouped_rows[cluster_label]
@@ -354,73 +336,19 @@ def render_html_document(
             else "No reachable next node"
         )
         blocked_rows = [
-            row
-            for row in cluster_rows
-            if str(row["rollout_status"]) == "blocked"
+            row for row in cluster_rows if str(row["rollout_status"]) == "blocked"
         ]
         cluster_dom_id = cluster_map_id(str(cluster_rows[0]["cluster_key"]))
-
         html_parts.extend(
-            [
-                "<section class='cluster'>",
-                f"<h2>{escape(cluster_label)}</h2>",
-                f"<p class='meta'>Installed seeds: {escape(', '.join(installed_labels) or 'None')}.</p>",
-                f"<p class='meta'>Next suggested node: {escape(next_label)}.</p>",
-                (
-                    f"<p class='meta'>Blocked later in this queue: {len(blocked_rows)}. "
-                    "These towers stay attached to this rollout queue, "
-                    "but they still need a visible path from an installed seed before they can be installed.</p>"
-                    if blocked_rows
-                    else ""
-                ),
-                f"<div id='{escape(cluster_dom_id)}' class='cluster-map'></div>",
-                "<div class='table-wrap'>",
-                "<table>",
-                "<thead><tr><th>Rank</th><th>Status</th><th>Name</th><th>Type</th><th>Est. New Reach</th><th>Unlocks</th><th>Connects to now</th><th>Location EN</th><th>Location RU</th><th>Maps</th></tr></thead>",
-                "<tbody>",
-            ]
+            render_cluster_section(
+                cluster_label=cluster_label,
+                cluster_rows=cluster_rows,
+                cluster_dom_id=cluster_dom_id,
+                installed_labels=installed_labels,
+                next_label=next_label,
+                blocked_count=len(blocked_rows),
+            )
         )
-
-        for row in cluster_rows:
-            css_classes = []
-            if bool(row["is_next_for_cluster"]):
-                css_classes.append("next-row")
-            if bool(row["installed"]):
-                css_classes.append("installed-row")
-
-            rank_text = (
-                str(row["cluster_install_rank"])
-                if row["cluster_install_rank"] not in (None, "")
-                else "blocked"
-            )
-            html_parts.extend(
-                [
-                    f"<tr class='{' '.join(css_classes)}'>",
-                    f"<td>{escape(rank_text)}</td>",
-                    f"<td><span class='pill {escape(str(row['rollout_status']))}'>{escape(str(row['rollout_status']))}</span></td>",
-                    "<td>"
-                    f"<div class='node-title'>{escape(str(row['display_name']))}</div>"
-                    + (
-                        f"<div class='node-subtitle blocked-note'>{escape(str(row['blocked_reason']))}</div>"
-                        if str(row["blocked_reason"]).strip()
-                        else ""
-                    )
-                    + "</td>",
-                    f"<td><div class='node-subtitle'>{escape(str(row['display_type']))}</div></td>",
-                    f"<td>{escape(str(row['impact_people_est']))}</td>",
-                    f"<td>{escape(summarize_connection_list(row['next_connections']))}<div class='node-subtitle'>{escape(str(row['impact_tower_count']))} downstream towers</div></td>",
-                    f"<td>{escape(str(row['previous_connections']))}</td>",
-                    f"<td>{escape(str(row['location_en']))}</td>",
-                    f"<td>{escape(str(row['location_ru']))}</td>",
-                    "<td class='maps'>"
-                    f"<a href='{escape(str(row['google_maps_url']))}'>Google</a>"
-                    f"<a href='{escape(str(row['osm_url']))}'>OSM</a>"
-                    "</td>",
-                    "</tr>",
-                ]
-            )
-
-        html_parts.extend(["</tbody></table></div></section>"])
 
     html_parts.extend(
         render_map_assets(

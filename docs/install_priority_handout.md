@@ -13,6 +13,14 @@ Dashed context lines show the cheapest visible connector between each pair of ro
 Cluster bounds on the maps are generated as Voronoi cells around all tower points and then merged by `cluster_key`, so the outlines reflect which part of the current tower field is closest to each rollout queue.
 The Voronoi cells are clipped to a geodesic buffer around the full point cloud using the widest nearest-neighbor spacing in real meters, so outer edges do not depend on degree padding or Web Mercator assumptions.
 Every map includes a fullscreen toggle for field use on smaller screens.
+The HTML is tuned for phones as well as laptops.
+The top summary stays a real accessible table, while the long per-cluster detail grid switches to stacked cards on narrow screens so installers do not need to pan across ten columns.
+Cluster mini maps intentionally use smaller order badges and point circles than the overview map so the local geometry stays readable on a phone.
+Each cluster mini map now fits to its own nodes and local rollout lines only.
+Inter-cluster connector lines and full Voronoi bounds are still shown for context, but they do not control the mini-map zoom level anymore.
+On phones the maps use compact attribution controls, slightly taller mini-map panels, smaller cluster badges, and heavier local route strokes so the rollout overlays stay visible without zooming.
+On narrow screens the cluster mini maps are also mounted lazily and unmounted once they are far offscreen, so mobile Chrome does not have to keep every MapLibre WebGL context alive at once.
+That lazy-mount path now resynchronizes on `pageshow`, `focus`, and tab visibility changes as well, which makes forwarded HTML much more reliable inside in-app browsers that background the page before it is fully painted.
 
 ## Installed vs planned
 Only `mesh_towers.source = 'seed'` is treated as already installed.
@@ -60,11 +68,17 @@ The export writes:
 - `data/out/install_priority.csv`
 
 The HTML file includes a top summary table with one true “next node” per cluster, a MapLibre overview map, and one mini map per cluster.
+The summary and detail tables now include captions, scoped headers, and labeled map links so screen readers can follow the same rollout data.
+On narrow screens the summary table remains horizontally scrollable, while each cluster detail section swaps to mobile cards with the same values and links.
 Solid lines show the recommended rollout path inside each cluster.
 The overview map shows every rollout number plus the merged Voronoi outline around each cluster’s current extent.
 Dashed gray lines show the cheapest visible connector between rollout clusters.
 Those links are context only and do not drive the install order itself.
+On the mini maps, those connector lines and large outer Voronoi edges no longer stretch the viewport away from the local cluster geometry.
 `blocked` means the tower belongs to that rollout queue, yet there is still no visible path from any installed seed to that tower.
 The basemap uses the public OpenFreeMap `liberty` style so the handout does not depend on referrer-gated access to OpenStreetMap standard tiles.
+`maplibre-gl.js` and `maplibre-gl.css` are now vendored and inlined into the generated HTML, so a forwarded Telegram file does not need to fetch the MapLibre runtime from a CDN before it can draw the maps.
+The map bootstrap now re-attaches overlays even when the basemap style is already cached and isolates per-layer failures, which makes the single HTML file more reliable when it is forwarded directly in mobile in-app browsers such as Telegram.
+The same bootstrap now exposes `window.__installPriorityMaps` for phone-side debugging, which makes it possible to inspect which mini maps are currently mounted when a mobile browser drops overlays.
 The large cluster tables keep the full data, but the HTML shortens the “Unlocks” preview so the page stays readable on screen.
 The CSV file keeps the same flat rows for sharing, filtering, or printing elsewhere.
