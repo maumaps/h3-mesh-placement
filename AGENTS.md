@@ -76,6 +76,7 @@ Debugging: Write enough comments so you can deduce what was a requirement in the
 Make: Makefile: there are comments on the same line after each target separated by ## - they are used in debug graph visualization, need to be concise and descriptive of what's going on in the code itself.
 Make: Always run `make -n` before every `make` run and fix if something extra is being executed that was not expected or done before.
 Make: Do not use PHONY targets.
+Make: When a rebuild or pipeline step already has a Make target, run it through `make` instead of ad hoc shell/psql/python commands. If the target is broken, fix the target first.
 
 
 You are explicitly forbidden to use variables in Makefile.
@@ -84,6 +85,7 @@ File names of .sql files have to match function or table or procedure name in th
 Environment is restricted by default. If name resolution or socket connection fails, you need to re-run the command requesting elevated permissions.
 Make sure every create statement has descriptive comment `--` in front of it.
 Do not work with GDAL on the filesystem. Import things into database and deal with data there.
+Do not implement geographic clipping in Python when PostGIS is available; import candidate data and clip/filter it in SQL against project boundary tables.
 Use h3index type for storing and passing h3 index around.
 create brin for all columns when creating table to deal with
 ERROR:  data type boolean has no default operator class for access method "brin"

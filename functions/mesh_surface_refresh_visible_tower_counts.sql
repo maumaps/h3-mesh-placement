@@ -4,8 +4,8 @@ drop function if exists mesh_surface_refresh_visible_tower_counts(h3index, doubl
 -- Refresh visible_tower_count values near a center H3 cell
 create or replace function mesh_surface_refresh_visible_tower_counts(
         center_h3 h3index,
-        radius double precision default 70000,
-        los_distance double precision default 70000
+        radius double precision default 80000,
+        los_distance double precision default 80000
     )
     returns void
     language plpgsql

@@ -1,23 +1,18 @@
 set client_min_messages = warning;
 
+drop function if exists h3_visibility_clearance_compute_row(h3index, h3index, double precision, double precision, double precision);
 drop function if exists h3_visibility_clearance_compute(h3index, h3index, double precision, double precision, double precision);
 drop function if exists h3_visibility_clearance(h3index, h3index, double precision, double precision, double precision);
 
 -- Pure computation helper that evaluates Fresnel clearance and path loss without touching the cache
-create or replace function h3_visibility_clearance_compute(
+create or replace function h3_visibility_clearance_compute_row(
     h3_a h3index,
     h3_b h3index,
     mast_height_src double precision,
     mast_height_dst double precision,
     frequency_hz double precision
 )
-    returns table (
-        clearance double precision,
-        path_loss_db double precision,
-        distance_m double precision,
-        d1_m double precision,
-        d2_m double precision
-    )
+    returns h3_visibility_metrics
     language plpgsql
     stable
     parallel safe
@@ -31,11 +26,10 @@ declare
     norm_frequency double precision;
     src_ele        double precision;
     dst_ele        double precision;
-    src_height     double precision;
-    dst_height     double precision;
     total_distance double precision;
-    line_geom      geometry;
-    doc_samples    integer;
+    grid_step_count integer;
+    curvature_scale double precision;
+    fresnel_scale double precision;
     clearance_val  double precision;
     worst_d1       double precision;
     worst_d2       double precision;
@@ -45,7 +39,7 @@ declare
     wavelength     double precision;
 begin
     if h3_a is null or h3_b is null then
-        return;
+        return null;
     end if;
 
     if frequency_hz is null or frequency_hz <= 0 then
@@ -74,90 +68,79 @@ begin
 
     norm_frequency := frequency_hz;
 
-    select ele
-    into src_ele
-    from mesh_surface_h3_r8
-    where h3 = norm_src;
-
-    if not found or src_ele is null then
-        raise exception 'missing elevation for % when computing clearance', norm_src::text;
-    end if;
-
-    select ele
-    into dst_ele
-    from mesh_surface_h3_r8
-    where h3 = norm_dst;
-
-    if not found or dst_ele is null then
-        raise exception 'missing elevation for % when computing clearance', norm_dst::text;
-    end if;
-
-    src_height := src_ele + norm_mast_src;
-    dst_height := dst_ele + norm_mast_dst;
-
     if norm_src = norm_dst then
-        return query
-        select
-            least(src_height - src_ele, dst_height - dst_ele),
-            null::double precision,
-            0::double precision,
-            0::double precision,
-            0::double precision;
+        -- Single-cell links need only the local elevation sample.
+        select g.ele
+        into src_ele
+        from gebco_elevation_h3_r8 g
+        where g.h3 = norm_src;
+
+        if not found or src_ele is null then
+            return null;
+        end if;
+
+        return (least(norm_mast_src, norm_mast_dst), null::double precision, 0::double precision, 0::double precision, 0::double precision)::h3_visibility_metrics;
     end if;
 
     total_distance := ST_Distance(norm_src::geography, norm_dst::geography);
 
     if total_distance <= 0 then
-        return;
+        return null;
     end if;
 
     wavelength := speed_of_light / norm_frequency;
-    line_geom := ST_MakeLine(norm_src::geometry, norm_dst::geometry);
+    grid_step_count := h3_grid_distance(norm_src, norm_dst) + 1;
+    curvature_scale := (total_distance * total_distance) / (2 * effective_radius);
+    fresnel_scale := wavelength * total_distance;
 
-    -- Build the discrete H3 path between the two endpoints.
-    with path as (
-        select h3_grid_path_cells(norm_src, norm_dst) as h3
-    ),
-    -- Sample elevation values along the path and project them onto the line fraction.
-    samples as (
+    -- Sample elevation values directly from the ordered H3 path and annotate them in
+    -- the same pass with endpoint elevations and sample count. This keeps the hot
+    -- LOS path to one join over gebco_elevation_h3_r8 with no separate path CTE.
+    with annotated_samples as (
         select
             p.h3,
-            greatest(
-                least(
-                    ST_LineLocatePoint(line_geom, ST_PointOnSurface(ms.geom))::double precision,
-                    1
-                ),
-                0
-            ) as frac,
-            ms.ele
-        from path p
-        join mesh_surface_h3_r8 ms
+            case
+                when grid_step_count <= 1 then 0::double precision
+                else ((p.step_no - 1)::double precision / (grid_step_count - 1)::double precision)
+            end as frac,
+            case
+                when grid_step_count <= 1 then 1::double precision
+                else 1 - ((p.step_no - 1)::double precision / (grid_step_count - 1)::double precision)
+            end as frac_rev,
+            ms.ele,
+            bool_or(ms.ele is null) over () as has_missing_ele,
+            max(ms.ele) filter (where p.h3 = norm_src) over () as src_ele,
+            max(ms.ele) filter (where p.h3 = norm_dst) over () as dst_ele
+        from h3_grid_path_cells(norm_src, norm_dst) with ordinality as p(h3, step_no)
+        left join gebco_elevation_h3_r8 ms
           on ms.h3 = p.h3
     ),
     -- Compute Fresnel clearance at each sample point along the link.
     calc as (
         select
-            s.h3,
             s.frac,
             s.ele,
+            s.src_ele,
+            s.dst_ele,
             total_distance * s.frac as d1,
-            total_distance * (1 - s.frac) as d2,
-            (src_height + (dst_height - src_height) * s.frac)
+            total_distance * s.frac_rev as d2,
+            ((s.src_ele + norm_mast_src) + ((s.dst_ele + norm_mast_dst) - (s.src_ele + norm_mast_src)) * s.frac)
             - (
                 s.ele
-                + ((total_distance * s.frac) * (total_distance * (1 - s.frac))) / (2 * effective_radius)
-                + sqrt(wavelength * (total_distance * s.frac) * (total_distance * (1 - s.frac)) / total_distance)
+                + (curvature_scale * s.frac * s.frac_rev)
+                + sqrt(fresnel_scale * s.frac * s.frac_rev)
             ) as clearance_value
-        from samples s
+        from annotated_samples s
+        where not s.has_missing_ele
+          and s.src_ele is not null
+          and s.dst_ele is not null
     ),
-    -- Gather summary stats for diagnostics and safety checks.
-    stats as (
-        select count(*)::integer as sample_count
-        from calc
-    ),
-    -- Choose the worst (minimum) clearance sample as the link clearance.
+    -- Choose the worst (minimum) clearance sample as the link clearance and keep
+    -- the endpoint elevations that produced that line of sight profile.
     worst as (
         select
+            c.src_ele,
+            c.dst_ele,
             c.clearance_value,
             c.d1,
             c.d2
@@ -166,19 +149,24 @@ begin
         limit 1
     )
     select
-        stats.sample_count,
+        worst.src_ele,
+        worst.dst_ele,
         worst.clearance_value,
         worst.d1,
         worst.d2
-    into doc_samples, clearance_val, worst_d1, worst_d2
-    from stats, worst;
+    into src_ele, dst_ele, clearance_val, worst_d1, worst_d2
+    from worst;
 
-    if doc_samples is null or doc_samples = 0 then
-        raise exception 'no samples available between % and % for clearance computation', norm_src::text, norm_dst::text;
+
+    if src_ele is null or dst_ele is null then
+        -- Missing endpoint elevations mean the path is not computable.
+        return null;
     end if;
 
     if clearance_val is null then
-        raise exception 'failed to compute clearance between % and % due to missing data', norm_src::text, norm_dst::text;
+        -- Missing intermediate elevations can leave no valid worst sample.
+        -- Return no row so the caller can treat the path as not visible.
+        return null;
     end if;
 
     if worst_d1 is null or worst_d2 is null then
@@ -186,14 +174,46 @@ begin
         worst_d2 := total_distance / 2;
     end if;
 
-    return query
-    select
-        clearance_val,
-        h3_path_loss(total_distance, norm_frequency, clearance_val, worst_d1, worst_d2),
-        total_distance,
-        worst_d1,
-        worst_d2;
+    return (clearance_val, h3_path_loss(total_distance, norm_frequency, clearance_val, worst_d1, worst_d2), total_distance, worst_d1, worst_d2)::h3_visibility_metrics;
 end;
+$$;
+
+-- Compatibility wrapper that preserves the old table-function interface for existing callers.
+create or replace function h3_visibility_clearance_compute(
+    h3_a h3index,
+    h3_b h3index,
+    mast_height_src double precision,
+    mast_height_dst double precision,
+    frequency_hz double precision
+)
+    returns table (
+        clearance double precision,
+        path_loss_db double precision,
+        distance_m double precision,
+        d1_m double precision,
+        d2_m double precision
+    )
+    language sql
+    stable
+    parallel safe
+as
+$$
+    select
+        (metrics).clearance,
+        (metrics).path_loss_db,
+        (metrics).distance_m,
+        (metrics).d1_m,
+        (metrics).d2_m
+    from (
+        select h3_visibility_clearance_compute_row(
+            h3_a,
+            h3_b,
+            mast_height_src,
+            mast_height_dst,
+            frequency_hz
+        ) as metrics
+    ) q
+    where q.metrics is not null;
 $$;
 
 -- create helper that returns minimum clearance between los and first fresnel zone, caching results

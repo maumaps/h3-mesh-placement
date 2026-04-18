@@ -1,7 +1,7 @@
 set client_min_messages = notice;
 
 -- Cluster eligible hexes by population and install one tower per cluster when absent.
-\set max_distance 70000
+\set max_distance 80000
 \set target_clusters 2
 
 -- Reset prior population towers so reruns stay idempotent and unlock their cells.
@@ -69,7 +69,7 @@ candidate_points as (
         select ST_Transform(ST_Force3D(c.centroid_geog::geometry), 4978) as geom_3d
     ) as gc
 ),
--- Assign clusters weighted by nearby population using the 3D trick to cap radius at 70 km.
+-- Assign clusters weighted by nearby population using the 3D trick to cap radius at 80 km.
 clustered as (
     select
         cp.h3,

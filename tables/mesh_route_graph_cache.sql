@@ -5,7 +5,7 @@ drop table if exists mesh_route_graph_cache;
 create table mesh_route_graph_cache (
     source_h3 h3index not null,
     target_h3 h3index not null,
-    geom geometry(LineString, 4326) not null,
+    geom geometry not null,
     created_at timestamptz default now(),
     primary key (source_h3, target_h3)
 );

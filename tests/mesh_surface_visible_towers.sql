@@ -16,7 +16,7 @@ begin
             centroid_geog,
             visible_tower_count
         from mesh_surface_h3_r8
-        where distance_to_closest_tower < 70000
+        where distance_to_closest_tower < 80000
         order by distance_to_closest_tower
         limit max_samples
     loop
@@ -26,7 +26,7 @@ begin
         into expected
         from mesh_towers t
         where t.h3 <> sample.h3
-          and ST_DWithin(sample.centroid_geog, t.centroid_geog, 70000)
+          and ST_DWithin(sample.centroid_geog, t.centroid_geog, 80000)
           and h3_los_between_cells(sample.h3, t.h3);
 
         if sample.visible_tower_count is distinct from expected then
@@ -40,7 +40,7 @@ begin
     end loop;
 
     if samples_checked = 0 then
-        raise exception 'visible_tower_count test found no surface cells within 70 km of a tower';
+        raise exception 'visible_tower_count test found no surface cells within 80 km of a tower';
     end if;
 end;
 $$;

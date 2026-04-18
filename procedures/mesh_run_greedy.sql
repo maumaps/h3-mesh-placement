@@ -1,18 +1,18 @@
 -- Greedy iteration terminology:
 -- * bridge mode: prioritize connecting tower clusters to each other
 -- * greedy mode: fall back to maximizing uncovered population
--- * visible_tower_count: count of individual towers with LOS within 70 km
+-- * visible_tower_count: count of individual towers with LOS within 80 km
 -- * visible_cluster_count: count of unique tower clusters reachable from a candidate
--- * max_distance: any LOS/(re)calculation stays within 70 km by design
--- * separation: minimum 5 km spacing between towers
+-- * max_distance: any LOS/(re)calculation stays within 80 km by design
+-- * separation: minimum spacing between towers (currently disabled; adjacent hexes allowed)
 -- * recalc_reception: radius for recomputing clearance/path loss around placements
 -- * recalc_population: radius for recomputing uncovered population (same as talk)
 -- All distances are meters and rely on geography SRIDs with ST_DWithin.
 -- Constants for this single greedy iteration
-\set max_distance 70000
-\set separation 5000
-\set recalc_reception 70000
-\set recalc_population 70000
+\set max_distance 80000
+\set separation 0
+\set recalc_reception 80000
+\set recalc_population 80000
 
 set client_min_messages = notice;
 
@@ -28,7 +28,7 @@ with reception_targets as (
     from mesh_surface_h3_r8 s1
     where s1.has_tower is not true
       and s1.clearance is null
-      and s1.distance_to_closest_tower < 70000
+      and s1.distance_to_closest_tower < 80000
 ),
 -- Pair each reception target with nearby towers
 reception_candidate_towers as (
@@ -41,7 +41,7 @@ reception_candidate_towers as (
         select t.h3, t.centroid_geog
         from mesh_towers t
         where t.h3 <> rt.h3
-          and ST_DWithin(rt.centroid_geog, t.centroid_geog, 70000)
+          and ST_DWithin(rt.centroid_geog, t.centroid_geog, 80000)
     ) t on true
 ),
 -- Evaluate visibility exactly once for every (cell, tower) pair
@@ -100,9 +100,9 @@ where s.h3 = q.cell_h3;
 do
 $$
 declare
-    separation constant double precision := 5000;
-    recalc_radius constant double precision := 70000;
-    max_distance constant double precision := 70000;
+    separation constant double precision := 0;
+    recalc_radius constant double precision := 80000;
+    max_distance constant double precision := 80000;
     previous_iteration integer := coalesce((select max(iteration) from mesh_greedy_iterations), 0);
     next_iteration integer := previous_iteration + 1;
     candidate record;
@@ -134,11 +134,10 @@ begin
         from mesh_surface_h3_r8 s
         join cluster_stats stats on stats.cluster_count > 1
         where s.can_place_tower
-          and coalesce(s.distance_to_closest_tower >= s.min_distance_to_closest_tower, false)
           and s.distance_to_closest_tower < max_distance
           and s.visible_tower_count >= 2
     ),
-    -- Collect all towers per cluster within 70 km, or the closest one if none are in range
+    -- Collect all towers per cluster within 80 km, or the closest one if none are in range
     candidate_cluster_towers as (
         select
             c.h3 as candidate_h3,
@@ -307,11 +306,14 @@ begin
         coalesce(opened.opened_candidate_cell_count, 0) as new_candidate_cell_count
     into candidate
     from tie_bridge_candidates tie
+    join mesh_surface_h3_r8 surface on surface.h3 = tie.h3
     left join tie_bridge_candidate_openings opened on opened.h3 = tie.h3
     order by
+        surface.has_building desc,
         coalesce(opened.opened_candidate_cell_count, 0) desc,
         coalesce(tie.tie_visible_population, 0) desc,
-        coalesce(tie.visible_uncovered_population, 0) desc
+        coalesce(tie.visible_uncovered_population, 0) desc,
+        surface.building_count desc
     limit 1;
 
     if not found then
@@ -387,12 +389,13 @@ begin
                   and h3_los_between_cells(s.h3, sc.h3)
             ) opened on true
             where s.can_place_tower
-              and coalesce(s.distance_to_closest_tower >= s.min_distance_to_closest_tower, false)
               and s.visible_tower_count >= 2
               and coalesce(s.visible_uncovered_population, 0) > 0
         ) g
-        order by g.new_candidate_cell_count desc,
-                 g.visible_uncovered_population desc
+        order by g.has_building desc,
+                 g.new_candidate_cell_count desc,
+                 g.visible_uncovered_population desc,
+                 g.building_count desc
         limit 1;
     end if;
 

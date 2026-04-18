@@ -3,16 +3,16 @@ set client_min_messages = notice;
 drop procedure if exists mesh_tower_wiggle();
 drop function if exists mesh_tower_wiggle();
 
--- Recenter one population/route/bridge/cluster-slim tower toward denser visible population while preserving current LOS neighbors.
+-- Recenter one coarse/route/bridge/cluster-slim tower toward denser visible population while preserving current LOS neighbors.
 create or replace function mesh_tower_wiggle(reset_run boolean default false)
     returns integer
     language plpgsql
 as
 $$
 declare
-    max_distance constant double precision := 70000;
-    separation_default constant double precision := 5000;
-    target_sources constant text[] := array['route', 'cluster_slim', 'bridge', 'population'];
+    max_distance constant double precision := 80000;
+    separation_default constant double precision := 0;
+    target_sources constant text[] := array['route', 'cluster_slim', 'bridge', 'coarse'];
     processed integer := 0;
     anchor record;
     best record;
@@ -150,10 +150,15 @@ begin
     )
     select
         cv.h3,
-        cv.visible_population
+        cv.visible_population,
+        coalesce(s.has_building, false) as has_building,
+        coalesce(s.building_count, 0) as building_count
     into best
     from candidate_visible_population cv
-    order by cv.visible_population desc,
+    join mesh_surface_h3_r8 s on s.h3 = cv.h3
+    order by s.has_building desc,
+             cv.visible_population desc,
+             s.building_count desc,
              case when cv.h3 = anchor.h3 then 0 else 1 end,
              cv.h3
     limit 1;
@@ -237,6 +242,7 @@ begin
     set distance_to_closest_tower = rd.distance_m,
         clearance = null,
         path_loss = null,
+        visible_population = null,
         visible_uncovered_population = case
             when s.has_tower then 0
             else null
@@ -244,12 +250,7 @@ begin
     from recomputed_distances rd
     where s.h3 = rd.h3;
 
-    -- Refresh LOS counts and RF metrics around the old and new tower slots.
-    perform mesh_surface_refresh_visible_tower_counts(anchor.h3, max_distance, max_distance);
-    perform mesh_surface_refresh_visible_tower_counts(best.h3, max_distance, max_distance);
-    perform mesh_surface_refresh_reception_metrics(anchor.h3, max_distance, max_distance);
-    perform mesh_surface_refresh_reception_metrics(best.h3, max_distance, max_distance);
-    perform mesh_surface_fill_visible_population(best.h3);
+    -- Defer heavy local RF and population refresh to the later route-refresh stage.
 
     -- Mark neighbors for another pass now that visibility changed.
     update mesh_tower_wiggle_queue q
@@ -263,9 +264,7 @@ begin
 
     processed := 1;
 
-    if to_regprocedure('mesh_visibility_edges_refresh()') is not null then
-        call mesh_visibility_edges_refresh();
-    end if;
+    raise notice 'Wiggle deferred local RF and visibility refresh after moving tower %', anchor.tower_id;
 
     return processed;
 end;

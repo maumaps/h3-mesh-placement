@@ -43,7 +43,7 @@ begin
     if not ST_DWithin(
         h3_cell_to_geometry(tower_a1_h3)::geography,
         h3_cell_to_geometry(tower_a2_h3)::geography,
-        70000
+        80000
     ) then
         raise exception 'Test towers % and % ended up farther than 70km apart, cannot validate connectivity',
             tower_a1_h3::text,
@@ -53,7 +53,7 @@ begin
     if not ST_DWithin(
         h3_cell_to_geometry(tower_b1_h3)::geography,
         h3_cell_to_geometry(tower_b2_h3)::geography,
-        70000
+        80000
     ) then
         raise exception 'Test towers % and % ended up farther than 70km apart, cannot validate connectivity',
             tower_b1_h3::text,

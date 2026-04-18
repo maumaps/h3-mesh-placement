@@ -51,6 +51,7 @@ except ModuleNotFoundError:
 
 
 SOURCE_PRIORITY = {
+    "coarse": 3,
     "population": 3,
     "route": 2,
     "cluster_slim": 1,

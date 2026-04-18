@@ -1,7 +1,7 @@
 set client_min_messages = notice;
 
-\set max_distance 70000
-\set refresh_radius 70000
+\set max_distance 80000
+\set refresh_radius 80000
 
 -- Return ordered intermediate H3 cells for cheapest bridge between two clusters.
 drop function if exists mesh_route_intermediate_hexes(integer, integer);
@@ -17,33 +17,55 @@ $$
 declare
     start_vids integer[];
     end_vids integer[];
-    separation constant double precision := 500;
+    separation constant double precision := 0;
     start_h3s h3index[];
     end_h3s h3index[];
 begin
-    -- Gather node ids for the source cluster from the cached routing graph.
+    -- Pick the nearest tower-node pair between the two clusters and route
+    -- between those anchors. Sending every tower node in both clusters into
+    -- pgr_dijkstra makes each bridge attempt explode combinatorially.
+    with start_towers as (
+        select
+            mrn.node_id,
+            mrn.h3,
+            mt.centroid_geog
+        from mesh_route_nodes mrn
+        join mesh_towers mt on mt.h3 = mrn.h3
+        join mesh_tower_clusters() tc on tc.tower_id = mt.tower_id
+        where tc.cluster_id = start_cluster
+    ),
+    end_towers as (
+        select
+            mrn.node_id,
+            mrn.h3,
+            mt.centroid_geog
+        from mesh_route_nodes mrn
+        join mesh_towers mt on mt.h3 = mrn.h3
+        join mesh_tower_clusters() tc on tc.tower_id = mt.tower_id
+        where tc.cluster_id = end_cluster
+    ),
+    nearest_pair as (
+        select
+            array[start_towers.node_id] as start_vids,
+            array[end_towers.node_id] as end_vids,
+            array[start_towers.h3] as start_h3s,
+            array[end_towers.h3] as end_h3s
+        from start_towers
+        cross join end_towers
+        order by start_towers.centroid_geog <-> end_towers.centroid_geog
+        limit 1
+    )
     select
-        array_agg(mrn.node_id),
-        array_agg(mrn.h3)
-    into start_vids, start_h3s
-    from mesh_route_nodes mrn
-    join mesh_towers mt on mt.h3 = mrn.h3
-    join mesh_tower_clusters() tc on tc.tower_id = mt.tower_id
-    where tc.cluster_id = start_cluster;
+        nearest_pair.start_vids,
+        nearest_pair.end_vids,
+        nearest_pair.start_h3s,
+        nearest_pair.end_h3s
+    into start_vids, end_vids, start_h3s, end_h3s
+    from nearest_pair;
 
     if start_vids is null or array_length(start_vids, 1) = 0 then
         return;
     end if;
-
-    -- Gather node ids for the destination cluster.
-    select
-        array_agg(mrn.node_id),
-        array_agg(mrn.h3)
-    into end_vids, end_h3s
-    from mesh_route_nodes mrn
-    join mesh_towers mt on mt.h3 = mrn.h3
-    join mesh_tower_clusters() tc on tc.tower_id = mt.tower_id
-    where tc.cluster_id = end_cluster;
 
     if end_vids is null or array_length(end_vids, 1) = 0 then
         return;
@@ -119,10 +141,13 @@ $$;
 do
 $$
 declare
-    max_distance constant double precision := 70000;
-    refresh_radius constant double precision := 70000;
+    max_distance constant double precision := 80000;
+    refresh_radius constant double precision := 80000;
     total_new integer := 0;
     cluster_total integer;
+    candidate_pair_limit constant integer := 256;
+    max_pair_attempts_per_run constant integer := 256;
+    attempted_pairs integer := 0;
     start_cluster integer;
     end_cluster integer;
     pair_distance double precision;
@@ -131,6 +156,10 @@ declare
     new_h3 h3index;
     new_centroid public.geography;
 begin
+    -- Route insertion triggers expensive local LOS-based surface refreshes, so
+    -- disable statement timeout for this transaction just like cluster slim.
+    perform set_config('statement_timeout', '0', true);
+
     -- Ensure the seed step populated the routing graph before trying to bridge anything.
     if to_regclass('mesh_route_nodes') is null then
         raise notice 'mesh_route_nodes table missing, skipping routing';
@@ -168,6 +197,17 @@ begin
         seq integer,
         h3 h3index
     ) on commit drop;
+
+    if to_regclass('mesh_route_edge_components') is null then
+        raise notice 'mesh_route_edge_components table missing, skipping routing';
+        return;
+    end if;
+
+    if not exists (select 1 from mesh_route_edge_components) then
+        raise notice 'mesh_route_edge_components not prepared, skipping routing';
+        return;
+    end if;
+
     -- Track cluster pairs that have already been attempted so we can try the rest even if one fails.
     drop table if exists mesh_route_failed_pairs;
     create temporary table mesh_route_failed_pairs (
@@ -178,6 +218,12 @@ begin
     ) on commit drop;
 
     loop
+        if attempted_pairs >= max_pair_attempts_per_run then
+            raise notice 'Reached % bridge pair attempts without finishing cluster bridging in this run',
+                max_pair_attempts_per_run;
+            exit;
+        end if;
+
         -- Refresh cluster counts each iteration because new towers change connectivity.
         select count(distinct cluster_id)
         into cluster_total
@@ -189,40 +235,58 @@ begin
             -- Collect tower centroids per cluster so we can measure inter-cluster distance.
             select
                 tc.cluster_id,
-                mt.centroid_geog
+                mt.centroid_geog,
+                rec.component
             from mesh_tower_clusters() tc
             join mesh_towers mt on mt.tower_id = tc.tower_id
-        ),
-        cluster_centroids as (
-            select
-                cluster_id,
-                ST_Collect(centroid_geog::geometry)::public.geography as centroid_geog
-            from cluster_points
-            group by cluster_id
+            join mesh_route_nodes mrn on mrn.h3 = mt.h3
+            join mesh_route_edge_components rec on rec.node = mrn.node_id
         ),
         cluster_pairs as (
-            -- Rank cluster pairs by separation so we bridge the widest gap first, skipping failed attempts.
+            -- Rank cluster pairs by the closest tower-to-tower gap instead of the
+            -- widest centroid gap. The partial route graph is far more likely to
+            -- connect neighboring clusters than pairs hundreds of kilometers apart.
             select
-                c1.cluster_id as cluster_a,
-                c2.cluster_id as cluster_b,
-                ST_Distance(c1.centroid_geog, c2.centroid_geog) as cluster_distance
-            from cluster_centroids c1
-            join cluster_centroids c2 on c1.cluster_id < c2.cluster_id
+                cp1.cluster_id as cluster_a,
+                cp2.cluster_id as cluster_b,
+                min(ST_Distance(cp1.centroid_geog, cp2.centroid_geog)) as cluster_distance
+            from cluster_points cp1
+            join cluster_points cp2 on cp1.cluster_id < cp2.cluster_id
             where not exists (
                 select 1
                 from mesh_route_failed_pairs fp
-                where fp.cluster_a = c1.cluster_id
-                  and fp.cluster_b = c2.cluster_id
+                where fp.cluster_a = cp1.cluster_id
+                  and fp.cluster_b = cp2.cluster_id
             )
+              and cp1.component = cp2.component
+            group by cp1.cluster_id, cp2.cluster_id
         )
-        -- Lock in the next cluster pair to bridge.
+        -- Lock in the next cluster pair to bridge. Searching a bounded window of
+        -- the closest gaps keeps the stage moving instead of spending minutes on
+        -- extreme long-shot pairs that the current graph cannot possibly bridge.
         select cluster_a, cluster_b, cluster_distance
         into start_cluster, end_cluster, pair_distance
-        from cluster_pairs
+        from (
+            select
+                cluster_a,
+                cluster_b,
+                cluster_distance
+            from cluster_pairs
+            order by cluster_distance asc
+            limit candidate_pair_limit
+        ) ranked_cluster_pairs
         order by cluster_distance asc
         limit 1;
 
         exit when start_cluster is null or end_cluster is null;
+
+        attempted_pairs := attempted_pairs + 1;
+
+        raise notice 'Bridge attempt %: clusters % -> % (nearest gap % m)',
+            attempted_pairs,
+            start_cluster,
+            end_cluster,
+            pair_distance;
 
         -- Reset the path buffer before computing the next route.
         truncate mesh_route_path_nodes_work;
@@ -236,6 +300,10 @@ begin
         select count(*)
         into path_node_count
         from mesh_route_path_nodes_work;
+
+        raise notice 'Bridge attempt % path candidate count: %',
+            attempted_pairs,
+            path_node_count;
 
         if path_node_count = 0 then
             insert into mesh_route_failed_pairs (cluster_a, cluster_b, failure_reason)
@@ -297,19 +365,6 @@ begin
             where h3 <> new_h3
               and ST_DWithin(centroid_geog, new_centroid, refresh_radius);
 
-            -- Recompute tower visibility counts around the new route tower.
-            perform mesh_surface_refresh_visible_tower_counts(
-                new_h3,
-                refresh_radius,
-                max_distance
-            );
-
-            -- Refresh reception metrics in the same radius so greedy placement has up-to-date inputs.
-            perform mesh_surface_refresh_reception_metrics(
-                new_h3,
-                refresh_radius,
-                max_distance
-            );
         end loop;
 
         if route_added = 0 then
@@ -329,6 +384,10 @@ begin
         end if;
 
         total_new := total_new + route_added;
+
+        raise notice 'Bridge attempt % inserted % route towers; deferred local surface refresh to later route_refresh_visibility stage',
+            attempted_pairs,
+            route_added;
     end loop;
 
     -- Drop helper artifacts so future runs start from a clean slate.

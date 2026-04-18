@@ -34,7 +34,7 @@ begin
             t.population
         from mesh_surface_h3_r8 t
         where t.population > 0
-          and ST_DWithin(target_centroid, t.centroid_geog, 70000)
+          and ST_DWithin(target_centroid, t.centroid_geog, 80000)
     )
     select coalesce(sum(cn.population), 0)
     into visible_pop

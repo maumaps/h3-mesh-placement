@@ -179,7 +179,7 @@ def fetch_tower_adjacency(conn, towers: Iterable[str]) -> Dict[str, List[str]]:
             join towers t_src on t_src.h3 = c.src_h3
             join towers t_dst on t_dst.h3 = c.dst_h3
             where c.clearance > 0
-              and c.distance_m <= 70000
+              and c.distance_m <= 80000
               and c.mast_height_src = 28
               and c.mast_height_dst = 28
               and c.frequency_hz = 868000000
@@ -191,7 +191,7 @@ def fetch_tower_adjacency(conn, towers: Iterable[str]) -> Dict[str, List[str]]:
             join towers t_src on t_src.h3 = c.dst_h3
             join towers t_dst on t_dst.h3 = c.src_h3
             where c.clearance > 0
-              and c.distance_m <= 70000
+              and c.distance_m <= 80000
               and c.mast_height_src = 28
               and c.mast_height_dst = 28
               and c.frequency_hz = 868000000
@@ -236,7 +236,7 @@ def fetch_visible_cells(
             join towers t_src on t_src.h3 = c.src_h3
             left join towers t_dst on t_dst.h3 = c.dst_h3
             where c.clearance > 0
-              and c.distance_m <= 70000
+              and c.distance_m <= 80000
               and c.mast_height_src = 28
               and c.mast_height_dst = 28
               and c.frequency_hz = 868000000
@@ -250,7 +250,7 @@ def fetch_visible_cells(
             join towers t_src on t_src.h3 = c.dst_h3
             left join towers t_dst on t_dst.h3 = c.src_h3
             where c.clearance > 0
-              and c.distance_m <= 70000
+              and c.distance_m <= 80000
               and c.mast_height_src = 28
               and c.mast_height_dst = 28
               and c.frequency_hz = 868000000
@@ -295,7 +295,7 @@ def fetch_tower_visibility(
             join towers t_src on t_src.h3 = c.src_h3
             join towers t_dst on t_dst.h3 = c.dst_h3
             where c.clearance > 0
-              and c.distance_m <= 70000
+              and c.distance_m <= 80000
               and c.mast_height_src = 28
               and c.mast_height_dst = 28
               and c.frequency_hz = 868000000
@@ -308,7 +308,7 @@ def fetch_tower_visibility(
             join towers t_src on t_src.h3 = c.dst_h3
             join towers t_dst on t_dst.h3 = c.src_h3
             where c.clearance > 0
-              and c.distance_m <= 70000
+              and c.distance_m <= 80000
               and c.mast_height_src = 28
               and c.mast_height_dst = 28
               and c.frequency_hz = 868000000
@@ -396,7 +396,7 @@ def build_tier_thresholds(conn, tier_thresholds_db: str) -> List[float]:
         select percentile_cont(array[0.15, 0.3, 0.45, 0.6, 0.75, 0.9]) within group (order by path_loss_db)
         from mesh_los_cache
         where clearance > 0
-          and distance_m <= 70000
+          and distance_m <= 80000
           and mast_height_src = 28
           and mast_height_dst = 28
           and frequency_hz = 868000000;

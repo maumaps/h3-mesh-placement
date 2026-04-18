@@ -8,6 +8,7 @@ create table mesh_surface_h3_r8 (
     centroid_geog public.geography generated always as (h3_cell_to_geometry(h3)::public.geography) stored,
     ele double precision,
     has_road boolean default false,
+    building_count integer,
     population numeric,
     has_tower boolean default false,
     clearance double precision,
@@ -19,7 +20,8 @@ create table mesh_surface_h3_r8 (
     ) stored,
     is_in_boundaries boolean default false,
     is_in_unfit_area boolean default false,
-    min_distance_to_closest_tower double precision default 5000,
+    min_distance_to_closest_tower double precision default 0,
+    has_building boolean generated always as (coalesce(building_count, 0) > 0) stored,
     visible_population numeric,
     population_70km numeric,
     visible_uncovered_population numeric,
@@ -49,6 +51,11 @@ set has_road = true
 where exists (
     select 1 from roads_h3_r8 r where r.h3::h3index = s.h3
 );
+
+update mesh_surface_h3_r8 s
+set building_count = b.building_count
+from buildings_h3_r8 b
+where s.h3 = b.h3::h3index;
 
 update mesh_surface_h3_r8 s
 set is_in_boundaries = exists (
@@ -96,13 +103,13 @@ from (
 ) sub
 where s.h3 = sub.h3;
 
--- Sum population within 70 km (no LOS) only for tower-eligible cells to speed up clustering weights.
+-- Sum population within 80 km (no LOS) only for tower-eligible cells to speed up clustering weights.
 update mesh_surface_h3_r8 s
 set population_70km = coalesce((
     select sum(pop.population)
     from mesh_surface_h3_r8 pop
     where pop.population > 0
-      and ST_DWithin(pop.centroid_geog, s.centroid_geog, 70000)
+      and ST_DWithin(pop.centroid_geog, s.centroid_geog, 80000)
 ), 0)
 where s.can_place_tower;
 
@@ -117,7 +124,7 @@ visible_pairs as (
     from mesh_surface_h3_r8 s
     join tower_points tp
         on tp.h3 <> s.h3
-       and ST_DWithin(s.centroid_geog, tp.centroid_geog, 70000)
+       and ST_DWithin(s.centroid_geog, tp.centroid_geog, 80000)
 ),
 visible_counts as (
     select
@@ -138,6 +145,7 @@ where visible_tower_count is null;
 
 create index if not exists mesh_surface_h3_r8_brin_all on mesh_surface_h3_r8 using brin (
     ele,
+    building_count,
     population,
     population_70km,
     visible_population,

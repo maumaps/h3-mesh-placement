@@ -16,7 +16,7 @@ $$
 declare
     start_node integer;
     end_node integer;
-    separation constant double precision := 5000;
+    separation constant double precision := 0;
 begin
     select node_id
     into start_node
@@ -40,18 +40,14 @@ begin
         truncate mesh_route_blocked_nodes;
     end if;
 
+    -- Zero-separation blocking only needs exact tower H3 matches, so avoid scanning the
+    -- whole surface and tower set through ST_DWithin().
     insert into mesh_route_blocked_nodes (node_id)
     select mrn.node_id
     from mesh_route_nodes mrn
-    join mesh_surface_h3_r8 surface on surface.h3 = mrn.h3
+    join mesh_towers mt on mt.h3 = mrn.h3
     where mrn.node_id not in (start_node, end_node)
-      and surface.centroid_geog is not null
-      and exists (
-            select 1
-            from mesh_towers mt
-            where mt.h3 not in (source_h3, target_h3)
-              and ST_DWithin(surface.centroid_geog, mt.centroid_geog, separation)
-        );
+      and mt.h3 not in (source_h3, target_h3);
 
     if blocked_nodes is not null then
         insert into mesh_route_blocked_nodes (node_id)
@@ -64,10 +60,12 @@ begin
         -- Run pgRouting across the cached LOS graph to recover the minimum-cost corridor.
         select *
         from pgr_dijkstra(
-            'select edge_id as id, source, target, cost, reverse_cost
-             from mesh_route_edges
-             where source not in (select node_id from mesh_route_blocked_nodes)
-               and target not in (select node_id from mesh_route_blocked_nodes)',
+            'select e.edge_id as id, e.source, e.target, e.cost, e.reverse_cost
+             from mesh_route_edges e
+             left join mesh_route_blocked_nodes blocked_source on blocked_source.node_id = e.source
+             left join mesh_route_blocked_nodes blocked_target on blocked_target.node_id = e.target
+             where blocked_source.node_id is null
+               and blocked_target.node_id is null',
             start_node,
             end_node,
             false

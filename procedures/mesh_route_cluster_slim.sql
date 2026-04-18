@@ -10,9 +10,9 @@ create or replace procedure mesh_route_cluster_slim(iteration_label integer, ino
 as
 $$
 declare
-    max_distance constant double precision := 70000;
-    refresh_radius constant double precision := 70000;
-    separation constant double precision := 5000;
+    max_distance constant double precision := 80000;
+    refresh_radius constant double precision := 80000;
+    separation constant double precision := 0;
     hop_limit constant integer := 7;
     -- Keep this batch high by default: evaluating more candidates in one pass helps
     -- pick a stronger corridor early, which usually shrinks the next-iteration search
@@ -76,12 +76,6 @@ begin
         raise exception 'mesh_route_cluster_slim_failures table missing; run db/table/mesh_route_cluster_slim_failures first';
     end if;
 
-    -- Full visibility refresh is needed before the first slim pass.
-    -- Later iterations already run this refresh at the end when towers are promoted.
-    if iteration_number = 1 then
-        call mesh_visibility_edges_refresh();
-    end if;
-
     if to_regclass('pg_temp.mesh_route_cluster_slim_candidates') is not null then
         drop table mesh_route_cluster_slim_candidates;
     end if;
@@ -129,6 +123,7 @@ begin
         expected_hops integer,
         new_node_count integer,
         existing_node_count integer,
+        building_node_count integer,
         shared_score integer,
         seed_endpoint_count integer,
         fail_reason text
@@ -275,7 +270,6 @@ begin
         join mesh_surface_h3_r8 surface on surface.h3 = mrn.h3
         where surface.has_tower is not true
           and surface.distance_to_closest_tower is not null
-          and surface.distance_to_closest_tower < separation
           and not exists (
                 select 1
                 from mesh_route_cluster_slim_endpoints ep
@@ -374,6 +368,7 @@ begin
             expected_hops,
             new_node_count,
             existing_node_count,
+            building_node_count,
             shared_score,
             seed_endpoint_count
         )
@@ -381,9 +376,11 @@ begin
             select
                 pair_id,
                 count(*) as path_nodes,
-                count(*) filter (where has_tower is false) as new_node_count,
-                count(*) filter (where has_tower is true) as existing_node_count
+                count(*) filter (where mesh_route_cluster_slim_batch_path.has_tower is false) as new_node_count,
+                count(*) filter (where mesh_route_cluster_slim_batch_path.has_tower is true) as existing_node_count,
+                count(*) filter (where mesh_route_cluster_slim_batch_path.has_tower is false and surface.has_building) as building_node_count
             from mesh_route_cluster_slim_batch_path
+            join mesh_surface_h3_r8 surface using (h3)
             group by pair_id
         )
         select
@@ -399,6 +396,7 @@ begin
             case when pc.path_nodes is not null then pc.path_nodes + 1 end as expected_hops,
             pc.new_node_count,
             pc.existing_node_count,
+            pc.building_node_count,
             0,
             cp.seed_endpoint_count
         from mesh_route_cluster_slim_candidates cp
@@ -488,6 +486,7 @@ begin
         where msa.fail_reason is null
         order by
             msa.seed_endpoint_count desc,
+            coalesce(msa.building_node_count, 0) desc,
             msa.shared_score desc,
             (msa.cluster_hops - msa.expected_hops) desc,
             msa.average_hop_length asc
@@ -626,25 +625,11 @@ begin
             where h3 <> new_h3
               and ST_DWithin(centroid_geog, new_centroid, refresh_radius);
 
-            perform mesh_surface_refresh_visible_tower_counts(
-                new_h3,
-                refresh_radius,
-                max_distance
-            );
-
-            perform mesh_surface_refresh_reception_metrics(
-                new_h3,
-                refresh_radius,
-                max_distance
-            );
         end loop;
 
         if promoted_count > 0 then
-            stage_started_at := clock_timestamp();
-            call mesh_visibility_edges_refresh();
-            raise notice 'Cluster slim iteration % refreshed visibility diagnostics in %.1f s after installing % new tower(s)',
+            raise notice 'Cluster slim iteration % deferred local and visibility refresh after installing % new tower(s)',
                 iteration_number,
-                extract(epoch from clock_timestamp() - stage_started_at),
                 promoted_count;
         else
             raise notice 'Cluster slim iteration % skipped visibility refresh because corridor reused existing towers',

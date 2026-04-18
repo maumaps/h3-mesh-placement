@@ -198,7 +198,9 @@ def _connector_edge_priority(source_a: str, source_b: str) -> float:
         return 0.0
     if "route" in ordered_sources or "bridge" in ordered_sources:
         return 1.0
-    if "population" in ordered_sources:
+    if "coarse" in ordered_sources:
         return 2.0
+    if "population" in ordered_sources:
+        return 3.0
 
-    return 3.0
+    return 4.0

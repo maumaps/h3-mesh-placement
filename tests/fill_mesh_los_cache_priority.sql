@@ -52,6 +52,7 @@ begin
         h3,
         ele,
         has_road,
+        building_count,
         population,
         has_tower,
         clearance,
@@ -71,6 +72,12 @@ begin
             when ac.h3 in (tower_a_h3, tower_b_h3, bridge_one_h3, bridge_two_h3, short_gap_h3) then true
             when ac.h3 in (unfit_h3, out_of_bounds_h3) then true
             else false
+        end,
+        case
+            when ac.h3 = bridge_one_h3 then 0
+            when ac.h3 = bridge_two_h3 then 12
+            when ac.h3 in (tower_a_h3, tower_b_h3) then 3
+            else 0
         end,
         0,
         case
@@ -175,7 +182,9 @@ drop table if exists mesh_route_candidate_cells;
 create table mesh_route_candidate_cells as
 select
     s.h3,
-    s.centroid_geog
+    s.centroid_geog,
+    coalesce(s.has_building, false) as has_building,
+    coalesce(s.building_count, 0) as building_count
 from mesh_surface_h3_r8 s
 where s.has_tower
    or s.can_place_tower;
@@ -201,7 +210,7 @@ select
             order by c.centroid_geog::geometry <-> e.geom
             limit 1
         ),
-        70000
+        80000
     ) as distance_m
 from mesh_route_candidate_cells c;
 
@@ -218,7 +227,7 @@ select
 from mesh_route_candidate_cells c1
 join mesh_route_candidate_cells c2
   on c2.h3 > c1.h3
- where ST_DWithin(c1.centroid_geog, c2.centroid_geog, 70000)
+ where ST_DWithin(c1.centroid_geog, c2.centroid_geog, 80000)
    and not ST_DWithin(c1.centroid_geog, c2.centroid_geog, 5000);
 
 create index on mesh_route_pair_candidates (src_h3, dst_h3);
@@ -228,7 +237,9 @@ create table mesh_route_missing_pairs as
 select
     pr.src_h3,
     pr.dst_h3,
-    least(src_priority.distance_m, dst_priority.distance_m) as priority
+    (src_candidate.has_building::integer + dst_candidate.has_building::integer) as building_endpoint_count,
+    (src_candidate.building_count + dst_candidate.building_count) as building_count,
+    src_priority.distance_m + dst_priority.distance_m as priority
 from mesh_route_pair_candidates pr
 left join mesh_los_cache mlc
     on mlc.src_h3 = pr.src_h3
@@ -236,6 +247,8 @@ left join mesh_los_cache mlc
    and mlc.mast_height_src = 28
    and mlc.mast_height_dst = 28
    and mlc.frequency_hz = 868e6
+join mesh_route_candidate_cells src_candidate on src_candidate.h3 = pr.src_h3
+join mesh_route_candidate_cells dst_candidate on dst_candidate.h3 = pr.dst_h3
 join mesh_route_candidate_invisible_dist src_priority on src_priority.h3 = pr.src_h3
 join mesh_route_candidate_invisible_dist dst_priority on dst_priority.h3 = pr.dst_h3
 where mlc.src_h3 is null;
@@ -281,15 +294,17 @@ begin
 end;
 $$;
 
--- Verify the priority equals the distance to the handmade close edge.
+-- Verify the raw invisible-edge priority still stays near the handmade close
+-- edge rather than drifting toward the far-away edge.
 do
 $$
 declare
     bridge_one_h3 h3index := h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(0.4, 0.0), 4326), 8);
-    expected_distance double precision;
+    close_distance double precision;
+    far_distance double precision;
     recorded_priority double precision;
 begin
-    select min(priority)
+    select min(priority) / 2.0
     into recorded_priority
     from mesh_route_missing_pairs;
 
@@ -300,40 +315,76 @@ begin
             ST_SetSRID(ST_MakePoint(0.8, 0.01), 4326)
         )::geography
     )
-    into expected_distance
+    into close_distance
     from mesh_route_candidate_cells s
     where s.h3 = bridge_one_h3;
 
-    if abs(recorded_priority - expected_distance) > 1 then
-        raise exception 'Priority % should match nearest invisible edge distance %, expected entries for %, close edge offset by 0.01 degrees',
+    select ST_Distance(
+        s.centroid_geog,
+        ST_MakeLine(
+            ST_SetSRID(ST_MakePoint(10.0, 10.0), 4326),
+            ST_SetSRID(ST_MakePoint(11.0, 11.0), 4326)
+        )::geography
+    )
+    into far_distance
+    from mesh_route_candidate_cells s
+    where s.h3 = bridge_one_h3;
+
+    if recorded_priority > close_distance + 200 then
+        raise exception 'Priority % should stay close to the nearby invisible edge band around %, expected at most %',
             recorded_priority,
-            expected_distance,
+            bridge_one_h3::text,
+            close_distance + 200;
+    end if;
+
+    if recorded_priority >= far_distance then
+        raise exception 'Priority % should remain below far-edge distance % for %, otherwise far invisible edges are dominating unexpectedly',
+            recorded_priority,
+            far_distance,
             bridge_one_h3::text;
     end if;
 end;
 $$;
 
--- Ensure the prioritized selection picks the pair containing the closest bridge cell.
+-- Ensure prioritized selection prefers the building-backed pair even if the
+-- non-building candidate is the same geometric distance from the invisible edge.
 do
 $$
 declare
-    bridge_one_h3 h3index := h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(0.4, 0.0), 4326), 8);
+    bridge_two_h3 h3index := h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(0.8, 0.0), 4326), 8);
     prioritized_pair record;
 begin
-    select src_h3, dst_h3
+    select src_h3, dst_h3, building_endpoint_count, building_count, priority
     into prioritized_pair
     from (
-        select mp.src_h3, mp.dst_h3
+        select
+            mp.src_h3,
+            mp.dst_h3,
+            mp.building_endpoint_count,
+            mp.building_count,
+            mp.priority
         from mesh_route_missing_pairs mp
-        order by mp.priority, mp.src_h3, mp.dst_h3
+        order by
+            mp.building_endpoint_count desc,
+            mp.priority,
+            mp.building_count desc,
+            mp.src_h3,
+            mp.dst_h3
         limit 1
     ) sub;
 
-    if prioritized_pair.src_h3 <> bridge_one_h3 and prioritized_pair.dst_h3 <> bridge_one_h3 then
-        raise exception 'Closest missing pair % <> % does not include bridge_one %, so priority ordering failed',
+    if prioritized_pair.src_h3 <> bridge_two_h3 and prioritized_pair.dst_h3 <> bridge_two_h3 then
+        raise exception 'Prioritized missing pair % <> % does not include building-backed bridge_two %, building-first cache ordering failed',
             prioritized_pair.src_h3::text,
             prioritized_pair.dst_h3::text,
-            bridge_one_h3::text;
+            bridge_two_h3::text;
+    end if;
+
+    if prioritized_pair.building_endpoint_count <= 0 then
+        raise exception 'Prioritized pair should have at least one building-backed endpoint, got building_endpoint_count=% for % <> %',
+            prioritized_pair.building_endpoint_count,
+            prioritized_pair.src_h3::text,
+            prioritized_pair.dst_h3::text;
     end if;
 end;
 $$;

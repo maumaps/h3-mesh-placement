@@ -27,7 +27,7 @@ begin
         from mesh_surface_h3_r8 s
         where s.has_tower is not true
           and ST_DWithin(s.centroid_geog, sample_tower.centroid_geog, refresh_radius)
-          and s.distance_to_closest_tower < 70000
+          and s.distance_to_closest_tower < 80000
         limit 1;
 
         exit when affected_cell is not null;
@@ -48,7 +48,7 @@ begin
     perform mesh_surface_refresh_reception_metrics(
         sample_tower.h3,
         refresh_radius,
-        70000,
+        80000,
         5
     );
 

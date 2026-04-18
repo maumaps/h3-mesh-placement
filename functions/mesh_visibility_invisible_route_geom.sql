@@ -19,7 +19,7 @@ declare
     canonical_source h3index;
     canonical_target h3index;
     stored_geom geometry;
-    separation constant double precision := 5000;
+    separation constant double precision := 0;
 begin
     -- Normalize the pair ordering so cache lookups stay consistent regardless of call direction.
     if source_h3::text <= target_h3::text then
@@ -60,29 +60,29 @@ begin
         truncate mesh_route_graph_blocked_nodes;
     end if;
 
+    -- With zero separation we only need to block exact tower cells, so join by H3 instead of
+    -- scanning every route node through ST_DWithin().
     insert into mesh_route_graph_blocked_nodes (node_id)
     select mrgn.node_id
     from mesh_route_graph_nodes mrgn
+    join mesh_towers mt on mt.h3 = mrgn.h3
     where mrgn.node_id not in (start_node, end_node)
-      and exists (
-            select 1
-            from mesh_towers mt
-            where mt.h3 not in (canonical_source, canonical_target)
-              and ST_DWithin(mrgn.geog, mt.centroid_geog, separation)
-        );
+      and mt.h3 not in (canonical_source, canonical_target);
 
     with path_vertices as (
         -- Run pgRouting across the global routing graph to recover the minimum-cost corridor.
         select *
         from pgr_dijkstra(
-            'select edge_id as id,
-                    source_node_id as source,
-                    target_node_id as target,
-                    cost,
-                    cost as reverse_cost
-             from mesh_route_graph_edges
-             where source_node_id not in (select node_id from mesh_route_graph_blocked_nodes)
-               and target_node_id not in (select node_id from mesh_route_graph_blocked_nodes)',
+            'select e.edge_id as id,
+                    e.source_node_id as source,
+                    e.target_node_id as target,
+                    e.cost,
+                    e.cost as reverse_cost
+             from mesh_route_graph_edges e
+             left join mesh_route_graph_blocked_nodes blocked_source on blocked_source.node_id = e.source_node_id
+             left join mesh_route_graph_blocked_nodes blocked_target on blocked_target.node_id = e.target_node_id
+             where blocked_source.node_id is null
+               and blocked_target.node_id is null',
             start_node,
             end_node,
             true

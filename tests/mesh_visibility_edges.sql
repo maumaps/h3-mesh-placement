@@ -9,7 +9,7 @@ declare
     rec record;
     constant_mast_height constant double precision := 28;
     constant_frequency constant double precision := 868e6;
-    max_distance constant double precision := 70000;
+    max_distance constant double precision := 80000;
 begin
     for rec in
         with pairs as (
@@ -116,7 +116,7 @@ end;
 $$;
 
 drop table if exists tmp_test_visibility_cluster_edges;
--- Temporary helper storing LOS edges (<=70 km) so we can recompute hop counts for seed towers.
+-- Temporary helper storing LOS edges (<=80 km) so we can recompute hop counts for seed towers.
 create temporary table tmp_test_visibility_cluster_edges as
 select
     row_number() over () as edge_id,
@@ -125,7 +125,7 @@ select
     1::double precision as cost
 from mesh_visibility_edges e
 where e.is_visible
-  and e.distance_m <= 70000;
+  and e.distance_m <= 80000;
 
 do
 $$

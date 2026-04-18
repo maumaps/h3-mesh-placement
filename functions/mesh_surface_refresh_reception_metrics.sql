@@ -4,8 +4,8 @@ drop function if exists mesh_surface_refresh_reception_metrics(h3index, double p
 -- Refresh clearance and path loss for cells around a tower that were invalidated during greedy placement
 create or replace function mesh_surface_refresh_reception_metrics(
         center_h3 h3index,
-        radius double precision default 70000,
-        los_distance double precision default 70000,
+        radius double precision default 80000,
+        los_distance double precision default 80000,
         neighbor_limit integer default 5
     )
     returns void

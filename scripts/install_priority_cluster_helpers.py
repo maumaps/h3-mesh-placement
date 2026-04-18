@@ -242,10 +242,12 @@ def _connector_edge_priority(source_a: str, source_b: str) -> int:
         return 0
     if "route" in ordered_sources or "bridge" in ordered_sources:
         return 1
-    if "population" in ordered_sources:
+    if "coarse" in ordered_sources:
         return 2
+    if "population" in ordered_sources:
+        return 3
 
-    return 3
+    return 4
 
 
 def _cluster_country_code(

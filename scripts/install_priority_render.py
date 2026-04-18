@@ -90,6 +90,7 @@ def humanize_tower_code(source: str, tower_id: int, installed: bool) -> str:
         return "Installed Seed"
 
     source_titles = {
+        "coarse": "Coarse",
         "route": "Route",
         "cluster_slim": "Cluster",
         "population": "Population",

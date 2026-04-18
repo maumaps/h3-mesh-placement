@@ -37,7 +37,7 @@ begin
     perform mesh_surface_refresh_visible_tower_counts(
         sample_tower.h3,
         refresh_radius,
-        70000
+        80000
     );
 
     select count(*)

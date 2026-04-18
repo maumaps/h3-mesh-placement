@@ -26,7 +26,7 @@ begin
     into expected_visible
     from mesh_surface_h3_r8 t
     where t.population > 0
-      and ST_DWithin(sample_centroid, t.centroid_geog, 70000)
+      and ST_DWithin(sample_centroid, t.centroid_geog, 80000)
       and h3_los_between_cells(sample_h3, t.h3);
 
     if stored_visible is distinct from expected_visible then

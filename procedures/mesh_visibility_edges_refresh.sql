@@ -35,11 +35,13 @@ end if;
             t.*,
             case t.source
                 when 'seed' then 1
-                when 'population' then 2
-                when 'route' then 3
-                when 'bridge' then 4
-                when 'cluster_slim' then 5
-                when 'greedy' then 6
+                when 'mqtt' then 1
+                when 'coarse' then 2
+                when 'population' then 3
+                when 'route' then 4
+                when 'bridge' then 5
+                when 'cluster_slim' then 6
+                when 'greedy' then 7
                 else 99
             end as source_rank
         from mesh_towers t
@@ -49,13 +51,10 @@ end if;
             where missing.h3 = t.h3
         )
     ),
-    tower_clusters as (
-        -- Label towers by cluster id so we can flag inter-cluster LOS edges.
-        select *
-        from mesh_tower_clusters()
-    ),
     edge_pairs as (
-        -- Build all tower-to-tower distances plus LOS flag, source-pair type, and straight-line geometry.
+        -- Build every tower-to-tower diagnostic edge so long invisible gaps remain available
+        -- to routing heuristics and QGIS inspection.
+        -- Only pairs within the shared 80 km planning radius pay the expensive LOS computation.
         select
             t1.tower_id as source_id,
             t2.tower_id as target_id,
@@ -67,15 +66,18 @@ end if;
                 when t1.source <= t2.source then t1.source || '-' || t2.source
                 else t2.source || '-' || t1.source
             end as type,
-            ST_Distance(t1.centroid_geog, t2.centroid_geog) as distance_m,
-            h3_los_between_cells(t1.h3, t2.h3) as is_visible,
-            (src.cluster_id <> dst.cluster_id) as is_between_clusters,
+            pair.distance_m,
+            case
+                when pair.distance_m <= 80000 then h3_los_between_cells(t1.h3, t2.h3)
+                else false
+            end as is_visible,
             ST_MakeLine(t1.centroid_geog::geometry, t2.centroid_geog::geometry) as geom
         from eligible_towers t1
         join eligible_towers t2
           on t1.tower_id < t2.tower_id
-        join tower_clusters src on src.tower_id = t1.tower_id
-        join tower_clusters dst on dst.tower_id = t2.tower_id
+        cross join lateral (
+            select ST_Distance(t1.centroid_geog, t2.centroid_geog) as distance_m
+        ) pair
     )
     insert into mesh_visibility_edges (
         source_id,
@@ -85,7 +87,6 @@ end if;
         type,
         distance_m,
         is_visible,
-        is_between_clusters,
         geom
     )
     select
@@ -96,14 +97,13 @@ end if;
         type,
         distance_m,
         is_visible,
-        is_between_clusters,
         geom
     from edge_pairs;
 
 if to_regclass('tmp_visibility_cluster_edges') is not null then
     execute 'drop table tmp_visibility_cluster_edges';
 end if;
-    -- Temporary graph holding LOS-adjacent tower pairs (<=70 km) so pgRouting can recover hop counts.
+    -- Temporary graph holding LOS-adjacent tower pairs (<=80 km) so pgRouting can recover hop counts.
     create temporary table tmp_visibility_cluster_edges (
         edge_id bigserial primary key,
         source_id integer not null,
@@ -118,7 +118,7 @@ end if;
         e.target_id
     from mesh_visibility_edges e
     where e.is_visible
-      and e.distance_m <= 70000;
+      and e.distance_m <= 80000;
 
     with vertex_ids as (
         -- Limit pgRouting sources/targets to towers that participate in any LOS edge.
@@ -128,6 +128,25 @@ end if;
             union
             select target_id as vid from tmp_visibility_cluster_edges
         ) v
+    ),
+    tower_components as (
+        -- Recover connected components directly from the visible-edge graph we just built,
+        -- instead of recomputing LOS a second time through mesh_tower_clusters().
+        select
+            et.tower_id,
+            coalesce(cc.component, et.tower_id) as cluster_id
+        from (
+            select tower_id
+            from mesh_towers t
+            where not exists (
+                select 1
+                from tmp_visibility_missing_elevation missing
+                where missing.h3 = t.h3
+            )
+        ) et
+        left join pgr_connectedComponents(
+            'select edge_id as id, source_id as source, target_id as target, cost, cost as reverse_cost from tmp_visibility_cluster_edges'
+        ) cc on cc.node = et.tower_id
     ),
     cluster_hops as (
         -- Measure minimum hop count between every reachable tower pair inside a cluster.
@@ -146,38 +165,21 @@ end if;
           and result.node = result.end_vid
     )
     update mesh_visibility_edges e
-    set cluster_hops = ch.hops
-    from cluster_hops ch
-    where e.source_id = ch.source_id
-      and e.target_id = ch.target_id;
+    set is_between_clusters = (src.cluster_id <> dst.cluster_id),
+        cluster_hops = (
+            select ch.hops
+            from cluster_hops ch
+            where ch.source_id = e.source_id
+              and ch.target_id = e.target_id
+        )
+    from tower_components src,
+         tower_components dst
+    where src.tower_id = e.source_id
+      and dst.tower_id = e.target_id;
 
 if to_regclass('tmp_visibility_cluster_edges') is not null then
     execute 'drop table tmp_visibility_cluster_edges';
 end if;
-
-    with tower_clusters as (
-        -- Cache cluster ids for every tower to detect when an edge bridges disconnected components.
-        select *
-        from mesh_tower_clusters()
-    ),
-    edges_requiring_routes as (
-        -- Generate pgRouting fallback geometries for inter-cluster invisible edges and any intra-cluster pair that spans 8+ hops.
-        select
-            e.source_id,
-            e.target_id,
-            mesh_visibility_invisible_route_geom(e.source_h3, e.target_h3) as routed_geom
-        from mesh_visibility_edges e
-        join tower_clusters src on src.tower_id = e.source_id
-        join tower_clusters dst on dst.tower_id = e.target_id
-        where (not e.is_visible and src.cluster_id <> dst.cluster_id)
-           or (e.cluster_hops is not null and e.cluster_hops >= 8)
-    )
-    update mesh_visibility_edges e
-    set geom = err.routed_geom
-    from edges_requiring_routes err
-    where e.source_id = err.source_id
-      and e.target_id = err.target_id
-      and err.routed_geom is not null;
 
     select
         string_agg(h3::text, ', ' order by h3),

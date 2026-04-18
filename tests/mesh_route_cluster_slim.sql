@@ -15,8 +15,8 @@ $$;
 
 create or replace function mesh_surface_refresh_visible_tower_counts(
         center_h3 h3index,
-        radius double precision default 70000,
-        los_distance double precision default 70000
+        radius double precision default 80000,
+        los_distance double precision default 80000
     )
     returns void
     language plpgsql
@@ -29,8 +29,8 @@ $$;
 
 create or replace function mesh_surface_refresh_reception_metrics(
         center_h3 h3index,
-        radius double precision default 70000,
-        los_distance double precision default 70000,
+        radius double precision default 80000,
+        los_distance double precision default 80000,
         neighbor_limit integer default 5
     )
     returns void
@@ -61,6 +61,7 @@ create temporary table mesh_surface_h3_r8 (
     geom geometry not null,
     ele double precision default 0,
     has_tower boolean not null default false,
+    has_building boolean not null default false,
     clearance double precision,
     path_loss double precision,
     visible_uncovered_population double precision,
@@ -118,14 +119,14 @@ declare
     failure_snapshot jsonb;
 begin
     -- Populate minimal surface rows covering every H3 referenced in the test.
-    insert into mesh_surface_h3_r8 (h3, centroid_geog, geom, ele, has_tower, visible_uncovered_population, distance_to_closest_tower, visible_tower_count)
+    insert into mesh_surface_h3_r8 (h3, centroid_geog, geom, ele, has_tower, has_building, visible_uncovered_population, distance_to_closest_tower, visible_tower_count)
     values
-        (seed_one, h3_cell_to_geometry(seed_one)::public.geography, h3_cell_to_boundary_geometry(seed_one), 0, true, 0, 0, 2),
-        (seed_two, h3_cell_to_geometry(seed_two)::public.geography, h3_cell_to_boundary_geometry(seed_two), 0, true, 0, 0, 2),
-        (bridge_one, h3_cell_to_geometry(bridge_one)::public.geography, h3_cell_to_boundary_geometry(bridge_one), 0, true, 0, 0, 2),
-        (bridge_two, h3_cell_to_geometry(bridge_two)::public.geography, h3_cell_to_boundary_geometry(bridge_two), 0, true, 0, 0, 2),
-        (seed_mid, h3_cell_to_geometry(seed_mid)::public.geography, h3_cell_to_boundary_geometry(seed_mid), 0, false, 100, 15000, 0),
-        (non_seed_mid, h3_cell_to_geometry(non_seed_mid)::public.geography, h3_cell_to_boundary_geometry(non_seed_mid), 0, false, 100, 15000, 0);
+        (seed_one, h3_cell_to_geometry(seed_one)::public.geography, h3_cell_to_boundary_geometry(seed_one), 0, true, false, 0, 0, 2),
+        (seed_two, h3_cell_to_geometry(seed_two)::public.geography, h3_cell_to_boundary_geometry(seed_two), 0, true, false, 0, 0, 2),
+        (bridge_one, h3_cell_to_geometry(bridge_one)::public.geography, h3_cell_to_boundary_geometry(bridge_one), 0, true, false, 0, 0, 2),
+        (bridge_two, h3_cell_to_geometry(bridge_two)::public.geography, h3_cell_to_boundary_geometry(bridge_two), 0, true, false, 0, 0, 2),
+        (seed_mid, h3_cell_to_geometry(seed_mid)::public.geography, h3_cell_to_boundary_geometry(seed_mid), 0, false, true, 100, 15000, 0),
+        (non_seed_mid, h3_cell_to_geometry(non_seed_mid)::public.geography, h3_cell_to_boundary_geometry(non_seed_mid), 0, false, false, 100, 15000, 0);
 
     -- Register towers with deterministic IDs so mesh_visibility_edges can reference them.
     insert into mesh_towers (h3, source)
