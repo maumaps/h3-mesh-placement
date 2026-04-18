@@ -102,7 +102,7 @@ select
     path_loss_db
 from mesh_los_cache
 where clearance > 0
-  and distance_m <= 70000
+  and distance_m <= 80000
   and mast_height_src = 28
   and mast_height_dst = 28
   and frequency_hz = 868000000;
@@ -115,7 +115,7 @@ select
 from mesh_los_cache
 where src_h3 = :tower_h3
   and clearance > 0
-  and distance_m <= 70000
+  and distance_m <= 80000
   and mast_height_src = 28
   and mast_height_dst = 28
   and frequency_hz = 868000000;

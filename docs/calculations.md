@@ -10,7 +10,7 @@ They are hardcoded because the pipeline is intended to be reproducible and easy 
 - **H3 resolution: 8**
   This is the planning granularity for candidate tower locations and all derived metrics.
   It is dense enough to allow meaningful local moves (wiggle) while still being small enough to store and index country-scale surfaces.
-- **Maximum LOS link distance: 70 km (`70000` meters)**
+- **Maximum LOS link distance: 80 km (`80000` meters)**
   This is the Meshtastic hop/link planning bound used by every LOS and (re)calculation radius.
   Keeping one shared radius means cache invalidations can be localized and consistent.
 - **Minimum tower separation: 5 km (`5000` meters)**
@@ -79,7 +79,7 @@ This is the main “planning surface” that every procedure reads and increment
 ### Tower state and spacing
 - `has_tower` is derived from `mesh_towers` and is updated by routing, wiggle, and greedy steps.
 - `distance_to_closest_tower` is computed as the minimum geography distance to any existing tower.
-- `min_distance_to_closest_tower` defaults to 5000 meters and exists so spacing constraints can be overridden per cell when needed.
+- `min_distance_to_closest_tower` defaults to 0 meters, so adjacent hexes are allowed unless a cell is explicitly overridden later.
 - `can_place_tower` is a generated boolean combining the “static gates” plus the spacing check.
 
 ### LOS-derived metrics (computed lazily, then refreshed locally)
@@ -87,9 +87,9 @@ This is the main “planning surface” that every procedure reads and increment
   The greedy loop and routing stages intentionally clear these fields to `null` in a radius around new towers.
   Functions then recompute only the invalidated region.
 - `has_reception` is generated from `has_tower` or the presence of valid `clearance` and `path_loss`.
-- `visible_tower_count` counts how many individual towers a cell can see within 70 km.
+- `visible_tower_count` counts how many individual towers a cell can see within 80 km.
   The pipeline uses it as a hard constraint (`>= 2`) to avoid installing isolated towers.
-- `visible_population` is the total population within 70 km that is visible from a candidate cell.
+- `visible_population` is the total population within 80 km that is visible from a candidate cell.
   It is computed per-cell by `mesh_surface_fill_visible_population(...)` and reused by the wiggle stage.
 - `visible_uncovered_population` is the greedy objective value.
   It is invalidated (set to `null`) in a “double radius” around each newly added tower so recomputation always sees consistent neighbor coverage.
@@ -111,7 +111,7 @@ These functions are the “physics core” of the pipeline.
 
 ### `h3_los_between_cells(a, b)`
 **Where:** `functions/h3_los_between_cells.sql`.
-**What:** A boolean helper that rejects links beyond 70 km and treats `clearance > 0` as LOS-visible.
+**What:** A boolean helper that rejects links beyond 80 km and treats `clearance > 0` as LOS-visible.
 **Why:** It is the most common predicate in the pipeline (`visible_tower_count`, visibility edges, candidate filtering).
 **Optimization:** Make the hot-path boolean cheap and push detailed metrics into the cached function family.
 
@@ -123,52 +123,82 @@ These functions are the “physics core” of the pipeline.
 
 ## Diagnostics: Visibility Edges (`mesh_visibility_edges`)
 **Where:** `tables/mesh_visibility_edges.sql`, `procedures/mesh_visibility_edges_refresh.sql`.
-**What:** Materializes every tower-to-tower pair’s distance and LOS, and computes intra-cluster hop counts.
-Each edge stores a `type` label that orders tower sources by stage priority (seed, population, route, bridge, cluster_slim, greedy) so pairs group consistently (for example `seed-route`).
-**Why:** It is the debugging view for “is the graph connected” and “which pairs violate the hop budget”.
-**Optimization:** Hop counts are computed via pgRouting on a temporary graph of only visible <=70 km edges.
+**What:** Materializes every tower-to-tower pair’s distance and LOS-like diagnostic state. Pairs within 80 km get a real LOS calculation; longer pairs are still stored as invisible diagnostic edges so routing and debug views can target long gaps between existing towers. Intra-cluster hop counts are then computed on the visible <=80 km subgraph.
+Each edge stores a `type` label that orders tower sources by stage priority (seed, coarse, route, bridge, cluster_slim, greedy, plus legacy population) so pairs group consistently (for example `seed-route`).
+**Why:** It is both the debugging view for “is the graph connected” / “which pairs violate the hop budget” and the geometric guide rail for route expansion, because cache seeding and route corridor selection measure distance to currently invisible tower-to-tower gaps.
+**Optimization:** The expensive LOS function runs only for pairs within 80 km, while longer tower pairs are kept as pre-marked invisible edges. Hop counts are computed via pgRouting on the temporary graph of only visible <=80 km edges, and connected components are derived from that same graph instead of recalculating tower LOS a second time.
 
 ### Routed geometry for invisible edges
-**Where:** `tables/mesh_route_graph.sql`, `tables/mesh_route_graph_cache.sql`, `functions/mesh_visibility_invisible_route_geom.sql`.
+**Where:** `tables/mesh_route_graph.sql`, `tables/mesh_route_graph_cache.sql`, `functions/mesh_visibility_invisible_route_geom.sql`, `scripts/mesh_visibility_edges_refresh_route_geom.sql`.
 **What:** When a diagnostic edge is invisible (or spans too many hops), generate a corridor geometry via pgRouting over an adjacency graph of all surface cells.
-**Why:** QGIS/debug visualizations stay useful even when LOS does not exist between endpoints.
+For long invisible tower-to-tower gaps, `mesh_visibility_invisible_route_geom()` runs `pgr_dijkstra(...)` over `mesh_route_graph_edges`, returns the minimum-cost corridor, and caches it in `mesh_route_graph_cache`.
+`mesh_visibility_edges_refresh_route_geom()` then rewrites `mesh_visibility_edges.geom` for inter-cluster invisible edges and for intra-cluster edges whose stored `cluster_hops` still exceed the hop budget.
+**Why:** QGIS/debug visualizations stay useful even when LOS does not exist between endpoints, and long invisible edges keep a concrete route line that explains where the planner will try to insert intermediate towers.
 **Optimization:** Cache routed linework per canonical tower pair in `mesh_route_graph_cache` so refresh runs can reuse it.
+`mesh_visibility_edges_refresh_route_geom()` now joins `mesh_route_graph_cache` first and only calls the pgRouting helper for cache misses, which avoids repeated PL/pgSQL overhead on reruns.
+With zero separation, the route helper also blocks occupied route nodes by exact tower H3 match instead of scanning route nodes through `ST_DWithin(...)`.
+Keep this routed-geometry backfill separate from the normal `db/procedure/mesh_route_refresh_visibility` target, because route geometry should not block every visibility refresh. The pipeline now runs `db/procedure/mesh_visibility_edges_route_priority_geom` automatically before `fill_mesh_los_cache_prepare`, so backfill priority uses routed corridors instead of straight tower-to-tower chords.
 
 ## Routing and Placement Procedures (in the order they run)
 This section explains what each procedure calculates and which optimization patterns it relies on.
 
-### Population seeding (`mesh_population`)
-**Where:** `procedures/mesh_population.sql`.
-**What:** Clusters currently-uncovered candidate cells by population and installs one “population” tower per cluster when no existing tower covers it.
-**Why:** It adds early anchors in dense areas before routing tries to connect components.
-**Optimization:** Uses `population_70km` (non-LOS) weights and keeps clustering out of the greedy loop hot path.
+### Coarse backbone seeding (`mesh_coarse_grid`)
+**Where:** `procedures/mesh_coarse_grid.sql`.
+**What:** Groups fine H3 candidates under a coarser H3 parent, skips every coarse parent that already contains a tower, and installs at most one `coarse` tower per remaining parent.
+**Why:** It adds sparse, well-separated anchors before routing without piling new towers into places that already have seed coverage.
+**Optimization:** Uses `distance_to_closest_tower` as the primary spacing score, prefers `has_building = true` before other tie-breakers, and falls back to `population_70km`, `building_count`, and stable H3 ordering.
+
+### Route bootstrap (`mesh_route_bootstrap`)
+**Where:** `tables/mesh_route_bootstrap_pairs.sql`, `scripts/mesh_route_bootstrap.sql`.
+**What:** Loads installer-priority CSV points, current placed towers, manual warmup points, nearest placeable hexes for OSM peaks, and explicit nearest links from disconnected coarse clusters toward other placed towers into a single bootstrap pair set, then seeds `mesh_los_cache` for those pairs before the generic all-pairs cache fill starts.
+**Why:** Route planning needs some known rollout-corridor and mountain-top LOS in cache before the huge generic pair search can meaningfully connect clusters.
+**Optimization:** Manual points, placed towers, and disconnected coarse-cluster links get lower `bootstrap_rank` than generic installer CSV rows, and OSM peaks are snapped to the nearest placeable H3 cell so the warmup set stays routeable instead of seeding impossible mountain coordinates.
 
 ### Cache and graph prep (`fill_mesh_los_cache`)
-**Where:** `procedures/fill_mesh_los_cache.sql`.
-**What:** Enumerates all eligible tower-or-candidate pairs within 70 km (excluding pairs closer than 5 km), computes missing LOS metrics, and builds a pgRouting graph with `path_loss_db` edge costs.
+**Where:** `scripts/fill_mesh_los_cache_prepare.sql`, `scripts/fill_mesh_los_cache_batch.sql`, `scripts/fill_mesh_los_cache_finalize.sql`.
+**What:** Enumerates all eligible tower-or-candidate pairs within 80 km, commits one missing-LOS batch in the normal pipeline, and then builds a pgRouting graph with `path_loss_db` edge costs from the currently available cache.
 **Why:** Routing stages should spend time choosing corridors, not repeatedly recomputing LOS.
-**Optimization:** Prioritizes missing-pair batches by distance to the nearest currently “problematic” visibility edge so reruns improve the most important gaps first.
+**Optimization:** Orders missing-pair batches by building-bearing endpoints first, then by distance to the nearest currently “problematic” visibility edge, then by total `building_count`, after the smaller `mesh_route_bootstrap` stage has already warmed the cache around installer-priority corridors.
+`fill_mesh_los_cache_prepare` now materializes the filtered invisible edges and disconnected towers into small GiST-backed staging tables first, because profiling showed the old correlated subplans spending most of their time in repeated index rescans, tuple allocation/free, and geography-to-geometry conversions.
+Inside `h3_visibility_clearance()`, the hot sampling loop now uses the ordinality from `h3_grid_path_cells()` instead of projecting every sample cell through `ST_PointOnSurface(...)` or `ST_LineLocatePoint(...)`, because profiling the batch workers showed those PostGIS geometry conversions dominating CPU time before the actual Fresnel math ran. Elevation lookups in that same loop now come from the narrow `gebco_elevation_h3_r8` table instead of the wide `mesh_surface_h3_r8` table, which removes extra heap traffic from the batch hot path. Endpoint elevations are also derived from that same sampled path, so each LOS pair no longer performs two extra point lookups before scanning the path cells.
+Each batch is committed separately so rerunning the manual backfill target resumes instead of discarding earlier work.
+Disconnected-cluster distance is now ranked ahead of generic invisible-edge distance, so cache seeding prefers corridors that can attach currently isolated tower groups before spending work on less urgent pairs.
+Use `db/procedure/fill_mesh_los_cache_backfill` later when you want to drain more of the queue and rebuild the route graph from a fuller cache.
+
+The operator-facing parallel launcher `db/procedure/fill_mesh_los_cache_parallel` now snapshots the current `mesh_route_missing_pairs` length into `ceil(count(*) / 50000)` finite jobs and feeds that list into `parallel -j 8`. Each GNU parallel job runs exactly one committed `fill_mesh_los_cache_batch.sql` invocation, and the existing `for update skip locked` claim logic guarantees that concurrent jobs still pull disjoint queue slices without any pre-assigned chunk ids. This makes GNU parallel ETA meaningful for that run, because the job count is fixed at launch time instead of being hidden behind eight infinite shell loops. Late-start jobs that find no rows left to claim now exit cleanly instead of failing the whole run, while claimed batches that compute zero cache rows still fail loudly as a real inconsistency.
 
 ### Cluster bridge (`mesh_route_bridge`)
 **Where:** `procedures/mesh_route_bridge.sql`.
-**What:** Finds a low-loss corridor between the most separated tower clusters and promotes intermediate cells as `route` towers until clusters connect.
+**What:** Finds a low-loss corridor between the closest disconnected tower clusters and promotes intermediate cells as `route` towers until clusters connect.
 **Why:** A connected backbone makes greedy placement avoid wasting towers on isolated islands.
 **Optimization:** Works one corridor at a time so each iteration is a transaction with readable `NOTICE` logs.
+Ranks cluster pairs by the minimum tower-to-tower gap, not centroid spread, so the stage spends time on pairs the current partial route graph can realistically bridge.
+Also filters pairs to clusters that share a precomputed connected component in `mesh_route_edge_components`, because `pgr_dijkstra` cannot bridge disjoint route-graph components with the current cached LOS.
+Each invocation also caps how many failed cluster-pair attempts it will burn through before returning, so the iterative pipeline keeps moving even when the current route graph is still sparse.
+Inside one attempt, routing is anchored on the nearest tower-node pair between the two clusters instead of every tower in both clusters, which keeps each `pgr_dijkstra` call tractable.
+After route towers are inserted, local surface visibility/reception refresh is deferred to the later route-refresh stage instead of being recomputed synchronously inside bridge.
 
 ### Cluster slim (`mesh_route_cluster_slim`)
 **Where:** `procedures/mesh_route_cluster_slim.sql`, `tables/mesh_route_cluster_slim_failures.sql`.
 **What:** For intra-cluster pairs exceeding 7 hops, routes candidate corridors and promotes intermediate towers so hop counts shrink.
 **Why:** The 7-hop budget is a hard design constraint, so the graph must be “tightened” before maximizing population.
-**Optimization:** Processes a bounded candidate batch per iteration, reuses existing towers on a corridor, and refreshes visibility diagnostics only when it actually installed new towers.
+**Optimization:** Processes a bounded candidate batch per iteration and reuses existing towers on a corridor.
+Like bridge, it now defers local surface and visibility refresh to the later route-refresh stage instead of recomputing them synchronously inside each cluster-slim iteration.
 
 ### Tower wiggle (`mesh_tower_wiggle`)
 **Where:** `procedures/mesh_tower_wiggle.sql`, `docs/mesh_tower_wiggle.md`.
-**What:** Locally relocates `population`, `route`, `bridge`, and `cluster_slim` towers to nearby road-served cells that keep LOS to their current neighbors while increasing visible population.
+**What:** Locally relocates `coarse`, `route`, `bridge`, and `cluster_slim` towers to nearby road-served cells that keep LOS to their current neighbors while increasing visible population.
 **Why:** Routing tends to pick “barely feasible” cells, so a refinement pass improves coverage without breaking connectivity.
-**Optimization:** Each call moves at most one tower and recomputes metrics only within a radius around the old/new locations.
+**Optimization:** Each call moves at most one tower, invalidates nearby cached RF fields, and defers heavy local and global visibility refresh to the later route-refresh stage instead of recomputing them inside every single move.
 
 ### Greedy placement (`mesh_run_greedy_prepare`, `mesh_run_greedy`, `mesh_run_greedy_finalize`)
 **Where:** `procedures/mesh_run_greedy_prepare.sql`, `procedures/mesh_run_greedy.sql`, `procedures/mesh_run_greedy_finalize.sql`.
+`mesh_run_greedy_prepare` only resets tower-derived surface state and nearest-tower distances.
+The LOS, visible-tower-count, and reception recomputation happens incrementally inside each greedy iteration so the pipeline can continue without a monolithic pre-pass.
+The Make target also runs greedy iterations with `statement_timeout=0` so those LOS computations are not canceled mid-run.
 **What:** Repeatedly (a) fills missing RF metrics, (b) prefers a bridging candidate when multiple clusters exist, otherwise (c) selects the max `visible_uncovered_population` candidate and promotes it as a tower.
 **Why:** This is the main “maximize covered population under constraints” heuristic from the talk.
-**Optimization:** After each new tower, it invalidates only nearby cached fields and uses the localized refresh functions to avoid full-surface recomputation.
+**Optimization:** The prepare step now uses KNN nearest-tower lookup for per-cell anchor selection, and the loop invalidates only nearby cached fields so later iterations avoid full-surface recomputation.
+
+`fill_mesh_los_cache` keeps `mesh_route_missing_pairs` on disk between committed batches so reruns can resume from the reduced queue instead of starting over.
+Before each resume loop, `scripts/fill_mesh_los_cache_queue_indexes.sql` ensures the live queue has both the exact-match `(src_h3, dst_h3)` btree for delete/join tails and the batch-order btree `(building_endpoint_count desc, disconnected_priority, priority, building_count desc, src_h3, dst_h3)` so each committed batch can pull its next slice without a full parallel sort of `mesh_route_missing_pairs`.

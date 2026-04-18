@@ -35,18 +35,23 @@ Intermediate targets such as `db/table/osm_for_mesh_placement` or `db/table/mesh
 Use `make data/out/install_priority.html` when you want the installer handout after routing or greedy placement.
 
 The key stage order is:
-- Import sources → derive boundary/roads/population/elevation layers → build `mesh_surface_h3_r8`.
+- Import sources → merge curated seeds with the optional Liam Cottle snapshot → import `mesh_initial_nodes`.
+- Derive boundary/roads/population/buildings/elevation layers → build `mesh_surface_h3_r8`.
 - Seed towers (`mesh_initial_nodes_h3_r8` → `mesh_towers`).
-- Optional population anchors (`mesh_population`).
+- Install coarse backbone anchors (`mesh_coarse_grid`).
+- Snapshot `data/out/install_priority.csv` into `data/in/install_priority_bootstrap.csv`, merge in `data/in/install_priority_bootstrap_manual.csv`, current placed towers, nearest placeable OSM peaks, and explicit nearest links from disconnected coarse clusters toward other placed towers, then load bootstrap LOS pairs (`mesh_route_bootstrap_pairs`).
+- Seed `mesh_los_cache` from those bootstrap pairs first (`mesh_route_bootstrap`).
 - Cache LOS metrics and build routing graph (`fill_mesh_los_cache`).
 - Connect clusters (`mesh_route_bridge`) and tighten hop counts (`mesh_route_cluster_slim`).
-- Locally refine routed towers (`mesh_tower_wiggle`).
 - Run the greedy placement loop (`mesh_run_greedy_prepare` + iterative `mesh_run_greedy` + `mesh_run_greedy_finalize`) via `mesh_run_greedy_full`.
+- Optionally run local routed-tower refinement afterward with `mesh_tower_wiggle`.
 
 The hard constants are:
 - H3 resolution 8.
-- 70 km maximum LOS distance.
-- 5 km minimum tower separation.
+- 80 km maximum real LOS computation distance.
+- `mesh_visibility_edges` still keeps longer tower-to-tower diagnostic edges as invisible route targets; only the expensive LOS calculation is capped at 80 km.
+- Before `fill_mesh_los_cache_prepare`, `db/procedure/mesh_visibility_edges_route_priority_geom` uses pgRouting to draw fallback corridor geometry for the same invisible or over-hop visibility edges that drive cache priority, so backfill follows routed gaps instead of straight chords.
+- No minimum tower separation; adjacent H3 cells are allowed.
 See `docs/calculations.md` for where they appear in SQL and why they are shared.
 
 Optional debug-only iteration caps:
@@ -64,6 +69,8 @@ Run tests against a disposable database if you want to keep an existing pipeline
 Make sure PostgreSQL accepts local socket connections under your current user so the inline `psql` calls succeed.
 Execute `make all` to refresh every artifact from downloads through routing.
 Run `make db/procedure/mesh_run_greedy_full` to execute greedy placement when you are ready.
+The greedy target runs with `statement_timeout=0` because LOS and post-placement visibility refresh work can legitimately exceed the default timeout.
+Run `make db/procedure/mesh_tower_wiggle` afterward only when you explicitly want the slower local refinement pass.
 Run `make data/out/install_priority.html` to build the field handout in HTML and CSV.
 Each SQL file is idempotent, so you can re-run `psql -f tables/<file>` (or `functions/<file>`, `procedures/<file>`) for debugging without destroying prior work.
 Any missing credentials or tooling gaps should be recorded in `docs/todo.md`.

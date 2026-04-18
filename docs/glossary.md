@@ -15,10 +15,12 @@ Each sentence starts on a new line for clean diffs.
 - **LongFast** is a Meshtastic radio preset used as a planning default.
 
 ## Pipeline stages
-- **Population seeding** adds anchors in dense areas before routing.
+- **Coarse backbone seeding** adds one spacing-first anchor per eligible coarse H3 parent before routing.
+- **Seed refresh** is the manual Liam Cottle snapshot merge that rebuilds the canonical seed GeoJSON before planning imports.
 - **Cache graph** is the all-pairs LOS precompute step.
 - **Graph cache** stores routing linework for re-use.
 - **Cluster bridge** connects farthest tower components via the routing graph.
 - **Cluster slim** reduces hop counts within connected clusters.
 - **Tower wiggle** is the local refinement pass before greedy placement.
 - **Greedy placement** selects towers that maximize uncovered population.
+- **Building-first ordering** means cells with `has_building = true` rank ahead of bare cells before stage-specific metrics break ties.

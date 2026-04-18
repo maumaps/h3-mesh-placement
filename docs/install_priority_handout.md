@@ -31,7 +31,8 @@ Instead the HTML uses a location-first title built from the nearest place and ro
 
 ## Graph logic
 The export prefers `mesh_visibility_edges_active` only when it covers the full live tower set.
-Otherwise it falls back to `mesh_visibility_edges` so the handout does not silently drop reachable towers from planning.
+Otherwise it falls back to `mesh_visibility_edges` so the handout does not silently drop tower relationships from planning. That table intentionally keeps even long invisible tower-to-tower gaps, because route heuristics and map review need those missing-link diagnostics too.
+When the optional routed-geometry backfill has run, those same long invisible edges also carry a pgRouting corridor line in `geom`, so the handout and QGIS can show the actual surface route the planner would use between the two towers.
 Installed seed towers define the starting backbone.
 Seed-only connectivity defines the initial field clusters.
 Planned towers are assigned to the nearest seed cluster by shortest visible-path distance with deterministic tie-breaking, but cluster ownership still respects country boundaries.
