@@ -12,13 +12,51 @@ $$
 declare
     max_distance constant double precision := 80000;
     separation_default constant double precision := 0;
-    target_sources constant text[] := array['route', 'cluster_slim', 'bridge', 'coarse'];
+    generated_tower_merge_distance double precision := 10000;
+    mast_height double precision := 28;
+    frequency double precision := 868000000;
+    target_sources constant text[] := array['population', 'route', 'cluster_slim', 'bridge', 'coarse'];
+    prunable_sources constant text[] := array['route', 'cluster_slim', 'bridge', 'coarse'];
+    wiggle_candidate_limit integer := 256;
     processed integer := 0;
     anchor record;
     best record;
+    merge_target record;
     old_centroid public.geography;
     new_centroid public.geography;
 begin
+    if to_regclass('mesh_pipeline_settings') is not null then
+        -- Read the same RF dimensions used by cache fill and route cleanup so
+        -- cached-neighbor preservation checks use the active LOS cache rows.
+        select greatest(coalesce((
+            select value::integer
+            from mesh_pipeline_settings
+            where setting = 'wiggle_candidate_limit'
+        ), 256), 1)
+        into wiggle_candidate_limit;
+
+        select greatest(coalesce((
+            select value::double precision
+            from mesh_pipeline_settings
+            where setting = 'generated_tower_merge_distance_m'
+        ), 10000), 0)
+        into generated_tower_merge_distance;
+
+        select coalesce((
+            select value::double precision
+            from mesh_pipeline_settings
+            where setting = 'mast_height_m'
+        ), 28)
+        into mast_height;
+
+        select coalesce((
+            select value::double precision
+            from mesh_pipeline_settings
+            where setting = 'frequency_hz'
+        ), 868000000)
+        into frequency;
+    end if;
+
     if to_regclass('mesh_towers') is null then
         raise notice 'mesh_towers table missing, skipping tower wiggle';
         return 0;
@@ -76,6 +114,7 @@ begin
     select
         q.tower_id,
         t.h3,
+        t.source,
         t.centroid_geog,
         coalesce(t.recalculation_count, 0) as recalculation_count,
         coalesce(s.visible_population, s.population, 0) as priority_population,
@@ -102,22 +141,48 @@ begin
         coalesce(anchor.recalculation_count, 0),
         coalesce(anchor.priority_population, 0);
 
-    -- Identify every tower currently visible from the anchor tower.
+    -- Identify every tower currently visible from the anchor tower using only
+    -- the precious LOS cache. Wiggle must not start fresh terrain LOS
+    -- calculations while it is doing interactive local refinement.
     with visible_neighbors as materialized (
         select
             nb.tower_id,
             nb.h3,
             nb.centroid_geog
         from mesh_towers nb
+        join mesh_los_cache mlc
+          on mlc.src_h3 = least(anchor.h3, nb.h3)
+         and mlc.dst_h3 = greatest(anchor.h3, nb.h3)
+         and mlc.mast_height_src = mast_height
+         and mlc.mast_height_dst = mast_height
+         and mlc.frequency_hz = frequency
+         and mlc.clearance > 0
         where nb.tower_id <> anchor.tower_id
           and ST_DWithin(nb.centroid_geog, anchor.centroid_geog, max_distance)
-          and h3_los_between_cells(anchor.h3, nb.h3)
     ),
-    -- Enumerate candidate cells that keep those neighbors in LOS and obey spacing/eligibility checks.
-    viable_candidates as materialized (
+    -- Build a local candidate pool before candidate-to-neighbor LOS checks.
+    -- The preservation checks use only mesh_los_cache primary-key lookups, so
+    -- we can test the whole 80 km pool and avoid missing mountain relay moves
+    -- that are not in the first few hundred demand-ranked cells.
+    candidate_pool as materialized (
         select
             s.h3,
-            s.centroid_geog
+            s.centroid_geog,
+            coalesce(nullif(s.visible_population, 0), s.population_70km, s.population, 0) as candidate_population,
+            coalesce(s.has_building, false) as has_building,
+            coalesce(s.building_count, 0) as building_count,
+            case when s.h3 = anchor.h3 then 0 else 1 end as current_rank,
+            ST_Distance(s.centroid_geog, anchor.centroid_geog) as anchor_distance_m,
+            coalesce(
+                ST_Distance(
+                    s.centroid_geog,
+                    (
+                        select ST_Centroid(ST_Collect(vn.h3::geometry))::public.geography
+                        from visible_neighbors vn
+                    )
+                ),
+                ST_Distance(s.centroid_geog, anchor.centroid_geog)
+            ) as neighbor_centroid_distance_m
         from mesh_surface_h3_r8 s
         where s.is_in_boundaries
           and s.has_road
@@ -130,42 +195,231 @@ begin
                 where mt.tower_id <> anchor.tower_id
                   and ST_DWithin(s.centroid_geog, mt.centroid_geog, anchor.min_distance)
             )
-          and not exists (
+    ),
+    initial_candidates as materialized (
+        select
+            cp.h3,
+            cp.centroid_geog,
+            cp.candidate_population,
+            cp.has_building,
+            cp.building_count,
+            cp.current_rank
+        from candidate_pool cp
+    ),
+    -- Enumerate candidate cells that keep current visible neighbors in LOS.
+    viable_candidates as materialized (
+        select
+            ic.h3,
+            ic.centroid_geog,
+            ic.candidate_population,
+            ic.has_building,
+            ic.building_count,
+            ic.current_rank
+        from initial_candidates ic
+        where not exists (
                 select 1
                 from visible_neighbors nb
-                where not ST_DWithin(s.centroid_geog, nb.centroid_geog, max_distance)
-                   or not h3_los_between_cells(s.h3, nb.h3)
+                where not ST_DWithin(ic.centroid_geog, nb.centroid_geog, max_distance)
+                   or not exists (
+                        select 1
+                        from mesh_los_cache mlc
+                        where mlc.src_h3 = least(ic.h3, nb.h3)
+                          and mlc.dst_h3 = greatest(ic.h3, nb.h3)
+                          and mlc.mast_height_src = mast_height
+                          and mlc.mast_height_dst = mast_height
+                          and mlc.frequency_hz = frequency
+                          and mlc.clearance > 0
+                    )
             )
     ),
-    -- Score every viable cell by the visible population it can cover.
-    candidate_visible_population as (
+    marginal_candidates as materialized (
+        select vc.*
+        from viable_candidates vc
+        order by
+            vc.current_rank asc,
+            vc.candidate_population desc,
+            vc.has_building desc,
+            vc.building_count desc,
+            vc.h3
+        limit wiggle_candidate_limit
+    ),
+    -- Estimate diversity with cached marginal population only after the cheap
+    -- LOS-neighbor preservation filter. This avoids fresh terrain LOS inside
+    -- wiggle and prevents adjacent route relays from optimizing for the same
+    -- already-served settlement when cached population links are available.
+    candidate_cached_population as materialized (
         select
             vc.h3,
-            coalesce(sum(pop.population) filter (where h3_los_between_cells(vc.h3, pop.h3)), 0) as visible_population
-        from viable_candidates vc
+            coalesce(sum(pop.population), 0) as cached_visible_population,
+            coalesce(sum(pop.population) filter (where covered.pop_h3 is null), 0) as cached_marginal_population
+        from marginal_candidates vc
         join mesh_surface_h3_r8 pop
           on pop.population > 0
          and ST_DWithin(vc.centroid_geog, pop.centroid_geog, max_distance)
+        join mesh_los_cache candidate_pop_link
+          on candidate_pop_link.src_h3 = least(vc.h3, pop.h3)
+         and candidate_pop_link.dst_h3 = greatest(vc.h3, pop.h3)
+         and candidate_pop_link.mast_height_src = mast_height
+         and candidate_pop_link.mast_height_dst = mast_height
+         and candidate_pop_link.frequency_hz = frequency
+         and candidate_pop_link.clearance > 0
+        left join lateral (
+            select pop.h3 as pop_h3
+            from mesh_towers other_tower
+            join mesh_los_cache other_pop_link
+              on other_pop_link.src_h3 = least(other_tower.h3, pop.h3)
+             and other_pop_link.dst_h3 = greatest(other_tower.h3, pop.h3)
+             and other_pop_link.mast_height_src = mast_height
+             and other_pop_link.mast_height_dst = mast_height
+             and other_pop_link.frequency_hz = frequency
+             and other_pop_link.clearance > 0
+            where other_tower.tower_id <> anchor.tower_id
+              and ST_DWithin(other_tower.centroid_geog, pop.centroid_geog, max_distance)
+            limit 1
+        ) covered on true
         group by vc.h3
+    ),
+    candidate_visible_population as (
+        select
+            vc.h3,
+            vc.candidate_population as visible_population,
+            coalesce(ccp.cached_visible_population, 0) as cached_visible_population,
+            coalesce(ccp.cached_marginal_population, 0) as cached_marginal_population,
+            vc.has_building,
+            vc.building_count,
+            vc.current_rank
+        from marginal_candidates vc
+        left join candidate_cached_population ccp on ccp.h3 = vc.h3
     )
     select
         cv.h3,
         cv.visible_population,
-        coalesce(s.has_building, false) as has_building,
-        coalesce(s.building_count, 0) as building_count
+        cv.has_building,
+        cv.building_count
     into best
     from candidate_visible_population cv
-    join mesh_surface_h3_r8 s on s.h3 = cv.h3
-    order by s.has_building desc,
-             cv.visible_population desc,
-             s.building_count desc,
-             case when cv.h3 = anchor.h3 then 0 else 1 end,
-             cv.h3
+    order by
+        case when cv.cached_visible_population > 0 then 0 else 1 end,
+        cv.cached_marginal_population desc,
+        cv.visible_population desc,
+        cv.has_building desc,
+        cv.building_count desc,
+        cv.current_rank asc,
+        cv.h3
     limit 1;
 
     if best.h3 is null then
         best.h3 := anchor.h3;
         best.visible_population := anchor.priority_population;
+    end if;
+
+    -- If a generated routing tower can collapse into a nearby existing tower
+    -- without losing its cached-LOS neighbors, it is redundant. Delete it
+    -- instead of moving it into a local back-and-forth blob. The distance
+    -- setting only finds candidate duplicates; the actual deletion requires
+    -- the merge target to preserve the anchor's cached visible-neighbor set.
+    select
+        mt.tower_id,
+        mt.h3,
+        mt.centroid_geog,
+        mt.source
+    into merge_target
+    from mesh_towers mt
+    where anchor.source = any(prunable_sources)
+      and mt.tower_id <> anchor.tower_id
+      and ST_DWithin(mt.centroid_geog, best.h3::geography, generated_tower_merge_distance)
+    order by ST_Distance(mt.centroid_geog, best.h3::geography),
+             case when mt.source = 'population' then 0 else 1 end,
+             mt.tower_id
+    limit 1;
+
+    if merge_target.tower_id is not null
+       and not exists (
+            select 1
+            from mesh_towers nb
+            join mesh_los_cache anchor_link
+              on anchor_link.src_h3 = least(anchor.h3, nb.h3)
+             and anchor_link.dst_h3 = greatest(anchor.h3, nb.h3)
+             and anchor_link.mast_height_src = mast_height
+             and anchor_link.mast_height_dst = mast_height
+             and anchor_link.frequency_hz = frequency
+             and anchor_link.clearance > 0
+            where nb.tower_id <> anchor.tower_id
+              and nb.tower_id <> merge_target.tower_id
+              and ST_DWithin(nb.centroid_geog, anchor.centroid_geog, max_distance)
+              and not exists (
+                    select 1
+                    from mesh_los_cache merged_link
+                    where merged_link.src_h3 = least(merge_target.h3, nb.h3)
+                      and merged_link.dst_h3 = greatest(merge_target.h3, nb.h3)
+                      and merged_link.mast_height_src = mast_height
+                      and merged_link.mast_height_dst = mast_height
+                      and merged_link.frequency_hz = frequency
+                      and merged_link.clearance > 0
+                )
+        ) then
+        old_centroid := anchor.centroid_geog;
+        new_centroid := merge_target.centroid_geog;
+
+        delete from mesh_tower_wiggle_queue
+        where tower_id = anchor.tower_id;
+
+        delete from mesh_towers
+        where tower_id = anchor.tower_id;
+
+        update mesh_surface_h3_r8 s
+        set has_tower = false,
+            clearance = null,
+            path_loss = null,
+            visible_population = null,
+            visible_uncovered_population = null
+        where s.h3 = anchor.h3
+          and not exists (
+                select 1
+                from mesh_towers mt
+                where mt.h3 = s.h3
+            );
+
+        with affected_cells as materialized (
+            select h3, centroid_geog
+            from mesh_surface_h3_r8
+            where ST_DWithin(centroid_geog, old_centroid, max_distance)
+               or ST_DWithin(centroid_geog, new_centroid, max_distance)
+        ),
+        recomputed_distances as (
+            select
+                ac.h3,
+                min(ST_Distance(ac.centroid_geog, t.centroid_geog)) as distance_m
+            from affected_cells ac
+            join mesh_towers t on true
+            group by ac.h3
+        )
+        update mesh_surface_h3_r8 s
+        set distance_to_closest_tower = rd.distance_m,
+            clearance = null,
+            path_loss = null,
+            visible_population = null,
+            visible_uncovered_population = case
+                when s.has_tower then 0
+                else null
+            end
+        from recomputed_distances rd
+        where s.h3 = rd.h3;
+
+        update mesh_tower_wiggle_queue q
+        set is_dirty = true
+        from mesh_towers nb
+        where nb.tower_id = q.tower_id
+          and nb.source = any(target_sources)
+          and ST_DWithin(nb.centroid_geog, old_centroid, max_distance);
+
+        raise notice 'Wiggle pruned redundant tower % at %, merged into tower % at %',
+            anchor.tower_id,
+            anchor.h3,
+            merge_target.tower_id,
+            merge_target.h3;
+
+        return 1;
     end if;
 
     if best.h3 = anchor.h3 then
@@ -252,15 +506,21 @@ begin
 
     -- Defer heavy local RF and population refresh to the later route-refresh stage.
 
-    -- Mark neighbors for another pass now that visibility changed.
+    -- Mark cached-LOS neighbors for another pass now that visibility changed.
     update mesh_tower_wiggle_queue q
     set is_dirty = true
     from mesh_towers nb
+    join mesh_los_cache mlc
+      on mlc.src_h3 = least(nb.h3, best.h3)
+     and mlc.dst_h3 = greatest(nb.h3, best.h3)
+     and mlc.mast_height_src = mast_height
+     and mlc.mast_height_dst = mast_height
+     and mlc.frequency_hz = frequency
+     and mlc.clearance > 0
     where nb.tower_id = q.tower_id
       and nb.tower_id <> anchor.tower_id
       and nb.source = any(target_sources)
-      and ST_DWithin(nb.centroid_geog, new_centroid, max_distance)
-      and h3_los_between_cells(nb.h3, best.h3);
+      and ST_DWithin(nb.centroid_geog, new_centroid, max_distance);
 
     processed := 1;
 

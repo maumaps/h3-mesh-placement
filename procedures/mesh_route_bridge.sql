@@ -17,10 +17,17 @@ $$
 declare
     start_vids integer[];
     end_vids integer[];
-    separation constant double precision := 0;
+    separation double precision := 0;
     start_h3s h3index[];
     end_h3s h3index[];
 begin
+    select greatest(coalesce((
+        select value::double precision
+        from mesh_pipeline_settings
+        where setting = 'min_tower_separation_m'
+    ), 0), 0)
+    into separation;
+
     -- Pick the nearest tower-node pair between the two clusters and route
     -- between those anchors. Sending every tower node in both clusters into
     -- pgr_dijkstra makes each bridge attempt explode combinatorially.
@@ -208,6 +215,41 @@ begin
         return;
     end if;
 
+    -- Materialize country polygons once so pair ranking can prefer local bridges
+    -- before cross-border links without changing pgRouting edge costs.
+    drop table if exists mesh_route_country_polygons;
+    create temporary table mesh_route_country_polygons as
+    with admin_polygons as (
+        select
+            case
+                when lower(coalesce(tags ->> 'ISO3166-1:alpha2', '')) = 'am' then 'am'
+                when lower(
+                    coalesce(
+                        nullif(tags ->> 'name:en', ''),
+                        nullif(tags ->> 'int_name', ''),
+                        nullif(tags ->> 'name', '')
+                    )
+                ) = any (array['georgia', 'sakartvelo', 'republic of georgia']) then 'ge'
+                else null
+            end as country_code,
+            ST_Multi(geog::geometry) as geom
+        from osm_for_mesh_placement
+        where tags ? 'boundary'
+          and tags ->> 'boundary' = 'administrative'
+          and tags ->> 'admin_level' = '2'
+          and ST_GeometryType(geog::geometry) in ('ST_Polygon', 'ST_MultiPolygon')
+    )
+    select
+        country_code,
+        ST_Union(geom) as geom
+    from admin_polygons
+    where country_code is not null
+    group by country_code;
+
+    create index if not exists mesh_route_country_polygons_geom_idx
+        on mesh_route_country_polygons using gist (geom);
+    analyze mesh_route_country_polygons;
+
     -- Track cluster pairs that have already been attempted so we can try the rest even if one fails.
     drop table if exists mesh_route_failed_pairs;
     create temporary table mesh_route_failed_pairs (
@@ -236,11 +278,14 @@ begin
             select
                 tc.cluster_id,
                 mt.centroid_geog,
+                country.country_code,
                 rec.component
             from mesh_tower_clusters() tc
             join mesh_towers mt on mt.tower_id = tc.tower_id
             join mesh_route_nodes mrn on mrn.h3 = mt.h3
             join mesh_route_edge_components rec on rec.node = mrn.node_id
+            left join mesh_route_country_polygons country
+              on ST_Intersects(mt.h3::geometry, country.geom)
         ),
         cluster_pairs as (
             -- Rank cluster pairs by the closest tower-to-tower gap instead of the
@@ -249,6 +294,15 @@ begin
             select
                 cp1.cluster_id as cluster_a,
                 cp2.cluster_id as cluster_b,
+                min(
+                    case
+                        when cp1.country_code is not null
+                         and cp1.country_code = cp2.country_code then 0
+                        when cp1.country_code is null
+                          or cp2.country_code is null then 1
+                        else 2
+                    end
+                ) as country_priority,
                 min(ST_Distance(cp1.centroid_geog, cp2.centroid_geog)) as cluster_distance
             from cluster_points cp1
             join cluster_points cp2 on cp1.cluster_id < cp2.cluster_id
@@ -270,12 +324,13 @@ begin
             select
                 cluster_a,
                 cluster_b,
+                country_priority,
                 cluster_distance
             from cluster_pairs
-            order by cluster_distance asc
+            order by country_priority asc, cluster_distance asc
             limit candidate_pair_limit
         ) ranked_cluster_pairs
-        order by cluster_distance asc
+        order by country_priority asc, cluster_distance asc
         limit 1;
 
         exit when start_cluster is null or end_cluster is null;
@@ -323,22 +378,32 @@ begin
 
         route_added := 0;
 
-        -- Promote every intermediate H3 along the path into a route tower and refresh local metrics.
+        -- Promote every intermediate H3 from the chosen corridor.
+        -- Do not distance-dedup here: close route cells can have different
+        -- cached LOS neighbor sets and may be required for cluster connectivity.
+        -- Redundant generated towers are pruned later by mesh_tower_wiggle only
+        -- when a nearby tower preserves the same visible-neighbor set.
         for new_h3 in
-            insert into mesh_towers (h3, source)
-            select pnw.h3, 'route'
+            select pnw.h3
             from mesh_route_path_nodes_work pnw
             join mesh_surface_h3_r8 s on s.h3 = pnw.h3
-            on conflict (h3) do nothing
-            returning h3
+            order by pnw.seq
         loop
-            route_added := route_added + 1;
-
-            -- Grab the new tower centroid for downstream updates.
+            -- Grab the candidate centroid before deciding whether to promote it.
             select centroid_geog
             into new_centroid
             from mesh_surface_h3_r8
             where h3 = new_h3;
+
+            insert into mesh_towers (h3, source)
+            values (new_h3, 'route')
+            on conflict (h3) do nothing;
+
+            if not found then
+                continue;
+            end if;
+
+            route_added := route_added + 1;
 
             -- Mark the promoted cell as a tower and reset cached metrics.
             update mesh_surface_h3_r8

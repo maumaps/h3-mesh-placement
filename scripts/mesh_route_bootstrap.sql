@@ -1,7 +1,15 @@
 set client_min_messages = notice;
 
-\set mast_height 28
-\set frequency 868e6
+-- Pull user-tunable RF constants from the single pipeline config.
+select value::double precision as mast_height
+from mesh_pipeline_settings
+where setting = 'mast_height_m'
+\gset
+
+select value::double precision as frequency
+from mesh_pipeline_settings
+where setting = 'frequency_hz'
+\gset
 
 -- Seed LOS cache entries from install-priority bootstrap pairs before the
 -- generic all-pairs fill runs, so routing starts with known rollout corridors.

@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+enabled="$(psql --no-psqlrc --set=ON_ERROR_STOP=1 -At -c "select value::boolean from mesh_pipeline_settings where setting = 'enable_wiggle'")"
+
+if [ "${enabled}" != t ]; then
+    echo ">> Tower wiggle disabled by mesh_pipeline_settings.enable_wiggle"
+    exit 0
+fi
+
+max_iters="${WIGGLE_ITERATIONS:-$(psql --no-psqlrc --set=ON_ERROR_STOP=1 -At -c "select value::integer from mesh_pipeline_settings where setting = 'wiggle_iterations'")}"
+iter=0
+reset=true
+
+while :; do
+    iter=$((iter + 1))
+    echo ">> Wiggle iteration ${iter}"
+    moved="$(psql --no-psqlrc --set=ON_ERROR_STOP=1 -At -c "select mesh_tower_wiggle(${reset});")"
+    reset=false
+    moved="${moved:-0}"
+
+    if [ "${moved}" -eq 0 ]; then
+        echo ">> Wiggle converged after $((iter - 1)) iteration(s)"
+        break
+    fi
+
+    if [ "${max_iters}" -gt 0 ] && [ "${iter}" -ge "${max_iters}" ]; then
+        echo ">> Wiggle hit iteration cap ${max_iters}"
+        break
+    fi
+done

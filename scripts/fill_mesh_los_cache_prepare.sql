@@ -1,9 +1,25 @@
 set client_min_messages = notice;
 
-\set max_distance 80000
-\set separation 0
-\set mast_height 28
-\set frequency 868e6
+-- Pull user-tunable LOS and pairing constants from the single pipeline config.
+select value::double precision as max_distance
+from mesh_pipeline_settings
+where setting = 'max_los_distance_m'
+\gset
+
+select value::double precision as separation
+from mesh_pipeline_settings
+where setting = 'min_tower_separation_m'
+\gset
+
+select value::double precision as mast_height
+from mesh_pipeline_settings
+where setting = 'mast_height_m'
+\gset
+
+select value::double precision as frequency
+from mesh_pipeline_settings
+where setting = 'frequency_hz'
+\gset
 
 -- Rebuild the route-candidate working set from the current planning surface so
 -- later cache fill and route graph steps use the same placeable H3 cells.

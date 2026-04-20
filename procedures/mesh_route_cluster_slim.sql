@@ -150,6 +150,43 @@ begin
         reverse_cost double precision not null
     ) on commit preserve rows;
 
+    if to_regclass('pg_temp.mesh_route_country_polygons') is not null then
+        drop table mesh_route_country_polygons;
+    end if;
+    -- Keep country lookup local to this iteration; candidate ordering should
+    -- prefer same-country hop shortening before cross-border hop shortening.
+    create temporary table mesh_route_country_polygons as
+    with admin_polygons as (
+        select
+            case
+                when lower(coalesce(tags ->> 'ISO3166-1:alpha2', '')) = 'am' then 'am'
+                when lower(
+                    coalesce(
+                        nullif(tags ->> 'name:en', ''),
+                        nullif(tags ->> 'int_name', ''),
+                        nullif(tags ->> 'name', '')
+                    )
+                ) = any (array['georgia', 'sakartvelo', 'republic of georgia']) then 'ge'
+                else null
+            end as country_code,
+            ST_Multi(geog::geometry) as geom
+        from osm_for_mesh_placement
+        where tags ? 'boundary'
+          and tags ->> 'boundary' = 'administrative'
+          and tags ->> 'admin_level' = '2'
+          and ST_GeometryType(geog::geometry) in ('ST_Polygon', 'ST_MultiPolygon')
+    )
+    select
+        country_code,
+        ST_Union(geom) as geom
+    from admin_polygons
+    where country_code is not null
+    group by country_code;
+
+    create index mesh_route_country_polygons_geom_idx
+        on mesh_route_country_polygons using gist (geom);
+    analyze mesh_route_country_polygons;
+
     iteration_started_at := clock_timestamp();
 
     truncate mesh_route_cluster_slim_candidates;
@@ -188,6 +225,13 @@ begin
             select
                 row_number() over (
                     order by
+                        case
+                            when src_country.country_code is not null
+                             and src_country.country_code = dst_country.country_code then 0
+                            when src_country.country_code is null
+                              or dst_country.country_code is null then 1
+                            else 2
+                        end asc,
                         ((case when src.source = 'seed' then 1 else 0 end)
                       + (case when dst.source = 'seed' then 1 else 0 end)) desc,
                         e.distance_m / nullif(e.cluster_hops, 0) asc,
@@ -202,6 +246,10 @@ begin
             from mesh_visibility_edges e
             join mesh_towers src on src.tower_id = e.source_id
             join mesh_towers dst on dst.tower_id = e.target_id
+            left join mesh_route_country_polygons src_country
+              on ST_Intersects(src.h3::geometry, src_country.geom)
+            left join mesh_route_country_polygons dst_country
+              on ST_Intersects(dst.h3::geometry, dst_country.geom)
             where e.cluster_hops > hop_limit
               and not exists (
                     select 1

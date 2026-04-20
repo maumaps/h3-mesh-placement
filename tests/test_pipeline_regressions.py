@@ -1,6 +1,7 @@
 """Regression checks for pipeline wiring and batch-complete routing fill."""
 
 from pathlib import Path
+import re
 import unittest
 
 
@@ -30,6 +31,188 @@ class PipelineRegressionTest(unittest.TestCase):
                 expected_jobs,
                 f"Finite LOS launcher should map {queue_rows} queued rows to {expected_jobs} 50k jobs, got {actual_jobs}.",
             )
+
+    def test_pipeline_config_controls_placement_stages(self) -> None:
+        """Placement toggles and key parameters should live in one SQL config file."""
+        settings_text = (REPO_ROOT / "tables" / "mesh_pipeline_settings.sql").read_text()
+        makefile_text = (REPO_ROOT / "Makefile").read_text()
+        coarse_text = (REPO_ROOT / "procedures" / "mesh_coarse_grid.sql").read_text()
+        greedy_script_text = (REPO_ROOT / "scripts" / "mesh_run_greedy_configured.sh").read_text()
+        population_text = (REPO_ROOT / "procedures" / "mesh_population.sql").read_text()
+        contract_text = (REPO_ROOT / "procedures" / "mesh_population_anchor_contract.sql").read_text()
+        placement_restart_text = (REPO_ROOT / "scripts" / "mesh_placement_restart.sh").read_text()
+
+        for setting, value in {
+            "enable_coarse": "false",
+            "enable_greedy": "false",
+            "enable_route_bridge": "true",
+            "enable_cluster_slim": "true",
+            "los_batch_limit": "50000",
+            "los_parallel_jobs": "8",
+            "min_tower_separation_m": "0",
+            "generated_tower_merge_distance_m": "10000",
+            "enable_population": "true",
+            "enable_population_anchor_contract": "true",
+            "population_anchor_contract_distance_m": "0",
+            "enable_generated_pair_contract": "true",
+            "population_anchor_min_count": "7",
+            "population_anchor_max_count": "7",
+            "population_existing_anchor_weight": "1000000",
+            "population_anchor_cluster_oversampling": "2",
+            "enable_wiggle": "true",
+            "wiggle_candidate_limit": "256",
+        }.items():
+            self.assertIn(
+                f"('{setting}', '{value}')",
+                settings_text,
+                f"mesh_pipeline_settings.sql should expose {setting}={value} in the single user-editable pipeline config file.",
+            )
+
+        self.assertIn(
+            "from mesh_pipeline_settings\n        where setting = 'enable_coarse'",
+            coarse_text,
+            "mesh_coarse_grid should read enable_coarse from mesh_pipeline_settings before inserting coarse towers.",
+        )
+        self.assertIn(
+            "delete from mesh_towers where source = 'coarse';",
+            coarse_text,
+            "Disabling coarse placement should remove stale coarse towers during a restart.",
+        )
+        self.assertIn(
+            "scripts/mesh_run_greedy_configured.sh",
+            makefile_text,
+            "Greedy Make targets should delegate to the configured wrapper instead of hardcoding an unconditional greedy loop.",
+        )
+        self.assertIn(
+            "db/procedure/mesh_placement_restart: scripts/mesh_placement_restart.sh",
+            makefile_text,
+            "Makefile should expose a safe placement restart target that does not rebuild cached table dependencies when only tower placement needs replaying.",
+        )
+        self.assertIn(
+            "psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_population.sql",
+            placement_restart_text,
+            "Safe placement restart should replay the configured population anchor stage before route bootstrap sees current towers.",
+        )
+        self.assertIn(
+            "psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_route_bootstrap.sql",
+            placement_restart_text,
+            "Safe placement restart should reseed route bootstrap without truncating or recreating the LOS cache table.",
+        )
+        self.assertIn(
+            "psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_population_anchor_contract.sql",
+            placement_restart_text,
+            "Safe placement restart should contract soft population anchors after routing and before final visibility refresh.",
+        )
+        self.assertIn(
+            "psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_generated_pair_contract.sql",
+            placement_restart_text,
+            "Safe placement restart should contract generated tower pairs after population-anchor cleanup and before final visibility refresh.",
+        )
+        self.assertIn(
+            "scripts/mesh_tower_wiggle_configured.sh",
+            placement_restart_text,
+            "Safe placement restart should include the configured tower-wiggle stage so enable_wiggle works without a full table rebuild.",
+        )
+        self.assertIn(
+            "db/procedure/mesh_tower_wiggle_current",
+            makefile_text,
+            "Makefile should expose a safe current-wiggle target that does not rebuild route inputs when only local refinement is requested.",
+        )
+        self.assertIn(
+            "delete from mesh_towers where source in ('greedy', 'bridge'); truncate mesh_greedy_iterations;",
+            greedy_script_text,
+            "Disabling greedy placement should clean stale greedy/bridge towers and iteration logs during a restart.",
+        )
+        self.assertIn(
+            "power(ln(1 + rc.nearby_population)",
+            population_text,
+            "mesh_population should interleave nearby population with building count instead of sorting those dimensions lexicographically.",
+        )
+        self.assertIn(
+            "existing_anchor_cells as",
+            population_text,
+            "mesh_population should feed existing towers into KMeans as heavy anchors instead of erasing covered demand before clustering.",
+        )
+        self.assertIn(
+            "population_existing_anchor_weight",
+            population_text,
+            "mesh_population should expose the heavy existing-anchor weight through mesh_pipeline_settings.",
+        )
+        self.assertIn(
+            "cluster_has_existing_anchor",
+            population_text,
+            "mesh_population should drop clusters that already contain an existing tower anchor after clustering.",
+        )
+        self.assertNotIn(
+            "h3_los_between_cells(s.h3, t.h3)",
+            population_text,
+            "mesh_population should not run expensive LOS pre-filtering while ranking population anchor candidates.",
+        )
+        self.assertIn(
+            "ST_ClusterKMeans(cp.cluster_geom, (select k from cluster_count)) over ()",
+            population_text,
+            "mesh_population should use fixed-k clustering from configured max count instead of radius-limited clustering in the default path.",
+        )
+        self.assertIn(
+            "sc.cluster_weight",
+            population_text,
+            "mesh_population should pass configurable demand weight as the M coordinate for weighted KMeans.",
+        )
+        self.assertIn(
+            "cluster_centroids as",
+            population_text,
+            "mesh_population should reconstruct weighted KMeans centroids before snapping winners to placeable H3 cells.",
+        )
+        self.assertIn(
+            "ST_3DDistance(cl.cluster_geom, cc.centroid_geom) asc",
+            population_text,
+            "mesh_population should choose the candidate nearest to each weighted centroid before using score tie-breakers.",
+        )
+        self.assertNotIn(
+            "kutaisi",
+            settings_text.lower() + population_text.lower(),
+            "Kutaisi should stay a regression-test calibration point, not production pipeline input.",
+        )
+        self.assertIn(
+            "enable_population_anchor_contract",
+            contract_text,
+            "mesh_population_anchor_contract should be guarded by the single user-editable config switch.",
+        )
+        self.assertIn(
+            "population_anchor_contract_distance_m",
+            contract_text,
+            "mesh_population_anchor_contract should support topology-only mode instead of reusing generated route-tower merge radius.",
+        )
+        self.assertIn(
+            "merge_distance <= 0",
+            contract_text,
+            "mesh_population_anchor_contract should treat distance 0 as topology-only replacement search.",
+        )
+        self.assertIn(
+            "mesh_los_cache",
+            contract_text,
+            "mesh_population_anchor_contract should use cached LOS neighbor sets for contraction decisions.",
+        )
+        self.assertIn(
+            "required.source <> 'population'",
+            contract_text,
+            "mesh_population_anchor_contract should preserve non-population visible-neighbor roles when removing soft anchors.",
+        )
+        self.assertNotIn(
+            "h3_los_between_cells",
+            contract_text,
+            "mesh_population_anchor_contract must not compute fresh terrain LOS while contracting soft anchors.",
+        )
+        self.assertNotIn(
+            "population_anchor_contract_local_population",
+            settings_text + contract_text,
+            "Population anchor contraction should not depend on arbitrary local-population thresholds.",
+        )
+        self.assertNotIn(
+            "population_anchor_contract_building",
+            settings_text + contract_text,
+            "Population anchor contraction should not depend on arbitrary building-count thresholds.",
+        )
 
     def test_initial_nodes_import_does_not_skip_existing_table(self) -> None:
         """Canonical seed refresh should always reach Postgres on rebuild."""
@@ -64,9 +247,9 @@ class PipelineRegressionTest(unittest.TestCase):
             "Makefile should keep the one-batch normal pipeline as its own intermediate target so dependency invalidation flows through route bootstrap and prepare markers.",
         )
         self.assertIn(
-            'PGOPTIONS="$${PGOPTIONS:-} -c statement_timeout=0" psql --no-psqlrc --set=ON_ERROR_STOP=1 -v batch_limit=50000 -f scripts/fill_mesh_los_cache_batch.sql',
+            "scripts/fill_mesh_los_cache_batch_once.sh",
             makefile_text,
-            "The single-batch fill target should still run a committed LOS batch so the route pipeline can progress without waiting for a full drain.",
+            "The single-batch fill target should delegate to a configured wrapper so the route pipeline can progress without hardcoded batch parameters.",
         )
         self.assertIn(
             "db/procedure/fill_mesh_los_cache: db/procedure/fill_mesh_los_cache_finalize | db/procedure",
@@ -79,14 +262,19 @@ class PipelineRegressionTest(unittest.TestCase):
             "Downstream routing stages should depend on a stable cache-ready marker instead of pulling the whole cache prepare/batch/finalize chain back into route recalculation.",
         )
         self.assertIn(
-            "db/procedure/mesh_route_bridge: procedures/mesh_route_bridge.sql db/procedure/fill_mesh_los_cache_ready",
+            "db/procedure/mesh_route_bridge: procedures/mesh_route_bridge.sql scripts/mesh_route_bridge_configured.sh db/procedure/fill_mesh_los_cache_ready",
             makefile_text,
             "mesh_route_bridge should consume the materialized route graph marker without forcing another LOS cache batch when towers are recalculated from a completed cache.",
         )
         self.assertIn(
-            "db/procedure/mesh_route_cluster_slim: procedures/mesh_route_cluster_slim.sql db/table/mesh_route_cluster_slim_failures db/procedure/mesh_route_bridge db/procedure/fill_mesh_los_cache_ready",
+            "db/procedure/mesh_route_cluster_slim: procedures/mesh_route_cluster_slim.sql scripts/mesh_route_cluster_slim_configured.sh db/table/mesh_route_cluster_slim_failures db/procedure/mesh_route_bridge db/procedure/fill_mesh_los_cache_ready",
             makefile_text,
             "mesh_route_cluster_slim should share the same cache-ready marker so downstream tower recalculation does not restart LOS cache preparation.",
+        )
+        self.assertIn(
+            "db/procedure/fill_mesh_los_cache_prepare: scripts/fill_mesh_los_cache_prepare.sql db/table/mesh_surface_h3_r8 db/table/mesh_towers db/table/mesh_los_cache db/procedure/mesh_visibility_edges_route_priority_geom db/procedure/mesh_route_bootstrap db/procedure/mesh_population",
+            makefile_text,
+            "fill_mesh_los_cache_prepare should depend on configured population anchors so route cache staging sees the sparse city/serviceability hints.",
         )
         self.assertIn(
             "db/procedure/fill_mesh_los_cache_finalize: scripts/fill_mesh_los_cache_finalize.sql db/procedure/fill_mesh_los_cache_batch_once | db/procedure",
@@ -119,9 +307,14 @@ class PipelineRegressionTest(unittest.TestCase):
             "The GNU parallel launcher script should feed a finite batch-count job queue into GNU parallel so ETA reflects the remaining LOS batches.",
         )
         self.assertIn(
-            "--jobs 8",
+            'parallel_jobs="$(psql',
             parallel_script_text,
-            "The GNU parallel launcher should keep eight concurrent batch jobs for the current eight-core cache-fill workflow.",
+            "The GNU parallel launcher should read worker parallelism from mesh_pipeline_settings instead of hardcoding the current machine shape.",
+        )
+        self.assertIn(
+            '--jobs "${parallel_jobs}"',
+            parallel_script_text,
+            "The GNU parallel launcher should pass the configured job count to GNU parallel.",
         )
         self.assertIn(
             "--line-buffer",
@@ -139,9 +332,14 @@ class PipelineRegressionTest(unittest.TestCase):
             "The GNU parallel launcher should request ETA output when it has a TTY, but stay quiet under nohup where /dev/tty is unavailable.",
         )
         self.assertIn(
-            "ceil(count(*)::numeric / 50000)::integer from mesh_route_missing_pairs",
+            'batch_limit="$(psql',
             parallel_script_text,
-            "The GNU parallel launcher should snapshot the current queue length into a finite number of 50k batch jobs so one run drains a measurable chunk of the queue.",
+            "The GNU parallel launcher should read its batch size from mesh_pipeline_settings so users can tune finite job granularity in one file.",
+        )
+        self.assertIn(
+            "ceil(count(*)::numeric / ${batch_limit})::integer from mesh_route_missing_pairs",
+            parallel_script_text,
+            "The GNU parallel launcher should snapshot the current queue length using the configured batch size.",
         )
         self.assertIn(
             "psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/fill_mesh_los_cache_queue_indexes.sql",
@@ -153,14 +351,16 @@ class PipelineRegressionTest(unittest.TestCase):
             makefile_text,
             "Manual LOS cache backfill should not depend on the prepare marker directly, otherwise resume rebuilds staging from scratch instead of continuing an existing queue.",
         )
+        backfill_script_text = (REPO_ROOT / "scripts" / "fill_mesh_los_cache_backfill.sh").read_text()
+        batches_script_text = (REPO_ROOT / "scripts" / "fill_mesh_los_cache_batches.sh").read_text()
         self.assertIn(
-            'while [ "$$(PGOPTIONS="$${PGOPTIONS:-} -c statement_timeout=0" psql --no-psqlrc --set=ON_ERROR_STOP=1 -At -c "select case when exists (select 1 from mesh_route_missing_pairs limit 1) then 1 else 0 end")" -eq 1 ]',
-            makefile_text,
-            "The manual backfill target should loop over committed batch invocations until mesh_route_missing_pairs is empty, using EXISTS instead of a full COUNT(*) scan on every iteration.",
+            "select case when exists (select 1 from mesh_route_missing_pairs limit 1) then 1 else 0 end",
+            batches_script_text,
+            "The manual backfill batch loop should use EXISTS instead of a full COUNT(*) scan on every iteration.",
         )
         self.assertIn(
-            "psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/fill_mesh_los_cache_queue_indexes.sql; while",
-            makefile_text,
+            "psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/fill_mesh_los_cache_queue_indexes.sql",
+            backfill_script_text,
             "Manual backfill should install exact-match and batch-order indexes on an existing queue before draining it, so resume does not keep paying a full sort of mesh_route_missing_pairs.",
         )
         self.assertIn(
@@ -292,6 +492,8 @@ class PipelineRegressionTest(unittest.TestCase):
         """Route bridge should not fail in local refresh work because of the session timeout."""
         makefile_text = (REPO_ROOT / "Makefile").read_text()
         bridge_text = (REPO_ROOT / "procedures" / "mesh_route_bridge.sql").read_text()
+        bridge_script_text = (REPO_ROOT / "scripts" / "mesh_route_bridge_configured.sh").read_text()
+        cluster_slim_text = (REPO_ROOT / "procedures" / "mesh_route_cluster_slim.sql").read_text()
 
         self.assertIn(
             "perform set_config('statement_timeout', '0', true);",
@@ -299,9 +501,19 @@ class PipelineRegressionTest(unittest.TestCase):
             "mesh_route_bridge should disable statement_timeout internally before local LOS refresh work, matching mesh_route_cluster_slim.",
         )
         self.assertIn(
-            'PGOPTIONS="$${PGOPTIONS:-} -c statement_timeout=0" psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_route_bridge.sql',
+            "scripts/mesh_route_bridge_configured.sh",
             makefile_text,
-            "db/procedure/mesh_route_bridge should also run with statement_timeout=0 so the outer psql session does not cancel long refreshes.",
+            "db/procedure/mesh_route_bridge should delegate to the configured wrapper so timeout handling and the stage toggle stay in one place.",
+        )
+        self.assertIn(
+            "delete from mesh_towers where source = 'route';",
+            bridge_script_text,
+            "mesh_route_bridge wrapper should remove stale route towers before rerunning so route placement is recalculated instead of appended.",
+        )
+        self.assertIn(
+            'PGOPTIONS="${PGOPTIONS:-} -c statement_timeout=0"',
+            bridge_script_text,
+            "mesh_route_bridge wrapper should also run with statement_timeout=0 so the outer psql session does not cancel long refreshes.",
         )
         self.assertIn(
             "min(ST_Distance(cp1.centroid_geog, cp2.centroid_geog)) as cluster_distance",
@@ -309,9 +521,29 @@ class PipelineRegressionTest(unittest.TestCase):
             "mesh_route_bridge should rank disconnected clusters by their closest tower-to-tower gap so partial route graphs do not waste time on extreme centroid-distance pairs first.",
         )
         self.assertIn(
-            "order by cluster_distance asc",
+            "country_priority",
             bridge_text,
-            "mesh_route_bridge should search the nearest cluster gaps first to improve the chance of early route insertions.",
+            "mesh_route_bridge should classify cluster-pair country priority so same-country gaps are attempted before cross-border gaps.",
+        )
+        self.assertIn(
+            "Do not distance-dedup here",
+            bridge_text,
+            "mesh_route_bridge should not distance-dedup promoted route nodes because close cells can have different LOS-neighbor sets.",
+        )
+        self.assertNotIn(
+            "generated_tower_merge_distance_m",
+            bridge_text,
+            "mesh_route_bridge should leave generated-tower merging to wiggle, where cached visible-neighbor sets are compared before pruning.",
+        )
+        self.assertIn(
+            "order by country_priority asc, cluster_distance asc",
+            bridge_text,
+            "mesh_route_bridge should search same-country cluster gaps first, then fall back to nearest cross-country gaps.",
+        )
+        self.assertIn(
+            "create temporary table mesh_route_country_polygons as",
+            bridge_text,
+            "mesh_route_bridge should build local country polygons for country-aware pair ordering inside the route transaction.",
         )
         self.assertIn(
             "mesh_route_edge_components",
@@ -322,6 +554,11 @@ class PipelineRegressionTest(unittest.TestCase):
             "and cp1.component = cp2.component",
             bridge_text,
             "mesh_route_bridge should only try cluster pairs that share a route-graph connected component, because disjoint components cannot be bridged by the current cached graph.",
+        )
+        self.assertIn(
+            "prefer same-country hop shortening before cross-border hop shortening",
+            cluster_slim_text,
+            "mesh_route_cluster_slim should also prefer same-country over-hop repairs before cross-border repairs.",
         )
         self.assertIn(
             "max_pair_attempts_per_run constant integer := 256;",
@@ -367,6 +604,7 @@ class PipelineRegressionTest(unittest.TestCase):
     def test_mesh_tower_wiggle_defers_refresh(self) -> None:
         """Tower wiggle should not run heavy local or global visibility refresh inside each single-tower move."""
         wiggle_text = (REPO_ROOT / "procedures" / "mesh_tower_wiggle.sql").read_text()
+        makefile_text = (REPO_ROOT / "Makefile").read_text()
 
         self.assertNotIn(
             "mesh_surface_refresh_visible_tower_counts(",
@@ -387,6 +625,96 @@ class PipelineRegressionTest(unittest.TestCase):
             "call mesh_visibility_edges_refresh();",
             wiggle_text,
             "mesh_tower_wiggle should not run a full visibility refresh internally because that work belongs to the later visibility stage.",
+        )
+        self.assertIn(
+            "array['population', 'route', 'cluster_slim', 'bridge', 'coarse']",
+            wiggle_text,
+            "mesh_tower_wiggle should include population anchors along with route-derived towers in local refinement.",
+        )
+        self.assertIn(
+            "generated_tower_merge_distance_m",
+            wiggle_text,
+            "mesh_tower_wiggle should look for nearby generated-tower merge candidates using the configured merge radius.",
+        )
+        self.assertIn(
+            "where setting = 'mast_height_m'",
+            wiggle_text,
+            "mesh_tower_wiggle should read mast_height_m from mesh_pipeline_settings so cached LOS lookups use the configured RF dimensions.",
+        )
+        self.assertIn(
+            "where setting = 'frequency_hz'",
+            wiggle_text,
+            "mesh_tower_wiggle should read frequency_hz from mesh_pipeline_settings so cached LOS lookups use the configured RF dimensions.",
+        )
+        self.assertIn(
+            "merged_link.src_h3 = least(merge_target.h3, nb.h3)",
+            wiggle_text,
+            "mesh_tower_wiggle should prune duplicate generated towers only after the merge target preserves the anchor visible-neighbor set.",
+        )
+        self.assertIn(
+            "marginal_candidates as materialized",
+            wiggle_text,
+            "mesh_tower_wiggle should bound expensive cached marginal-population scoring only after candidates preserve existing LOS neighbors.",
+        )
+        self.assertIn(
+            "limit wiggle_candidate_limit",
+            wiggle_text,
+            "mesh_tower_wiggle should still cap how many LOS-safe candidates get cached marginal-population scoring.",
+        )
+        self.assertIn(
+            "cached_marginal_population",
+            wiggle_text,
+            "mesh_tower_wiggle should prefer candidates that add population not already served by other cached-visible towers.",
+        )
+        self.assertNotIn(
+            "h3_los_between_cells",
+            wiggle_text,
+            "mesh_tower_wiggle should use mesh_los_cache instead of starting fresh terrain LOS calculations during local refinement.",
+        )
+        self.assertIn(
+            "db/test/mesh_population_anchor_contract: tests/mesh_population_anchor_contract_setup.sql procedures/mesh_population_anchor_contract.sql tests/mesh_population_anchor_contract_assert.sql | db/test",
+            makefile_text,
+            "mesh_population_anchor_contract test should run setup, production contraction, and assertions in one psql session so temp fixtures survive.",
+        )
+        self.assertIn(
+            "db/test/mesh_tower_wiggle: tests/mesh_tower_wiggle.sql procedures/mesh_tower_wiggle.sql | db/test",
+            makefile_text,
+            "mesh_tower_wiggle test should run against its temp fixture without forcing surface/tower table rebuilds.",
+        )
+        self.assertIn(
+            "create temporary table mesh_pipeline_settings",
+            (REPO_ROOT / "tests" / "mesh_tower_wiggle.sql").read_text(),
+            "mesh_tower_wiggle fixture should provide its own temporary pipeline settings so the standalone target works on a clean database.",
+        )
+        self.assertIn(
+            "db/test/mesh_population: tests/mesh_population.sql | db/test",
+            makefile_text,
+            "mesh_population test must not depend on mesh_placement_restart because test runs must not replay or delete real placement state.",
+        )
+        self.assertNotIn(
+            "db/test/mesh_population: tests/mesh_population.sql db/procedure/mesh_placement_restart",
+            makefile_text,
+            "mesh_population test should stay off the destructive placement restart pipeline.",
+        )
+        self.assertIn(
+            "db/procedure/mesh_route_refresh_visibility_current: scripts/mesh_visibility_edges_refresh.sql | db/procedure",
+            makefile_text,
+            "Makefile should provide a current visibility refresh target after wiggle that does not replay route or rebuild surface tables.",
+        )
+        self.assertIn(
+            "db/procedure/mesh_population_anchor_contract_current: procedures/mesh_population_anchor_contract.sql | db/procedure",
+            makefile_text,
+            "Makefile should provide a current population-anchor contraction target that does not replay route stages.",
+        )
+        self.assertIn(
+            "db/test/mesh_generated_pair_contract: tests/mesh_generated_pair_contract_setup.sql procedures/mesh_generated_pair_contract.sql tests/mesh_generated_pair_contract_assert.sql | db/test",
+            makefile_text,
+            "mesh_generated_pair_contract test should run setup, production contraction, and assertions in one psql session so temp fixtures survive.",
+        )
+        self.assertIn(
+            "db/procedure/mesh_generated_pair_contract_current: procedures/mesh_generated_pair_contract.sql | db/procedure",
+            makefile_text,
+            "Makefile should provide a current generated-pair contraction target that does not replay route stages.",
         )
         self.assertIn(
             "separation_default constant double precision := 0",
@@ -473,15 +801,21 @@ class PipelineRegressionTest(unittest.TestCase):
     def test_mesh_run_greedy_full_is_timeout_safe(self) -> None:
         """Greedy placement should run with statement_timeout disabled because LOS and visibility refresh work can exceed the default timeout."""
         makefile_text = (REPO_ROOT / "Makefile").read_text()
+        greedy_script_text = (REPO_ROOT / "scripts" / "mesh_run_greedy_configured.sh").read_text()
 
         self.assertIn(
-            'PGOPTIONS="$${PGOPTIONS:-} -c statement_timeout=0" psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_run_greedy.sql',
+            "scripts/mesh_run_greedy_configured.sh",
             makefile_text,
+            "mesh_run_greedy_full should delegate to the configured wrapper so timeout handling and the stage toggle stay in one place.",
+        )
+        self.assertIn(
+            'PGOPTIONS="${PGOPTIONS:-} -c statement_timeout=0" psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_run_greedy.sql',
+            greedy_script_text,
             "mesh_run_greedy_full should execute greedy iterations with statement_timeout=0 so LOS calculations do not get canceled mid-run.",
         )
         self.assertIn(
-            'PGOPTIONS="$${PGOPTIONS:-} -c statement_timeout=0" psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_visibility_edges_refresh.sql',
-            makefile_text,
+            'PGOPTIONS="${PGOPTIONS:-} -c statement_timeout=0" psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_visibility_edges_refresh.sql',
+            greedy_script_text,
             "mesh_run_greedy_full should refresh visibility with statement_timeout=0 because that post-iteration refresh can also run longer than the default timeout.",
         )
 
@@ -807,9 +1141,9 @@ class PipelineRegressionTest(unittest.TestCase):
             "mesh_surface_h3_r8 should default minimum tower spacing to 0 so adjacent H3 placements are allowed.",
         )
         self.assertIn(
-            r"\set separation 0",
+            "where setting = 'min_tower_separation_m'",
             prepare_text,
-            "fill_mesh_los_cache prepare should not exclude near-adjacent candidate pairs anymore.",
+            "fill_mesh_los_cache prepare should read zero/default minimum tower spacing from the single pipeline config instead of hiding it as an internal constant.",
         )
         self.assertNotIn(
             "not ST_DWithin(c1.centroid_geog, c2.centroid_geog, :separation)",
@@ -842,6 +1176,33 @@ class PipelineRegressionTest(unittest.TestCase):
             makefile_text,
             "Makefile should expose an explicit refresh target for copying the latest installer export into the committed bootstrap snapshot.",
         )
+
+
+    def test_los_cache_is_not_dropped_by_repository_sql_or_scripts(self) -> None:
+        """Repository code should never contain cache-dropping statements for the precious LOS cache."""
+        checked_paths = [
+            path
+            for path in REPO_ROOT.rglob("*")
+            if path.is_file()
+            and path.suffix in {".sql", ".sh"}
+            and ".git" not in path.parts
+            and "data" not in path.parts
+        ]
+        offenders: list[str] = []
+
+        for path in checked_paths:
+            text = path.read_text(errors="ignore").lower()
+            drops_cache = re.search(r"drop\s+table\s+(?:if\s+exists\s+)?(?:pg_temp\.)?mesh_los_cache\b", text)
+            truncates_cache = re.search(r"truncate\s+(?:table\s+)?[^;]*mesh_los_cache\b", text)
+            if drops_cache or truncates_cache:
+                offenders.append(str(path.relative_to(REPO_ROOT)))
+
+        self.assertEqual(
+            [],
+            offenders,
+            f"mesh_los_cache is multi-day state and must not appear in drop/truncate statements; offending files: {offenders!r}",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,18 @@
 set client_min_messages = warning;
 
 begin;
+-- Minimal pipeline settings used by mesh_tower_wiggle when installed in isolation.
+create temporary table mesh_pipeline_settings (
+    setting text primary key,
+    value text not null
+) on commit drop;
+
+insert into mesh_pipeline_settings (setting, value)
+values
+    ('wiggle_candidate_limit', '256'),
+    ('generated_tower_merge_distance_m', '10000'),
+    ('mast_height_m', '28'),
+    ('frequency_hz', '868000000');
 
 -- Stub heavy dependencies so the wiggle logic can run against lightweight tables.
 create or replace function h3_los_between_cells(h3_a h3index, h3_b h3index)
@@ -77,7 +89,10 @@ create temporary table mesh_surface_h3_r8 (
     has_road boolean default true,
     is_in_unfit_area boolean default false,
     has_tower boolean default false,
+    has_building boolean default true,
+    building_count integer default 1,
     visible_population numeric,
+    population_70km numeric,
     population numeric default 0,
     min_distance_to_closest_tower double precision default 5000,
     distance_to_closest_tower double precision default 0,
@@ -100,6 +115,21 @@ create temporary table mesh_tower_wiggle_queue (
     is_dirty boolean not null default true
 ) on commit drop;
 
+create temporary table mesh_los_cache (
+    src_h3 h3index not null,
+    dst_h3 h3index not null,
+    mast_height_src double precision not null,
+    mast_height_dst double precision not null,
+    frequency_hz double precision not null,
+    distance_m double precision not null,
+    clearance double precision not null,
+    d1_m double precision not null,
+    d2_m double precision not null,
+    path_loss_db double precision not null,
+    computed_at timestamptz not null default now(),
+    primary key (src_h3, dst_h3, mast_height_src, mast_height_dst, frequency_hz)
+) on commit drop;
+
 do
 $$
 declare
@@ -108,6 +138,7 @@ declare
     route_candidate h3index := h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(0.4, 0.0), 4326), 8);
     route_far_population h3index := h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(0.9, 0.0), 4326), 8);
     moved_count integer;
+    remaining_step integer;
     route_recalc integer;
     cluster_recalc integer;
     relocated_h3 h3index;
@@ -134,6 +165,36 @@ begin
     values
         (route_anchor, 'route'),
         (cluster_anchor, 'cluster_slim');
+
+    insert into mesh_los_cache (
+        src_h3,
+        dst_h3,
+        mast_height_src,
+        mast_height_dst,
+        frequency_hz,
+        distance_m,
+        clearance,
+        d1_m,
+        d2_m,
+        path_loss_db
+    )
+    select
+        least(pair.a, pair.b),
+        greatest(pair.a, pair.b),
+        28,
+        28,
+        868000000,
+        ST_Distance(pair.a::geography, pair.b::geography),
+        1,
+        1,
+        1,
+        1
+    from (
+        values
+            (route_anchor, cluster_anchor),
+            (route_candidate, cluster_anchor),
+            (route_candidate, route_far_population)
+    ) as pair(a, b);
 
     select mesh_tower_wiggle(true) into moved_count;
 
@@ -192,10 +253,13 @@ begin
         raise exception 'Route candidate % not marked as tower after relocation', route_candidate::text;
     end if;
 
-    select mesh_tower_wiggle(false) into moved_count;
+    for remaining_step in 1..5 loop
+        select mesh_tower_wiggle(false) into moved_count;
+        exit when moved_count = 0;
+    end loop;
 
     if moved_count <> 0 then
-        raise exception 'Wiggle loop should stop once queue is clean, last call returned %', moved_count;
+        raise exception 'Wiggle loop should stop once cached neighbor queue is clean; still returned % after bounded drain', moved_count;
     end if;
 end;
 $$;
@@ -208,10 +272,13 @@ declare
     population_extra h3index := h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(0.0, 1.8), 4326), 8);
     relocated_h3 h3index;
     moved_count integer;
+    remaining_step integer;
     population_recalc integer;
 begin
     -- Reset the staging tables so the population scenario runs in isolation.
     truncate mesh_surface_h3_r8, mesh_towers, mesh_tower_wiggle_queue restart identity;
+
+    delete from mesh_los_cache;
 
     insert into mesh_surface_h3_r8 (
         h3,
@@ -235,6 +302,30 @@ begin
 
     insert into mesh_towers (h3, source)
     values (population_anchor, 'population');
+
+    insert into mesh_los_cache (
+        src_h3,
+        dst_h3,
+        mast_height_src,
+        mast_height_dst,
+        frequency_hz,
+        distance_m,
+        clearance,
+        d1_m,
+        d2_m,
+        path_loss_db
+    )
+    select
+        least(population_candidate, population_extra),
+        greatest(population_candidate, population_extra),
+        28,
+        28,
+        868000000,
+        ST_Distance(population_candidate::geography, population_extra::geography),
+        1,
+        1,
+        1,
+        1;
 
     select mesh_tower_wiggle(true) into moved_count;
 
@@ -277,10 +368,13 @@ begin
         raise exception 'Population candidate % not marked as tower after relocation', population_candidate::text;
     end if;
 
-    select mesh_tower_wiggle(false) into moved_count;
+    for remaining_step in 1..5 loop
+        select mesh_tower_wiggle(false) into moved_count;
+        exit when moved_count = 0;
+    end loop;
 
     if moved_count <> 0 then
-        raise exception 'Population wiggle should idle once the queue is clean, last call returned %', moved_count;
+        raise exception 'Population wiggle should idle once the cached queue is clean; still returned % after bounded drain', moved_count;
     end if;
 end;
 $$;

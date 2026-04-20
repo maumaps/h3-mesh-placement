@@ -1,7 +1,16 @@
 set client_min_messages = notice;
 
-\set mast_height 28
-\set frequency 868e6
+-- Pull user-tunable RF constants from the single pipeline config.
+select value::double precision as mast_height
+from mesh_pipeline_settings
+where setting = 'mast_height_m'
+\gset
+
+select value::double precision as frequency
+from mesh_pipeline_settings
+where setting = 'frequency_hz'
+\gset
+
 \if :{?batch_limit}
 \else
 \set batch_limit 250000
@@ -21,7 +30,7 @@ $$;
 begin;
 
 -- LOS cache batches are fully derivable from source data, so they do not need
--- synchronous commit latency on every 250k-pair transaction.
+-- synchronous commit latency on every configured batch transaction.
 set local synchronous_commit = off;
 
 -- Repeated LOS batch queries are short-lived and structurally identical, so

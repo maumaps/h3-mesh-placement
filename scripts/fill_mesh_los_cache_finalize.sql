@@ -1,9 +1,20 @@
 set client_min_messages = notice;
 
-\set max_distance 80000
-\set separation 0
-\set mast_height 28
-\set frequency 868e6
+-- Pull user-tunable route-graph filters from the single pipeline config.
+select value::double precision as max_distance
+from mesh_pipeline_settings
+where setting = 'max_los_distance_m'
+\gset
+
+select value::double precision as mast_height
+from mesh_pipeline_settings
+where setting = 'mast_height_m'
+\gset
+
+select value::double precision as frequency
+from mesh_pipeline_settings
+where setting = 'frequency_hz'
+\gset
 
 -- Report cache coverage before the route graph is rebuilt. The main pipeline
 -- intentionally allows partial cache fill so route stages can start from early

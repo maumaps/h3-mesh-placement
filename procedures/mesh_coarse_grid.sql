@@ -7,11 +7,36 @@ language plpgsql
 as
 $$
 declare
-    max_distance constant double precision := 80000;
-    coarse_resolution constant integer := 4;
+    enabled boolean := true;
+    max_distance double precision := 80000;
+    coarse_resolution integer := 4;
     inserted_count integer := 0;
 begin
-    -- Reset prior coarse towers so reruns stay idempotent.
+    -- Read the operator-maintained pipeline config once at the start so reruns
+    -- can disable this placement stage without editing procedure code.
+    select coalesce((
+        select value::boolean
+        from mesh_pipeline_settings
+        where setting = 'enable_coarse'
+    ), true)
+    into enabled;
+
+    select coalesce((
+        select value::double precision
+        from mesh_pipeline_settings
+        where setting = 'max_los_distance_m'
+    ), 80000)
+    into max_distance;
+
+    select coalesce((
+        select value::integer
+        from mesh_pipeline_settings
+        where setting = 'coarse_resolution'
+    ), 4)
+    into coarse_resolution;
+
+    -- Reset prior coarse towers so reruns stay idempotent and disabling the
+    -- stage removes stale coarse anchors from previous runs.
     delete from mesh_towers where source = 'coarse';
 
     -- Clear surface flags for cells that just lost a coarse tower so spacing stays accurate.
@@ -24,6 +49,11 @@ begin
             from mesh_towers t
             where t.h3 = s.h3
         );
+
+    if not enabled then
+        raise notice 'Coarse placement disabled by mesh_pipeline_settings.enable_coarse';
+        return;
+    end if;
 
     -- Recompute spacing after cleanup to refresh can_place_tower before seeding.
     update mesh_surface_h3_r8 s
