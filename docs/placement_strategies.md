@@ -1,5 +1,6 @@
 # Placement Strategies
 This note names each placement stage with a classical algorithm analogy and ties it to the Make targets.
+Runtime switches and stage parameters live in the single user-editable SQL config file `tables/mesh_pipeline_settings.sql`.
 Each sentence starts on a new line for easy diffs.
 See `docs/calculations.md` for the per-stage calculation details and optimization notes.
 
@@ -8,6 +9,12 @@ See `docs/calculations.md` for the per-stage calculation details and optimizatio
   Groups every placeable fine-resolution cell under a coarser H3 parent and installs at most one `coarse` tower per parent, while skipping coarse parents that already contain any tower.
   This primes the network with sparse anchors before routing, prefers cells with buildings, and only then uses spacing/population/building-count tie-breakers within that rooftop-first ordering.
   Target `db/procedure/mesh_coarse_grid` in `procedures/mesh_coarse_grid.sql`.
+  The checked-in config currently has `enable_coarse=false`, so the wrapper call clears stale coarse towers and skips this stage.
+- **Population anchor seeding (fixed-k serviceability anchors)**
+  Selects sparse `population` towers by fixed-k clustering over the full placeable demand field.
+  Existing towers are injected into KMeans as very heavy anchor points (`population_existing_anchor_weight`), so served islands still shape the clusters instead of being erased before clustering.
+  After KMeans, clusters containing an existing tower anchor are dropped, and remaining cluster centroids snap to the nearest placeable H3 with score/population/building-count tie-breakers.
+  Target `db/procedure/mesh_population` driven by `procedures/mesh_population.sql`.
 - **LOS cache and routing graph (all-pairs prep)**
   First seeds `mesh_los_cache` from `data/in/install_priority_bootstrap.csv` via `mesh_route_bootstrap`, and only then precomputes line-of-sight metrics for every tower or placeable candidate within 80 km. Route heuristics still read longer invisible tower-to-tower gaps from `mesh_visibility_edges`, because those gaps define where intermediate routing towers should be explored next.
   Before `fill_mesh_los_cache_prepare`, `db/procedure/mesh_visibility_edges_route_priority_geom` routes the same invisible or over-hop visibility gaps through `mesh_route_graph_edges` with pgRouting and stores the resulting corridor line back into `mesh_visibility_edges.geom`, so cache warmup and backfill prioritize cells along the routed corridor instead of the straight tower chord.
@@ -26,6 +33,10 @@ See `docs/calculations.md` for the per-stage calculation details and optimizatio
   The procedure evaluates batches of over-limit pairs, routes them with pgRouting, and accepts the corridor that shortens the most other pairs, similar to k-shortest-path based spanner tightening.
   Each call processes one corridor so the Makefile loops it externally.
   Target `db/procedure/mesh_route_cluster_slim` in `procedures/mesh_route_cluster_slim.sql`.
+- **Population anchor contraction (soft terminal cleanup)**
+  Treats `population` towers as routing demand hints after bridge/slim has used them.
+  It removes a population anchor only when a nearby generated tower preserves the anchor's cached non-population LOS-neighbor set, then removes generated leaves only under the same preservation rule.
+  Target `db/procedure/mesh_population_anchor_contract` driven by `procedures/mesh_population_anchor_contract.sql`.
 - **Tower wiggle (hill-climbing / local refinement)**
   Runs a local search on coarse, bridge, route, and cluster-slim towers to nudge them toward cells with higher visible population while preserving LOS to their current neighbors.
   This is the hill-climbing cleanup pass that improves shared routes and seed anchors before greedy coverage placement resumes.
@@ -35,9 +46,10 @@ See `docs/calculations.md` for the per-stage calculation details and optimizatio
   Prioritizes candidates that unlock the most tower clusters using path-loss scores, then falls back to maximizing visible uncovered population.
   This mirrors the standard greedy set-cover / facility-location heuristic constrained by LOS and minimum-two-neighbor requirements.
   Target `db/procedure/mesh_run_greedy` in `procedures/mesh_run_greedy.sql` with prepare/finalize helpers alongside it.
+  The checked-in config currently has `enable_greedy=false`, so the configured wrapper clears stale greedy towers and skips this stage.
 
 ## Naming Notes
 - Use “fill LOS cache” for the all-pairs LOS precompute (`fill_mesh_los_cache`) and “graph cache” for the stored routing geometry (`mesh_route_graph_cache`) to avoid route_cache versus cache_route confusion.
-- The routing steps follow the order above: coarse backbone seeding → cache and graph prep → cluster bridge → cluster slim → greedy coverage.
+- The configured routing steps follow the order above, while disabled stages are still invoked as cleanup gates: coarse backbone seeding → population anchor seeding → cache and graph prep → cluster bridge → cluster slim → population anchor contraction → greedy coverage.
 - `mesh_tower_wiggle` remains available as a separate optional post-route refinement pass when you explicitly want local tower recentering.
 - Refer to the stages by the classical names in this file when discussing or filing issues to keep terminology consistent.

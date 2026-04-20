@@ -13,8 +13,8 @@ They are hardcoded because the pipeline is intended to be reproducible and easy 
 - **Maximum LOS link distance: 80 km (`80000` meters)**
   This is the Meshtastic hop/link planning bound used by every LOS and (re)calculation radius.
   Keeping one shared radius means cache invalidations can be localized and consistent.
-- **Minimum tower separation: 5 km (`5000` meters)**
-  This prevents solutions that place towers nearly on top of each other and makes routing corridors avoid skimming existing infrastructure.
+- **Minimum tower separation: 0 m by default**
+  The default allows adjacent H3 placements; generated tower cleanup is handled later by cached-neighbor-set pruning, not by a blind spacing rule.
 - **Tower height above ground: 28 m**
   This matches the planning assumption in `docs/talks/h3_talk.md` and is used in the Fresnel clearance calculation.
 - **Frequency: 868 MHz (`868e6`)**
@@ -148,9 +148,19 @@ This section explains what each procedure calculates and which optimization patt
 **Why:** It adds sparse, well-separated anchors before routing without piling new towers into places that already have seed coverage.
 **Optimization:** Uses `distance_to_closest_tower` as the primary spacing score, prefers `has_building = true` before other tie-breakers, and falls back to `population_70km`, `building_count`, and stable H3 ordering.
 
+### Population anchor seeding (`mesh_population`)
+**Where:** `procedures/mesh_population.sql`.
+**What:** Selects a small fixed-k set of serviceable city anchors before route bootstrap and routing.
+**Why:** The routing graph needs a few meaningful population/service anchors so bridge placement does not connect clusters only through empty mountain shortcuts.
+**Optimization:** Uses `ST_ClusterKMeans(..., k)` with configured `population_anchor_max_count`; no production place names are hardcoded.
+Population demand is clustered before coverage filtering, and existing towers are mixed into the same KMeans input as very heavy anchor points (`population_existing_anchor_weight`).
+After clustering, clusters that already contain an existing tower anchor are dropped.
+This keeps real settlement geometry visible to KMeans without adding duplicate population anchors inside already served islands.
+The score interleaves nearby population and building count with `power(ln(1 + population_70km), population_nearby_population_weight) * power(ln(2 + building_count), population_building_weight)`, so cells with both people nearby and plausible buildings/houses win naturally.
+
 ### Route bootstrap (`mesh_route_bootstrap`)
 **Where:** `tables/mesh_route_bootstrap_pairs.sql`, `scripts/mesh_route_bootstrap.sql`.
-**What:** Loads installer-priority CSV points, current placed towers, manual warmup points, nearest placeable hexes for OSM peaks, and explicit nearest links from disconnected coarse clusters toward other placed towers into a single bootstrap pair set, then seeds `mesh_los_cache` for those pairs before the generic all-pairs cache fill starts.
+**What:** Loads installer-priority CSV points, current placed towers, current placed towers including configured population anchors, manual warmup points, nearest placeable hexes for OSM peaks, and explicit nearest links from disconnected coarse clusters toward other placed towers into a single bootstrap pair set, then seeds `mesh_los_cache` for those pairs before the generic all-pairs cache fill starts.
 **Why:** Route planning needs some known rollout-corridor and mountain-top LOS in cache before the huge generic pair search can meaningfully connect clusters.
 **Optimization:** Manual points, placed towers, and disconnected coarse-cluster links get lower `bootstrap_rank` than generic installer CSV rows, and OSM peaks are snapped to the nearest placeable H3 cell so the warmup set stays routeable instead of seeding impossible mountain coordinates.
 
@@ -165,7 +175,7 @@ Each batch is committed separately so rerunning the manual backfill target resum
 Disconnected-cluster distance is now ranked ahead of generic invisible-edge distance, so cache seeding prefers corridors that can attach currently isolated tower groups before spending work on less urgent pairs.
 Use `db/procedure/fill_mesh_los_cache_backfill` later when you want to drain more of the queue and rebuild the route graph from a fuller cache.
 
-The operator-facing parallel launcher `db/procedure/fill_mesh_los_cache_parallel` now snapshots the current `mesh_route_missing_pairs` length into `ceil(count(*) / 50000)` finite jobs and feeds that list into `parallel -j 8`. Each GNU parallel job runs exactly one committed `fill_mesh_los_cache_batch.sql` invocation, and the existing `for update skip locked` claim logic guarantees that concurrent jobs still pull disjoint queue slices without any pre-assigned chunk ids. This makes GNU parallel ETA meaningful for that run, because the job count is fixed at launch time instead of being hidden behind eight infinite shell loops. Late-start jobs that find no rows left to claim now exit cleanly instead of failing the whole run, while claimed batches that compute zero cache rows still fail loudly as a real inconsistency.
+The operator-facing parallel launcher `db/procedure/fill_mesh_los_cache_parallel` reads `los_batch_limit` and `los_parallel_jobs` from `tables/mesh_pipeline_settings.sql`, snapshots the current `mesh_route_missing_pairs` length into `ceil(count(*) / los_batch_limit)` finite jobs, and feeds that list into GNU parallel. Each GNU parallel job runs exactly one committed `fill_mesh_los_cache_batch.sql` invocation, and the existing `for update skip locked` claim logic guarantees that concurrent jobs still pull disjoint queue slices without any pre-assigned chunk ids. This makes GNU parallel ETA meaningful for that run, because the job count is fixed at launch time instead of being hidden behind infinite shell loops. Late-start jobs that find no rows left to claim now exit cleanly instead of failing the whole run, while claimed batches that compute zero cache rows still fail loudly as a real inconsistency.
 
 ### Cluster bridge (`mesh_route_bridge`)
 **Where:** `procedures/mesh_route_bridge.sql`.
@@ -185,6 +195,26 @@ After route towers are inserted, local surface visibility/reception refresh is d
 **Optimization:** Processes a bounded candidate batch per iteration and reuses existing towers on a corridor.
 Like bridge, it now defers local surface and visibility refresh to the later route-refresh stage instead of recomputing them synchronously inside each cluster-slim iteration.
 
+
+### Route segment reroute (`mesh_route_segment_reroute`)
+**Where:** `procedures/mesh_route_segment_reroute.sql`.
+
+**What:** Optimizes local `endpoint -> route -> route -> endpoint` chains after route contraction.
+The pass only touches generated route-like relays whose cached non-population LOS degree is exactly two, so it does not steal towers that have extra external obligations.
+For each safe two-relay segment it searches cached LOS for a replacement pair `endpoint -> A -> B -> endpoint`, ranks by building count first and population second, and moves both relay tower IDs together only when the pair improves over the current two H3 cells.
+This covers cases that single-node `mesh_tower_wiggle` cannot fix because each existing relay is locally constrained but the pair can improve jointly.
+
+**Data safety:** The pass reads only `mesh_los_cache` for RF feasibility.
+It updates `mesh_towers` and invalidates local `mesh_surface_h3_r8` metrics around old and new relay cells, then the pipeline refreshes `mesh_visibility_edges`.
+
+### LOS cache backup (`backup_mesh_los_cache`)
+**Where:** `scripts/backup_mesh_los_cache.sh`, `scripts/restore_mesh_los_cache.sh`.
+
+**What:** `make -B db/procedure/backup_mesh_los_cache` writes `data/out/backups/mesh_los_cache.latest.dump` and a timestamped copy with `pg_dump --format=custom`.
+The backup script refuses to overwrite the latest backup when `mesh_los_cache` is missing or empty unless `ALLOW_EMPTY_LOS_CACHE_BACKUP=1` is explicitly set.
+The restore script renames any existing `mesh_los_cache` to a timestamped quarantine table before loading the dump, so restore does not destroy the last in-database cache copy.
+Use backup before destructive placement experiments or SQL tests that may rebuild cache-adjacent tables.
+
 ### Tower wiggle (`mesh_tower_wiggle`)
 **Where:** `procedures/mesh_tower_wiggle.sql`, `docs/mesh_tower_wiggle.md`.
 **What:** Locally relocates `coarse`, `route`, `bridge`, and `cluster_slim` towers to nearby road-served cells that keep LOS to their current neighbors while increasing visible population.
@@ -195,10 +225,32 @@ Like bridge, it now defers local surface and visibility refresh to the later rou
 **Where:** `procedures/mesh_run_greedy_prepare.sql`, `procedures/mesh_run_greedy.sql`, `procedures/mesh_run_greedy_finalize.sql`.
 `mesh_run_greedy_prepare` only resets tower-derived surface state and nearest-tower distances.
 The LOS, visible-tower-count, and reception recomputation happens incrementally inside each greedy iteration so the pipeline can continue without a monolithic pre-pass.
-The Make target also runs greedy iterations with `statement_timeout=0` so those LOS computations are not canceled mid-run.
+The configured wrapper runs greedy iterations with `statement_timeout=0` so those LOS computations are not canceled mid-run, but the checked-in pipeline config currently skips the stage with `enable_greedy=false`.
 **What:** Repeatedly (a) fills missing RF metrics, (b) prefers a bridging candidate when multiple clusters exist, otherwise (c) selects the max `visible_uncovered_population` candidate and promotes it as a tower.
 **Why:** This is the main “maximize covered population under constraints” heuristic from the talk.
 **Optimization:** The prepare step now uses KNN nearest-tower lookup for per-cell anchor selection, and the loop invalidates only nearby cached fields so later iterations avoid full-surface recomputation.
 
 `fill_mesh_los_cache` keeps `mesh_route_missing_pairs` on disk between committed batches so reruns can resume from the reduced queue instead of starting over.
 Before each resume loop, `scripts/fill_mesh_los_cache_queue_indexes.sql` ensures the live queue has both the exact-match `(src_h3, dst_h3)` btree for delete/join tails and the batch-order btree `(building_endpoint_count desc, disconnected_priority, priority, building_count desc, src_h3, dst_h3)` so each committed batch can pull its next slice without a full parallel sort of `mesh_route_missing_pairs`.
+
+### Cluster slim (`mesh_route_cluster_slim`)
+**Where:** `procedures/mesh_route_cluster_slim.sql`, `tables/mesh_route_cluster_slim_failures.sql`.
+**What:** For intra-cluster pairs exceeding 7 hops, routes candidate corridors and promotes intermediate towers so hop counts shrink.
+**Why:** The 7-hop budget is a hard design constraint, so the graph must be “tightened” before maximizing population.
+**Optimization:** Processes one corridor per invocation, stores failed pair attempts, and reuses `mesh_route_corridor_between_towers(...)` so the expensive pgRouting graph stays centralized.
+Like bridge, it now defers local surface and visibility refresh to the later route-refresh stage instead of recomputing them synchronously inside each cluster-slim iteration.
+
+### Population anchor contraction (`mesh_population_anchor_contract`)
+**Where:** `procedures/mesh_population_anchor_contract.sql`.
+**What:** Removes soft population anchors after routing when a generated route-like tower preserves their cached non-population LOS neighbor set.
+**Why:** Population anchors are demand hints for routing, not mandatory final tower coordinates; keeping them as hard terminals can create small star-shaped route blobs around arbitrary KMeans centroids.
+**Optimization:** Uses only `mesh_los_cache` and `population_anchor_contract_distance_m`; `0` means topology-only replacement search.
+It does not use local-population or building-count thresholds, and it never calls fresh terrain LOS functions.
+Generated route leaves around a contracted anchor are removed only when the chosen replacement also preserves the leaf's non-population visible-neighbor set.
+
+### Generated pair contraction (`mesh_generated_pair_contract`)
+**Where:** `procedures/mesh_generated_pair_contract.sql`.
+**What:** Replaces close route-like tower pairs with one synthetic H3 when that H3 preserves the combined cached non-population LOS-neighbor set of both towers.
+**Why:** Some local route blobs are not population anchors; they are two generated relays around the same local service area.
+A distance-only merge is unsafe, but a cached-topology-preserving synthetic replacement can remove the duplicate without breaking route edges.
+**Optimization:** Uses `mesh_los_cache` only; `generated_tower_merge_distance_m` bounds pair selection and synthetic H3 search.
