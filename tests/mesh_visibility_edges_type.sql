@@ -14,7 +14,7 @@ end;
 $$;
 
 -- Stub routed geometry helper to avoid pgRouting corridor lookups in this fixture.
-create or replace function mesh_visibility_invisible_route_geom(h3_a h3index, h3_b h3index)
+create or replace function mesh_visibility_invisible_route_geom(source_h3 h3index, target_h3 h3index)
     returns geometry
     language plpgsql
 as
@@ -56,7 +56,7 @@ create temporary table mesh_visibility_edges (
     type text not null,
     distance_m double precision not null,
     is_visible boolean not null,
-    is_between_clusters boolean not null,
+    is_between_clusters boolean not null default false,
     cluster_hops integer,
     geom geometry not null
 ) on commit drop;

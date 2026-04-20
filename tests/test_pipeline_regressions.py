@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import re
+import subprocess
 import unittest
 
 
@@ -219,7 +220,7 @@ class PipelineRegressionTest(unittest.TestCase):
         makefile_text = (REPO_ROOT / "Makefile").read_text()
 
         self.assertIn(
-            'ogr2ogr -f PostgreSQL "PG:dbname=kom user=kom host=/var/run/postgresql port=5432" data/in/existing_mesh_nodes.geojson -nln mesh_initial_nodes -nlt POINT -lco GEOMETRY_NAME=geom -overwrite -a_srs EPSG:4326',
+            'ogr2ogr -f PostgreSQL "PG:dbname=$${PGDATABASE:-$${USER}} user=$${PGUSER:-$${USER}} host=$${PGHOST:-/var/run/postgresql} port=$${PGPORT:-5432}" data/in/existing_mesh_nodes.geojson -nln mesh_initial_nodes -nlt POINT -lco GEOMETRY_NAME=geom -overwrite -a_srs EPSG:4326',
             makefile_text,
             "db/raw/initial_nodes should reimport the refreshed canonical seed GeoJSON with -overwrite so refreshed Liam Cottle or curated seeds are not skipped.",
         )
@@ -1175,6 +1176,188 @@ class PipelineRegressionTest(unittest.TestCase):
             "data/in/install_priority_bootstrap_refresh: data/out/install_priority.csv | data/in",
             makefile_text,
             "Makefile should expose an explicit refresh target for copying the latest installer export into the committed bootstrap snapshot.",
+        )
+
+
+    def test_forced_make_test_dry_run_is_non_destructive(self) -> None:
+        """`make -B test` should run tests, not rebuild data or mutate route placement."""
+        result = subprocess.run(
+            ["make", "-n", "-B", "test"],
+            cwd=REPO_ROOT,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        dry_run_output = result.stdout
+        forbidden_fragments = [
+            "curl -L",
+            "osmium merge",
+            "osmium export",
+            "ogr2ogr",
+            "raster2pgsql",
+            "gunzip -c",
+            "unzip -o",
+            "tables/mesh_los_cache.sql",
+            "tables/mesh_towers.sql",
+            "tables/mesh_surface_h3_r8.sql",
+            "tables/mesh_visibility_edges.sql",
+            "scripts/fill_mesh_los_cache_batch_once.sh",
+            "scripts/backup_mesh_los_cache.sh",
+            "procedures/mesh_route_bridge.sql",
+            "delete from mesh_towers",
+            "truncate mesh_towers",
+        ]
+        offenders = [
+            fragment
+            for fragment in forbidden_fragments
+            if fragment in dry_run_output
+        ]
+
+        self.assertEqual(
+            [],
+            offenders,
+            f"Forced make test dry-run must not rebuild data or mutate live placement state; found forbidden commands: {offenders!r}.\nDry run was:\n{dry_run_output}",
+        )
+
+        makefile_text = (REPO_ROOT / "Makefile").read_text()
+        test_line = next(
+            line
+            for line in makefile_text.splitlines()
+            if line.startswith("test:")
+        )
+        test_dependencies = test_line.split("##", 1)[0].split()[1:]
+
+        self.assertNotIn(
+            "db/test/mesh_route",
+            test_dependencies,
+            "Default make test should exclude the route bridge integration target because that script mutates live placement tables.",
+        )
+        self.assertIn(
+            "db/test/mesh_route_integration:",
+            makefile_text,
+            "Makefile should keep an explicit route integration target for disposable databases instead of hiding it inside default make test.",
+        )
+
+
+    def test_los_cache_backup_lives_outside_cleaned_outputs(self) -> None:
+        """LOS cache backups should survive `make clean` and restore should require an existing dump."""
+        makefile_text = (REPO_ROOT / "Makefile").read_text()
+        backup_script_text = (REPO_ROOT / "scripts" / "backup_mesh_los_cache.sh").read_text()
+        restore_script_text = (REPO_ROOT / "scripts" / "restore_mesh_los_cache.sh").read_text()
+
+        self.assertIn(
+            "data/backups/mesh_los_cache.latest.dump: scripts/backup_mesh_los_cache.sh | data/backups",
+            makefile_text,
+            "LOS cache backup should be represented by the durable dump file target, not only a db/procedure marker.",
+        )
+        self.assertIn(
+            "db/procedure/restore_mesh_los_cache: scripts/restore_mesh_los_cache.sh | db/procedure",
+            makefile_text,
+            "Restore target should not depend on the backup target, because a missing backup must fail instead of snapshotting current state.",
+        )
+        self.assertNotIn(
+            "data/backups",
+            re.search(r"clean:.*?(?=\n\S)", makefile_text, re.DOTALL).group(0),
+            "make clean should not delete durable LOS cache backups stored under data/backups.",
+        )
+        self.assertIn(
+            'latest_dump="data/backups/mesh_los_cache.latest.dump"',
+            backup_script_text,
+            "Backup script should write the latest LOS cache dump under data/backups so rendered output cleanup cannot remove it.",
+        )
+        self.assertIn(
+            'backup_path="${1:-data/backups/mesh_los_cache.latest.dump}"',
+            restore_script_text,
+            "Restore script should read the durable data/backups LOS cache dump by default.",
+        )
+
+
+    def test_placement_restart_has_failure_snapshot_before_destructive_stages(self) -> None:
+        """Placement replay should restore tower/surface state if a later stage fails."""
+        restart_text = (REPO_ROOT / "scripts" / "mesh_placement_restart.sh").read_text()
+
+        snapshot_position = restart_text.index("create table ${tower_backup} as")
+        trap_position = restart_text.index("trap restore_restart_snapshot EXIT")
+        destructive_position = restart_text.index(">> Clearing restartable placement towers")
+
+        self.assertLess(
+            snapshot_position,
+            destructive_position,
+            "mesh_placement_restart should snapshot mesh_towers and mesh_surface_h3_r8 before deleting restartable towers.",
+        )
+        self.assertLess(
+            trap_position,
+            destructive_position,
+            "mesh_placement_restart should install the rollback trap before the first destructive placement step.",
+        )
+        self.assertIn(
+            "truncate mesh_towers restart identity;",
+            restart_text,
+            "mesh_placement_restart rollback should reset mesh_towers before restoring the saved tower registry.",
+        )
+        self.assertIn(
+            "update mesh_surface_h3_r8 surface",
+            restart_text,
+            "mesh_placement_restart rollback should restore cached surface placement metrics from the snapshot.",
+        )
+        self.assertIn(
+            "trap - EXIT",
+            restart_text,
+            "mesh_placement_restart should disable the rollback trap after all stages finish successfully.",
+        )
+
+
+    def test_sql_fixtures_shadow_precious_tables_before_destructive_setup(self) -> None:
+        """SQL fixtures should not drop or truncate live placement/cache tables."""
+        precious_tables = {
+            "mesh_los_cache",
+            "mesh_surface_h3_r8",
+            "mesh_towers",
+            "mesh_visibility_edges",
+            "mesh_greedy_iterations",
+            "mesh_tower_wiggle_queue",
+            "mesh_route_cluster_slim_failures",
+            "mesh_route_graph_cache",
+            "mesh_route_graph_edges",
+            "mesh_route_graph_nodes",
+            "mesh_route_candidate_cells",
+            "mesh_route_candidate_invisible_dist",
+            "mesh_route_pair_candidates",
+            "mesh_route_missing_pairs",
+        }
+        offenders: list[str] = []
+
+        for path in sorted((REPO_ROOT / "tests").glob("*.sql")):
+            text = path.read_text(errors="ignore").lower()
+            relative_path = path.relative_to(REPO_ROOT)
+
+            for match in re.finditer(
+                r"drop\s+table\s+(?:if\s+exists\s+)?(?!pg_temp\.)([a-z_][a-z0-9_]*)\b",
+                text,
+            ):
+                table_name = match.group(1)
+                if table_name in precious_tables:
+                    offenders.append(f"{relative_path}: unqualified drop table {table_name}")
+
+            for match in re.finditer(r"truncate\s+(?:table\s+)?([^;]+)", text):
+                target_sql = match.group(1)
+                prefix = text[:match.start()]
+
+                for table_name in precious_tables:
+                    if not re.search(rf"\b{table_name}\b", target_sql):
+                        continue
+                    if re.search(rf"pg_temp\.{table_name}\b", target_sql):
+                        continue
+                    if re.search(rf"create\s+temporary\s+table\s+{table_name}\b", prefix):
+                        continue
+
+                    offenders.append(f"{relative_path}: truncate {table_name} before temporary shadow table")
+
+        self.assertEqual(
+            [],
+            offenders,
+            f"SQL fixtures must use temporary shadow tables before destructive setup; offending statements: {offenders!r}",
         )
 
 

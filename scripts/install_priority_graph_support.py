@@ -9,6 +9,23 @@ from heapq import heappop, heappush
 from typing import Any, Iterable, Mapping
 
 
+def connector_edge_priority(source_a: str, source_b: str) -> int:
+    """Rank connector source pairs when RF loss is unavailable."""
+
+    ordered_sources = tuple(sorted((source_a, source_b)))
+
+    if ordered_sources == ("route", "route"):
+        return 0
+    if "route" in ordered_sources or "bridge" in ordered_sources:
+        return 1
+    if "coarse" in ordered_sources:
+        return 2
+    if "population" in ordered_sources:
+        return 3
+
+    return 4
+
+
 def build_adjacency(
     edges: Iterable[tuple[int, int, float]],
 ) -> dict[int, dict[int, float]]:

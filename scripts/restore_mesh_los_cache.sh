@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-backup_path="${1:-data/out/backups/mesh_los_cache.latest.dump}"
+backup_path="${1:-data/backups/mesh_los_cache.latest.dump}"
 
 if [ ! -s "${backup_path}" ]; then
     echo ">> LOS cache backup not found or empty: ${backup_path}" >&2

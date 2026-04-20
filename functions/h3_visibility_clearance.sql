@@ -373,6 +373,7 @@ begin
 
     if cached_clearance is not null then
         return query select cached_clearance, cached_path_loss;
+        return;
     end if;
 
     select *

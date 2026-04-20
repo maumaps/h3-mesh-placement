@@ -1,6 +1,6 @@
 all: db/procedure/mesh_run_greedy ## [FINAL] Build pipeline through routing (greedy disabled)
 
-test: db/test/seed_nodes_py db/test/pipeline_regressions_py db/test/georgia_roads_geom db/test/georgia_unfit_areas db/test/population_h3_r8 db/test/mesh_surface_building_fields db/test/h3_los_between_cells db/test/mesh_surface_visible_towers db/test/mesh_surface_refresh_reception_metrics db/test/mesh_surface_refresh_visible_tower_counts db/test/mesh_visibility_edges db/test/mesh_visibility_edges_type db/test/mesh_visibility_invisible_route_geom db/test/mesh_run_greedy_prepare db/test/fill_mesh_los_cache_priority db/test/mesh_population db/test/mesh_route_bootstrap_pairs db/test/mesh_route_corridor_between_towers db/test/mesh_route db/test/mesh_route_cluster_slim db/test/mesh_coarse_grid db/test/mesh_population_anchor_contract db/test/mesh_generated_pair_contract db/test/mesh_route_segment_reroute db/test/mesh_tower_wiggle db/test/install_priority_py ## [FINAL] Run verification suite
+test: db/test/seed_nodes_py db/test/pipeline_regressions_py db/test/georgia_roads_geom db/test/georgia_unfit_areas db/test/population_h3_r8 db/test/mesh_surface_building_fields db/test/h3_los_between_cells db/test/mesh_surface_visible_towers db/test/mesh_surface_refresh_reception_metrics db/test/mesh_surface_refresh_visible_tower_counts db/test/mesh_visibility_edges db/test/mesh_visibility_edges_type db/test/mesh_visibility_invisible_route_geom db/test/mesh_run_greedy_prepare db/test/fill_mesh_los_cache_priority db/test/mesh_population db/test/mesh_route_bootstrap_pairs db/test/mesh_route_corridor_between_towers db/test/mesh_route_cluster_slim db/test/mesh_coarse_grid db/test/mesh_population_anchor_contract db/test/mesh_generated_pair_contract db/test/mesh_route_segment_reroute db/test/mesh_tower_wiggle db/test/install_priority_py ## [FINAL] Run non-destructive verification suite
 
 clean: ## [FINAL] Remove intermediate data and build markers
 	@if [ -n "$(filter clean,$(MAKECMDGOALS))" ]; then rm -rf data/mid data/out db; fi
@@ -37,6 +37,9 @@ data/mid/gebco: | data/mid ## Ensure intermediate GEBCO directory exists
 
 data/out: | data ## Ensure output directory exists
 	mkdir -p data/out
+
+data/backups: | data ## Ensure durable database backup directory exists
+	mkdir -p data/backups
 
 db: ## Ensure database artifacts directory exists
 	mkdir -p db
@@ -133,7 +136,7 @@ data/in/install_priority_bootstrap_refresh: data/out/install_priority.csv | data
 	touch data/in/install_priority_bootstrap_refresh
 
 db/raw/initial_nodes: data/in/existing_mesh_nodes.geojson db/table/mesh_towers | db/raw ## Import canonical seed tower locations
-	ogr2ogr -f PostgreSQL "PG:dbname=kom user=kom host=/var/run/postgresql port=5432" data/in/existing_mesh_nodes.geojson -nln mesh_initial_nodes -nlt POINT -lco GEOMETRY_NAME=geom -overwrite -a_srs EPSG:4326
+	ogr2ogr -f PostgreSQL "PG:dbname=$${PGDATABASE:-$${USER}} user=$${PGUSER:-$${USER}} host=$${PGHOST:-/var/run/postgresql} port=$${PGPORT:-5432}" data/in/existing_mesh_nodes.geojson -nln mesh_initial_nodes -nlt POINT -lco GEOMETRY_NAME=geom -overwrite -a_srs EPSG:4326
 	@if psql --no-psqlrc --set=ON_ERROR_STOP=1 -Atc "select to_regclass('mesh_initial_nodes')" | grep -q mesh_initial_nodes; then \
 		touch db/raw/initial_nodes; \
 	else \
@@ -272,35 +275,44 @@ db/test/pipeline_regressions_py: tests/test_pipeline_regressions.py Makefile pro
 	python -m unittest -q tests/test_pipeline_regressions.py
 	touch db/test/pipeline_regressions_py
 
-db/test/georgia_roads_geom: tests/georgia_roads_geom.sql db/table/georgia_roads_geom | db/test ## Verify only car-capable highways stay in roads layer
+db/test/h3_los_helpers: tables/h3_visibility_metrics.sql functions/h3_path_loss.sql functions/h3_visibility_clearance.sql functions/h3_los_between_cells.sql | db/test ## Install LOS helper definitions for non-destructive SQL tests
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/h3_visibility_metrics.sql
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f functions/h3_path_loss.sql
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f functions/h3_visibility_clearance.sql
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f functions/h3_los_between_cells.sql
+	touch db/test/h3_los_helpers
+
+db/test/georgia_roads_geom: tests/georgia_roads_geom.sql | db/test ## Verify only car-capable highways stay in roads layer
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/georgia_roads_geom.sql
 	touch db/test/georgia_roads_geom
 
-db/test/georgia_unfit_areas: tests/georgia_unfit_areas.sql db/table/georgia_unfit_areas | db/test ## Verify unfit area polygons include expected regions
+db/test/georgia_unfit_areas: tests/georgia_unfit_areas.sql | db/test ## Verify unfit area polygons include expected regions
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/georgia_unfit_areas.sql
 	touch db/test/georgia_unfit_areas
 
-db/test/population_h3_r8: tests/population_h3_r8.sql db/table/population_h3_r8 db/raw/kontur_population | db/test ## Check population table stays a 1:1 Kontur H3 cast
+db/test/population_h3_r8: tests/population_h3_r8.sql | db/test ## Check population table stays a 1:1 Kontur H3 cast
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/population_h3_r8.sql
 	touch db/test/population_h3_r8
 
-db/test/h3_los_between_cells: tests/h3_los_between_cells.sql db/function/h3_los_between_cells db/table/mesh_initial_nodes_h3_r8 | db/test ## Validate LOS results for seed nodes
+db/test/h3_los_between_cells: tests/h3_los_between_cells.sql db/test/h3_los_helpers | db/test ## Validate LOS results for seed nodes
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/h3_los_between_cells.sql
 	touch db/test/h3_los_between_cells
 
-db/test/mesh_surface_visible_towers: tests/mesh_surface_visible_towers.sql db/table/mesh_surface_h3_r8 db/function/h3_los_between_cells db/table/mesh_towers | db/test ## Confirm visible_tower_count matches sampled LOS tower counts
+db/test/mesh_surface_visible_towers: tests/mesh_surface_visible_towers.sql db/test/h3_los_helpers | db/test ## Confirm visible_tower_count matches sampled LOS tower counts
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_surface_visible_towers.sql
 	touch db/test/mesh_surface_visible_towers
 
-db/test/mesh_surface_refresh_reception_metrics: tests/mesh_surface_refresh_reception_metrics.sql db/function/mesh_surface_refresh_reception_metrics db/table/mesh_surface_h3_r8 db/table/mesh_towers | db/test ## Ensure localized reception refresh restores clearance and path loss
+db/test/mesh_surface_refresh_reception_metrics: tests/mesh_surface_refresh_reception_metrics.sql functions/mesh_surface_refresh_reception_metrics.sql db/test/h3_los_helpers | db/test ## Ensure localized reception refresh restores clearance and path loss
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f functions/mesh_surface_refresh_reception_metrics.sql
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_surface_refresh_reception_metrics.sql
 	touch db/test/mesh_surface_refresh_reception_metrics
 
-db/test/mesh_surface_refresh_visible_tower_counts: tests/mesh_surface_refresh_visible_tower_counts.sql db/function/mesh_surface_refresh_visible_tower_counts db/table/mesh_surface_h3_r8 db/table/mesh_towers | db/test ## Ensure localized visible tower refresh repopulates counts
+db/test/mesh_surface_refresh_visible_tower_counts: tests/mesh_surface_refresh_visible_tower_counts.sql functions/mesh_surface_refresh_visible_tower_counts.sql db/test/h3_los_helpers | db/test ## Ensure localized visible tower refresh repopulates counts
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f functions/mesh_surface_refresh_visible_tower_counts.sql
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_surface_refresh_visible_tower_counts.sql
 	touch db/test/mesh_surface_refresh_visible_tower_counts
 
-db/test/mesh_surface_building_fields: tests/mesh_surface_building_fields.sql db/table/mesh_surface_h3_r8 db/table/buildings_h3_r8 | db/test ## Ensure building_count and has_building stay aligned on the surface
+db/test/mesh_surface_building_fields: tests/mesh_surface_building_fields.sql | db/test ## Ensure building_count and has_building stay aligned on the surface
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_surface_building_fields.sql
 	touch db/test/mesh_surface_building_fields
 
@@ -321,24 +333,26 @@ db/table/mesh_visibility_edges: tables/mesh_visibility_edges.sql scripts/mesh_vi
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_visibility_edges_refresh.sql
 	touch db/table/mesh_visibility_edges
 
-db/test/mesh_visibility_edges: tests/mesh_visibility_edges.sql db/table/mesh_visibility_edges db/table/mesh_initial_nodes_h3_r8 db/function/h3_los_between_cells | db/test ## Validate seed visibility diagnostics stay accurate
+db/test/mesh_visibility_edges: tests/mesh_visibility_edges.sql db/test/h3_los_helpers | db/test ## Validate seed visibility diagnostics stay accurate
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_visibility_edges.sql
 	touch db/test/mesh_visibility_edges
 
-db/test/mesh_visibility_edges_type: tests/mesh_visibility_edges_type.sql db/procedure/mesh_visibility_edges_refresh | db/test ## Validate visibility edge type labels stay canonical
+db/test/mesh_visibility_edges_type: tests/mesh_visibility_edges_type.sql procedures/mesh_visibility_edges_refresh.sql | db/test ## Validate visibility edge type labels stay canonical
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_visibility_edges_refresh.sql
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_visibility_edges_type.sql
 	touch db/test/mesh_visibility_edges_type
 
-db/test/mesh_visibility_invisible_route_geom: tests/mesh_visibility_invisible_route_geom.sql db/function/mesh_visibility_invisible_route_geom db/table/mesh_surface_h3_r8 db/table/mesh_route_graph db/table/mesh_route_graph_cache | db/test ## Ensure invisible visibility edges gain routed geometries
+db/test/mesh_visibility_invisible_route_geom: tests/mesh_visibility_invisible_route_geom.sql functions/mesh_visibility_invisible_route_geom.sql | db/test ## Ensure invisible visibility edges gain routed geometries
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f functions/mesh_visibility_invisible_route_geom.sql
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_visibility_invisible_route_geom.sql
 	touch db/test/mesh_visibility_invisible_route_geom
 
-db/test/mesh_run_greedy_prepare: tests/mesh_run_greedy_prepare.sql procedures/mesh_run_greedy_prepare.sql db/table/mesh_surface_h3_r8 db/table/mesh_towers db/table/mesh_greedy_iterations | db/test ## Ensure greedy preparation preserves routed towers
+db/test/mesh_run_greedy_prepare: tests/mesh_run_greedy_prepare.sql procedures/mesh_run_greedy_prepare.sql | db/test ## Ensure greedy preparation preserves routed towers
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_run_greedy_prepare.sql
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_run_greedy_prepare.sql
 	touch db/test/mesh_run_greedy_prepare
 
-db/test/fill_mesh_los_cache_priority: tests/fill_mesh_los_cache_priority.sql db/table/mesh_surface_h3_r8 db/table/mesh_towers db/table/mesh_los_cache db/table/mesh_visibility_edges | db/test ## Validate LOS cache prioritizes nearest invisible edges
+db/test/fill_mesh_los_cache_priority: tests/fill_mesh_los_cache_priority.sql | db/test ## Validate LOS cache prioritizes nearest invisible edges
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/fill_mesh_los_cache_priority.sql
 	touch db/test/fill_mesh_los_cache_priority
 
@@ -346,26 +360,32 @@ db/test/mesh_population: tests/mesh_population.sql | db/test ## Verify fixed-k p
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_population.sql
 	touch db/test/mesh_population
 
-db/test/mesh_route_bootstrap_pairs: tests/mesh_route_bootstrap_pairs.sql db/table/mesh_route_bootstrap_pairs | db/test ## Validate install-priority bootstrap pairs load into the routing pipeline
+db/test/mesh_route_bootstrap_pairs: tests/mesh_route_bootstrap_pairs.sql | db/test ## Validate install-priority bootstrap pairs load into the routing pipeline
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_route_bootstrap_pairs.sql
 	touch db/test/mesh_route_bootstrap_pairs
 
-db/test/mesh_route_corridor_between_towers: tests/mesh_route_corridor_between_towers.sql db/function/mesh_route_corridor_between_towers | db/test ## Validate corridor extraction between tower pairs
+db/test/mesh_route_corridor_between_towers: tests/mesh_route_corridor_between_towers.sql functions/mesh_route_corridor_between_towers.sql | db/test ## Validate corridor extraction between tower pairs
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f functions/mesh_route_corridor_between_towers.sql
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_route_corridor_between_towers.sql
 	touch db/test/mesh_route_corridor_between_towers
 
 
-db/test/mesh_route: tests/mesh_route.sql db/procedure/fill_mesh_los_cache procedures/mesh_route_bridge.sql db/table/mesh_surface_h3_r8 db/table/mesh_towers db/table/mesh_los_cache | db/test ## Validate mesh_route cache/bridge stages
+db/test/mesh_route: tests/mesh_route.sql procedures/mesh_route_bridge.sql | db/test ## Refuse route bridge integration from non-destructive tests
+	@echo "db/test/mesh_route mutates live placement tables; run db/test/mesh_route_integration on a disposable database after make -n." >&2
+	@exit 1
+
+
+db/test/mesh_route_integration: db/procedure/backup_mesh_los_cache tests/mesh_route.sql db/procedure/fill_mesh_los_cache procedures/mesh_route_bridge.sql db/table/mesh_surface_h3_r8 db/table/mesh_towers db/table/mesh_los_cache | db/test ## Validate route bridge stages after an explicit LOS backup
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_route_bridge.sql
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_route.sql
-	touch db/test/mesh_route
+	touch db/test/mesh_route_integration
 
-db/test/mesh_route_cluster_slim: tests/mesh_route_cluster_slim.sql procedures/mesh_route_cluster_slim.sql db/table/mesh_route_cluster_slim_failures | db/test ## Verify cluster slim iterates once and prefers seed endpoints
+db/test/mesh_route_cluster_slim: tests/mesh_route_cluster_slim.sql procedures/mesh_route_cluster_slim.sql | db/test ## Verify cluster slim iterates once and prefers seed endpoints
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_route_cluster_slim.sql
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_route_cluster_slim.sql
 	touch db/test/mesh_route_cluster_slim
 
-db/test/mesh_coarse_grid: tests/mesh_coarse_grid.sql procedures/mesh_coarse_grid.sql db/table/mesh_surface_h3_r8 db/table/mesh_towers | db/test ## Verify coarse-grid seeding skips occupied parents and prefers building cells
+db/test/mesh_coarse_grid: tests/mesh_coarse_grid.sql procedures/mesh_coarse_grid.sql | db/test ## Verify coarse-grid seeding skips occupied parents and prefers building cells
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_coarse_grid.sql
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_coarse_grid.sql
 	touch db/test/mesh_coarse_grid
@@ -388,7 +408,7 @@ db/test/mesh_tower_wiggle: tests/mesh_tower_wiggle.sql procedures/mesh_tower_wig
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_tower_wiggle.sql
 	touch db/test/mesh_tower_wiggle
 
-db/test/install_priority_py: tests/test_install_priority.py tests/test_install_priority_render.py scripts/export_install_priority.py scripts/install_priority_cluster_bounds.py scripts/install_priority_cluster_helpers.py scripts/install_priority_connectors.py scripts/install_priority_enrichment.py scripts/install_priority_geocoder.py scripts/install_priority_graph.py scripts/install_priority_graph_support.py scripts/install_priority_lib.py scripts/install_priority_map_payload.py scripts/install_priority_maplibre.py scripts/install_priority_points.py scripts/install_priority_render.py scripts/install_priority_sources.py | db/test ## Run installer-priority Python unit tests
+db/test/install_priority_py: tests/test_install_priority.py tests/test_install_priority_mobile.py tests/test_install_priority_render.py scripts/export_install_priority.py scripts/install_priority_cluster_bounds.py scripts/install_priority_cluster_helpers.py scripts/install_priority_connectors.py scripts/install_priority_enrichment.py scripts/install_priority_geocoder.py scripts/install_priority_graph.py scripts/install_priority_graph_support.py scripts/install_priority_lib.py scripts/install_priority_map_payload.py scripts/install_priority_maplibre.py scripts/install_priority_points.py scripts/install_priority_render.py scripts/install_priority_sources.py | db/test ## Run installer-priority Python unit tests
 	python -m unittest discover -s tests -p 'test_install_priority*.py'
 	touch db/test/install_priority_py
 
@@ -418,12 +438,17 @@ db/procedure/mesh_placement_restart: scripts/mesh_placement_restart.sh procedure
 	touch db/procedure/mesh_placement_restart
 
 
-db/procedure/backup_mesh_los_cache: scripts/backup_mesh_los_cache.sh db/table/mesh_los_cache | db/procedure ## Snapshot precious LOS cache before destructive placement experiments
+data/backups/mesh_los_cache.latest.dump: scripts/backup_mesh_los_cache.sh | data/backups ## Snapshot precious LOS cache to durable backup storage
 	scripts/backup_mesh_los_cache.sh
+	test -s data/backups/mesh_los_cache.latest.dump
+
+
+db/procedure/backup_mesh_los_cache: data/backups/mesh_los_cache.latest.dump | db/procedure ## Verify durable LOS cache backup exists before destructive placement experiments
+	test -s data/backups/mesh_los_cache.latest.dump
 	touch db/procedure/backup_mesh_los_cache
 
 
-db/procedure/restore_mesh_los_cache: scripts/restore_mesh_los_cache.sh | db/procedure ## Restore LOS cache from data/out/backups/mesh_los_cache.latest.dump
+db/procedure/restore_mesh_los_cache: scripts/restore_mesh_los_cache.sh | db/procedure ## Restore LOS cache from data/backups/mesh_los_cache.latest.dump
 	scripts/restore_mesh_los_cache.sh
 	touch db/table/mesh_los_cache
 	touch db/procedure/restore_mesh_los_cache

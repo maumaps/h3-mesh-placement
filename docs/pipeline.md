@@ -27,6 +27,7 @@ The repository mirrors the geocint-runner structure.
 Make targets write marker files under `db/raw`, `db/table`, `db/function`, `db/procedure`, and `db/test`.
 Use `python scripts/check_db_markers.py --fix` if a marker exists but the database object was never created.
 Some `db/procedure` markers represent pipeline stage scripts rather than actual Postgres procedures.
+The LOS-cache backup itself is stored under `data/backups/` so `make clean` does not delete it with rendered outputs.
 
 ## Pipeline Targets
 `make all` runs the workflow from downloads through routing with coarse and greedy placement disabled by default.
@@ -81,10 +82,12 @@ Run tests against a disposable database if you want to keep an existing pipeline
 
 ## Running
 Make sure PostgreSQL accepts local socket connections under your current user so the inline `psql` calls succeed.
+Set `PGDATABASE`, `PGUSER`, `PGHOST`, and `PGPORT` when the database is not reachable through local libpq defaults; the seed import target uses the same environment values for `ogr2ogr`.
 Execute `make all` to refresh every artifact from downloads through routing.
 Run `make db/procedure/mesh_run_greedy_full` after setting `enable_greedy=true` to execute greedy placement when you are ready.
 The configured greedy wrapper runs with `statement_timeout=0` because LOS and post-placement visibility refresh work can legitimately exceed the default timeout.
 `make db/procedure/mesh_placement_restart` also invokes the tower-wiggle wrapper, so setting `enable_wiggle=true` is enough for the safe replay path. Run `make db/procedure/mesh_tower_wiggle_current` when you want to apply wiggle to the current tower set without replaying route inputs.
 Run `make data/out/install_priority.html` to build the field handout in HTML and CSV.
-Each SQL file is idempotent, so you can re-run `psql -f tables/<file>` (or `functions/<file>`, `procedures/<file>`) for debugging without destroying prior work.
+Most SQL files are idempotent rebuild steps, but many `tables/` files intentionally drop and recreate derived tables.
+Inspect the file and run the matching Make target when one exists, especially around `mesh_towers`, `mesh_surface_h3_r8`, route graph tables, and cache-adjacent stages.
 Any missing credentials or tooling gaps should be recorded in `docs/todo.md`.

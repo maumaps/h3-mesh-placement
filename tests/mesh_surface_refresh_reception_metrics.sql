@@ -2,69 +2,112 @@ set client_min_messages = warning;
 
 begin;
 
+-- Shadow the surface table so reception refresh writes only fixture rows.
+create temporary table mesh_surface_h3_r8 (
+    h3 h3index primary key,
+    centroid_geog geography not null,
+    has_tower boolean not null default false,
+    distance_to_closest_tower double precision not null,
+    clearance double precision,
+    path_loss double precision
+) on commit drop;
+
+-- Shadow the tower registry with the tower used for nearest-neighbor metrics.
+create temporary table mesh_towers (
+    h3 h3index primary key,
+    centroid_geog geography not null
+) on commit drop;
+
+-- Shadow the LOS cache so h3_visibility_metrics() returns the documented fixture values.
+create temporary table mesh_los_cache (
+    src_h3 h3index not null,
+    dst_h3 h3index not null,
+    mast_height_src double precision not null,
+    mast_height_dst double precision not null,
+    frequency_hz double precision not null,
+    distance_m double precision not null,
+    clearance double precision not null,
+    d1_m double precision not null,
+    d2_m double precision not null,
+    path_loss_db double precision not null,
+    computed_at timestamptz not null default now(),
+    primary key (src_h3, dst_h3, mast_height_src, mast_height_dst, frequency_hz)
+) on commit drop;
+
 do
 $$
 declare
-    sample_tower record;
-    affected_cell h3index;
-    refresh_radius constant double precision := 15000;
-    retries integer := 0;
+    tower_h3 h3index := h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(44.77012421468743, 41.72621783475549), 4326), 8);
+    surface_h3 h3index := h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(44.79012421468743, 41.72621783475549), 4326), 8);
+    link_distance double precision;
+    refreshed_clearance double precision;
+    refreshed_path_loss double precision;
 begin
-    select
-        t.h3,
-        t.centroid_geog
-    into sample_tower
-    from mesh_towers t
-    limit 1;
+    link_distance := ST_Distance(surface_h3::geography, tower_h3::geography);
 
-    if sample_tower.h3 is null then
-        raise exception 'mesh_surface_refresh_reception_metrics test requires at least one tower';
+    if surface_h3 = tower_h3 then
+        raise exception 'Reception refresh fixture needs distinct H3 cells, but both coordinates mapped to %', tower_h3::text;
     end if;
 
-    loop
-        select s.h3
-        into affected_cell
-        from mesh_surface_h3_r8 s
-        where s.has_tower is not true
-          and ST_DWithin(s.centroid_geog, sample_tower.centroid_geog, refresh_radius)
-          and s.distance_to_closest_tower < 80000
-        limit 1;
+    insert into mesh_surface_h3_r8 (
+        h3,
+        centroid_geog,
+        has_tower,
+        distance_to_closest_tower,
+        clearance,
+        path_loss
+    )
+    values
+        (tower_h3, tower_h3::geography, true, 0, null, null),
+        (surface_h3, surface_h3::geography, false, link_distance, null, null);
 
-        exit when affected_cell is not null;
+    insert into mesh_towers (h3, centroid_geog)
+    values (tower_h3, tower_h3::geography);
 
-        retries := retries + 1;
-
-        if retries > 5 then
-            raise exception 'mesh_surface_refresh_reception_metrics test failed to find nearby surface cell for tower %',
-                sample_tower.h3::text;
-        end if;
-    end loop;
-
-    update mesh_surface_h3_r8
-    set clearance = null,
-        path_loss = null
-    where h3 = affected_cell;
+    insert into mesh_los_cache (
+        src_h3,
+        dst_h3,
+        mast_height_src,
+        mast_height_dst,
+        frequency_hz,
+        distance_m,
+        clearance,
+        d1_m,
+        d2_m,
+        path_loss_db
+    )
+    values (
+        least(surface_h3, tower_h3),
+        greatest(surface_h3, tower_h3),
+        28,
+        28,
+        868e6,
+        link_distance,
+        12.5,
+        link_distance / 2,
+        link_distance / 2,
+        99
+    );
 
     perform mesh_surface_refresh_reception_metrics(
-        sample_tower.h3,
-        refresh_radius,
+        tower_h3,
+        10000,
         80000,
         5
     );
 
-    perform (
-        select
-            case
-                when clearance is null or path_loss is null then
-                    raise exception 'Reception metrics not restored for % near tower %',
-                        affected_cell::text,
-                        sample_tower.h3::text
-                else
-                    null
-            end
-        from mesh_surface_h3_r8
-        where h3 = affected_cell
-    );
+    select clearance, path_loss
+    into refreshed_clearance, refreshed_path_loss
+    from mesh_surface_h3_r8
+    where h3 = surface_h3;
+
+    if refreshed_clearance is distinct from 12.5 or refreshed_path_loss is distinct from 99 then
+        raise exception 'Reception metrics not restored for % near tower %: expected clearance/path_loss 12.5/99, got %/%',
+            surface_h3::text,
+            tower_h3::text,
+            refreshed_clearance,
+            refreshed_path_loss;
+    end if;
 end;
 $$;
 

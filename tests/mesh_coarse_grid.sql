@@ -2,8 +2,24 @@ set client_min_messages = warning;
 
 begin;
 
-truncate mesh_surface_h3_r8;
-truncate mesh_towers;
+-- Shadow pipeline settings so the fixture is not controlled by live operator config.
+create temporary table mesh_pipeline_settings (
+    setting text primary key,
+    value text not null
+) on commit drop;
+
+insert into mesh_pipeline_settings (setting, value)
+values
+    ('enable_coarse', 'true'),
+    ('max_los_distance_m', '80000'),
+    ('coarse_resolution', '4');
+
+-- Shadow production planning tables so this fixture never mutates live placement state.
+create temporary table mesh_surface_h3_r8 (like public.mesh_surface_h3_r8 including all) on commit drop;
+create temporary sequence mesh_towers_test_tower_id_seq;
+create temporary table mesh_towers (like public.mesh_towers including all) on commit drop;
+alter table mesh_towers alter column tower_id set default nextval('mesh_towers_test_tower_id_seq');
+alter sequence mesh_towers_test_tower_id_seq owned by mesh_towers.tower_id;
 
 do
 $$

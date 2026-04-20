@@ -23,6 +23,64 @@ if [ -n "${missing_message}" ]; then
     exit 1
 fi
 
+restart_stamp="$(date -u +%Y%m%dT%H%M%SZ)_$$"
+tower_backup="mesh_towers_restart_backup_${restart_stamp}"
+surface_backup="mesh_surface_h3_r8_restart_backup_${restart_stamp}"
+
+restore_restart_snapshot() {
+    status=$?
+
+    if [ "${status}" -ne 0 ]; then
+        echo ">> Placement restart failed; restoring mesh_towers and surface metrics from ${tower_backup}" >&2
+        psql --no-psqlrc --set=ON_ERROR_STOP=1 <<SQL
+begin;
+truncate mesh_towers restart identity;
+insert into mesh_towers (tower_id, h3, source, recalculation_count, created_at)
+select tower_id, h3, source, recalculation_count, created_at
+from ${tower_backup};
+select setval(
+    pg_get_serial_sequence('mesh_towers', 'tower_id'),
+    greatest(coalesce((select max(tower_id) from mesh_towers), 1), 1),
+    true
+);
+update mesh_surface_h3_r8 surface
+set has_tower = backup.has_tower,
+    distance_to_closest_tower = backup.distance_to_closest_tower,
+    clearance = backup.clearance,
+    path_loss = backup.path_loss,
+    visible_population = backup.visible_population,
+    visible_uncovered_population = backup.visible_uncovered_population,
+    visible_tower_count = backup.visible_tower_count
+from ${surface_backup} backup
+where surface.h3 = backup.h3;
+commit;
+SQL
+    fi
+
+    psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "drop table if exists ${tower_backup}; drop table if exists ${surface_backup};" >/dev/null || true
+    exit "${status}"
+}
+
+psql --no-psqlrc --set=ON_ERROR_STOP=1 <<SQL
+create table ${tower_backup} as
+select tower_id, h3, source, recalculation_count, created_at
+from mesh_towers;
+
+create table ${surface_backup} as
+select
+    h3,
+    has_tower,
+    distance_to_closest_tower,
+    clearance,
+    path_loss,
+    visible_population,
+    visible_uncovered_population,
+    visible_tower_count
+from mesh_surface_h3_r8;
+SQL
+
+trap restore_restart_snapshot EXIT
+
 echo ">> Applying configured coarse stage"
 psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_coarse_grid.sql
 psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "call mesh_coarse_grid();"
@@ -62,3 +120,6 @@ scripts/mesh_run_greedy_configured.sh
 echo ">> Applying configured tower wiggle stage"
 psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_tower_wiggle.sql
 scripts/mesh_tower_wiggle_configured.sh
+
+trap - EXIT
+psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "drop table if exists ${tower_backup}; drop table if exists ${surface_backup};" >/dev/null

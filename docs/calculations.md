@@ -210,10 +210,10 @@ It updates `mesh_towers` and invalidates local `mesh_surface_h3_r8` metrics arou
 ### LOS cache backup (`backup_mesh_los_cache`)
 **Where:** `scripts/backup_mesh_los_cache.sh`, `scripts/restore_mesh_los_cache.sh`.
 
-**What:** `make -B db/procedure/backup_mesh_los_cache` writes `data/out/backups/mesh_los_cache.latest.dump` and a timestamped copy with `pg_dump --format=custom`.
+**What:** `make -B db/procedure/backup_mesh_los_cache` writes `data/backups/mesh_los_cache.latest.dump` and a timestamped copy with `pg_dump --format=custom`.
 The backup script refuses to overwrite the latest backup when `mesh_los_cache` is missing or empty unless `ALLOW_EMPTY_LOS_CACHE_BACKUP=1` is explicitly set.
 The restore script renames any existing `mesh_los_cache` to a timestamped quarantine table before loading the dump, so restore does not destroy the last in-database cache copy.
-Use backup before destructive placement experiments or SQL tests that may rebuild cache-adjacent tables.
+Use backup before destructive placement experiments or explicit integration tests such as `db/test/mesh_route_integration`; the default `make test` target is not supposed to rebuild cache-adjacent tables.
 
 ### Tower wiggle (`mesh_tower_wiggle`)
 **Where:** `procedures/mesh_tower_wiggle.sql`, `docs/mesh_tower_wiggle.md`.

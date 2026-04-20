@@ -10,10 +10,16 @@ from typing import Mapping, Sequence
 
 try:
     from scripts.install_priority_graph import PlanRow
-    from scripts.install_priority_graph_support import multi_source_distances
+    from scripts.install_priority_graph_support import (
+        connector_edge_priority,
+        multi_source_distances,
+    )
 except ModuleNotFoundError:
     from install_priority_graph import PlanRow  # type: ignore[no-redef]
-    from install_priority_graph_support import multi_source_distances  # type: ignore[no-redef]
+    from install_priority_graph_support import (  # type: ignore[no-redef]
+        connector_edge_priority,
+        multi_source_distances,
+    )
 
 
 @dataclass(frozen=True)
@@ -167,7 +173,7 @@ def _connector_score(
     summed_rank = left_rank + right_rank
 
     return (
-        _connector_edge_priority(
+        connector_edge_priority(
             connector.left_source,
             connector.right_source,
         ),
@@ -187,20 +193,3 @@ def _rank_value(rank: int | None) -> float:
         return inf
 
     return float(rank)
-
-
-def _connector_edge_priority(source_a: str, source_b: str) -> float:
-    """Prefer route-derived corridors when explicit RF loss is unavailable."""
-
-    ordered_sources = tuple(sorted((source_a, source_b)))
-
-    if ordered_sources == ("route", "route"):
-        return 0.0
-    if "route" in ordered_sources or "bridge" in ordered_sources:
-        return 1.0
-    if "coarse" in ordered_sources:
-        return 2.0
-    if "population" in ordered_sources:
-        return 3.0
-
-    return 4.0

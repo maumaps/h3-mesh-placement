@@ -3,11 +3,13 @@ set client_min_messages = warning;
 -- Validate mesh_route cache/bridge SQL produces expected towers (db/test/mesh_route runs the scripts first).
 begin;
 
--- Shadow the production LOS cache so this fixture never truncates or mutates precious cache state.
+-- Shadow production planning tables so this fixture never mutates live placement state.
 create temporary table mesh_los_cache (like public.mesh_los_cache including all) on commit drop;
-
-truncate mesh_surface_h3_r8;
-truncate mesh_towers;
+create temporary table mesh_surface_h3_r8 (like public.mesh_surface_h3_r8 including all) on commit drop;
+create temporary sequence mesh_towers_test_tower_id_seq;
+create temporary table mesh_towers (like public.mesh_towers including all) on commit drop;
+alter table mesh_towers alter column tower_id set default nextval('mesh_towers_test_tower_id_seq');
+alter sequence mesh_towers_test_tower_id_seq owned by mesh_towers.tower_id;
 
 do
 $$

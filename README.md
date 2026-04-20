@@ -9,17 +9,19 @@ It is also a teaching resource with step-by-step notes, reproducible SQL, and vi
 - How to visualize radio coverage and propagation with Mapnik.
 
 ## Quick start
-- Install PostGIS, pgRouting, and the `h3` extension.
-- Review `docs/pipeline.md` for data sources and pipeline stages.
+- Install PostgreSQL with PostGIS, pgRouting, `h3`, and `h3_postgis`.
+- Install command-line import/render tools: `osmium`, GDAL/OGR (`ogr2ogr`, `raster2pgsql`), Mapnik, GNU parallel, and ffmpeg.
+- Install Python packages used by scripts and tests, including `psycopg2`, `Pillow`, and Mapnik Python bindings.
+- Set `PGDATABASE`, `PGUSER`, `PGHOST`, and `PGPORT` when local libpq defaults do not point at the pipeline database.
+- Review `docs/pipeline.md` for data sources, safety notes, and pipeline stages.
 - Run the full pipeline with `make all`.
-- Run the verification suite with `make test`.
+- Run the non-destructive verification suite with `make test`; live artifact checks expect the pipeline tables to already exist.
 
 ## Where to start reading
 - `docs/index.md` is the navigation hub.
 - `docs/calculations.md` explains every calculation and optimization.
 - `docs/placement_strategies.md` names each stage with classical algorithm analogies.
 - `docs/radio_model.md` walks through the LongFast-inspired radio model assumptions.
-- `docs/posts/` contains LinkedIn-ready drafts.
 
 ## Visuals
 - `docs/visuals_mapnik.md` explains how to render static maps and the LongFast animation.

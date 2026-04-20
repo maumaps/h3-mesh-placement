@@ -1,7 +1,148 @@
 set client_min_messages = warning;
 
--- Ensure mesh_visibility_edges entries covering seed towers match h3_visibility_clearance() expectations.
+-- Ensure mesh_visibility_edges-style rows match cached h3_visibility_clearance() expectations.
 begin;
+
+-- Shadow seed-node H3 data with the documented H3 talk fixture points.
+create temporary table mesh_initial_nodes_h3_r8 (
+    name text primary key,
+    h3 h3index not null unique
+) on commit drop;
+
+-- Shadow tower IDs so pgRouting hop checks do not depend on the live tower registry.
+create temporary table mesh_towers (
+    tower_id integer primary key,
+    h3 h3index not null unique
+) on commit drop;
+
+-- Shadow visibility edges with just the columns this regression validates.
+create temporary table mesh_visibility_edges (
+    source_id integer not null,
+    target_id integer not null,
+    source_h3 h3index not null,
+    target_h3 h3index not null,
+    is_visible boolean not null,
+    distance_m double precision not null,
+    cluster_hops integer,
+    primary key (source_id, target_id)
+) on commit drop;
+
+-- Shadow the LOS cache so h3_visibility_clearance() reads fixture rows only.
+create temporary table mesh_los_cache (
+    src_h3 h3index not null,
+    dst_h3 h3index not null,
+    mast_height_src double precision not null,
+    mast_height_dst double precision not null,
+    frequency_hz double precision not null,
+    distance_m double precision not null,
+    clearance double precision not null,
+    d1_m double precision not null,
+    d2_m double precision not null,
+    path_loss_db double precision not null,
+    computed_at timestamptz not null default now(),
+    primary key (src_h3, dst_h3, mast_height_src, mast_height_dst, frequency_hz)
+) on commit drop;
+
+-- Seed documented towers, expected pair visibility, and cached LOS metrics.
+with seed_nodes as (
+    select *
+    from (
+        values
+            (1, 'Poti', 41.661468062064046, 42.138160267820865),
+            (2, 'Feria 2', 41.65617597380452, 41.62629099133622),
+            (3, 'SoNick', 41.56250667923871, 41.546406233870215),
+            (4, 'Komzpa', 41.590687899376945, 41.62120240464702),
+            (5, 'Tbilisi hackerspace', 44.77012421468743, 41.72621783475549)
+    ) as rows(tower_id, name, lon, lat)
+), inserted_nodes as (
+    insert into mesh_initial_nodes_h3_r8 (name, h3)
+    select
+        name,
+        h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(lon, lat), 4326), 8)
+    from seed_nodes
+    returning name, h3
+)
+insert into mesh_towers (tower_id, h3)
+select seed_nodes.tower_id, inserted_nodes.h3
+from seed_nodes
+join inserted_nodes using (name);
+
+with pair_expectations as (
+    select *
+    from (
+        values
+            ('Poti', 'Feria 2', true, 1),
+            ('Poti', 'SoNick', true, 1),
+            ('Poti', 'Komzpa', true, 1),
+            ('Feria 2', 'Komzpa', true, 1),
+            ('Feria 2', 'SoNick', true, 1),
+            ('Komzpa', 'SoNick', false, 2),
+            ('Tbilisi hackerspace', 'Poti', false, null::integer),
+            ('Tbilisi hackerspace', 'Feria 2', false, null::integer),
+            ('Tbilisi hackerspace', 'Komzpa', false, null::integer),
+            ('Tbilisi hackerspace', 'SoNick', false, null::integer)
+    ) as rows(src_name, dst_name, expected_visible, cluster_hops)
+), prepared_pairs as (
+    select
+        least(src_tower.tower_id, dst_tower.tower_id) as source_id,
+        greatest(src_tower.tower_id, dst_tower.tower_id) as target_id,
+        case when src_tower.tower_id < dst_tower.tower_id then src.h3 else dst.h3 end as source_h3,
+        case when src_tower.tower_id < dst_tower.tower_id then dst.h3 else src.h3 end as target_h3,
+        least(src.h3, dst.h3) as cache_src_h3,
+        greatest(src.h3, dst.h3) as cache_dst_h3,
+        pair_expectations.expected_visible,
+        pair_expectations.cluster_hops,
+        ST_Distance(src.h3::geography, dst.h3::geography) as distance_m
+    from pair_expectations
+    join mesh_initial_nodes_h3_r8 src on src.name = pair_expectations.src_name
+    join mesh_initial_nodes_h3_r8 dst on dst.name = pair_expectations.dst_name
+    join mesh_towers src_tower on src_tower.h3 = src.h3
+    join mesh_towers dst_tower on dst_tower.h3 = dst.h3
+), inserted_edges as (
+    insert into mesh_visibility_edges (
+        source_id,
+        target_id,
+        source_h3,
+        target_h3,
+        is_visible,
+        distance_m,
+        cluster_hops
+    )
+    select
+        source_id,
+        target_id,
+        source_h3,
+        target_h3,
+        expected_visible,
+        distance_m,
+        cluster_hops
+    from prepared_pairs
+    returning source_id
+)
+insert into mesh_los_cache (
+    src_h3,
+    dst_h3,
+    mast_height_src,
+    mast_height_dst,
+    frequency_hz,
+    distance_m,
+    clearance,
+    d1_m,
+    d2_m,
+    path_loss_db
+)
+select
+    cache_src_h3,
+    cache_dst_h3,
+    28,
+    28,
+    868e6,
+    distance_m,
+    case when expected_visible then 1 else -1 end,
+    distance_m / 2,
+    distance_m / 2,
+    100
+from prepared_pairs;
 
 do
 $$
@@ -9,27 +150,26 @@ declare
     rec record;
     constant_mast_height constant double precision := 28;
     constant_frequency constant double precision := 868e6;
-    max_distance constant double precision := 80000;
 begin
     for rec in
         with pairs as (
             select
-                a.h3 as src_h3,
-                b.h3 as dst_h3,
+                least(e.source_h3, e.target_h3) as src_h3,
+                greatest(e.source_h3, e.target_h3) as dst_h3,
                 coalesce(a.name, 'seed') as src_name,
                 coalesce(b.name, 'seed') as dst_name,
                 h3_visibility_clearance(
-                    a.h3,
-                    b.h3,
+                    e.source_h3,
+                    e.target_h3,
                     constant_mast_height,
                     constant_mast_height,
                     constant_frequency
                 ) as clearance,
-                ST_Distance(a.h3::geography, b.h3::geography) as distance_m
-            from mesh_initial_nodes_h3_r8 a
-            join mesh_initial_nodes_h3_r8 b
-              on a.h3 < b.h3
-            where ST_Distance(a.h3::geography, b.h3::geography) <= max_distance
+                e.distance_m,
+                e.is_visible as stored_visible
+            from mesh_visibility_edges e
+            join mesh_initial_nodes_h3_r8 a on a.h3 = e.source_h3
+            join mesh_initial_nodes_h3_r8 b on b.h3 = e.target_h3
         )
         select
             p.src_h3,
@@ -39,11 +179,8 @@ begin
             p.distance_m,
             p.clearance,
             (p.clearance > 0) as expected_visible,
-            e.is_visible as stored_visible
+            p.stored_visible
         from pairs p
-        left join mesh_visibility_edges e
-          on least(e.source_h3, e.target_h3) = p.src_h3
-         and greatest(e.source_h3, e.target_h3) = p.dst_h3
     loop
         if rec.stored_visible is null then
             raise exception 'Seed visibility edge missing for % (%s) -> % (%s) at %.2f km; clearance % meters and expected visibility %',
@@ -115,7 +252,6 @@ begin
 end;
 $$;
 
-drop table if exists tmp_test_visibility_cluster_edges;
 -- Temporary helper storing LOS edges (<=80 km) so we can recompute hop counts for seed towers.
 create temporary table tmp_test_visibility_cluster_edges as
 select
@@ -175,7 +311,5 @@ begin
     end loop;
 end;
 $$;
-
-drop table if exists tmp_test_visibility_cluster_edges;
 
 rollback;

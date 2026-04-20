@@ -203,11 +203,11 @@ def build_country_border_sql() -> str:
                or tags ->> 'wikidata' = 'Q399'
         ),
         georgia_boundary as (
-            select ST_Boundary(ST_UnaryUnion(geom)) as geom
+            select ST_Boundary(ST_Union(geom)) as geom
             from georgia
         ),
         armenia_boundary as (
-            select ST_Boundary(ST_UnaryUnion(geom)) as geom
+            select ST_Boundary(ST_Union(geom)) as geom
             from armenia
         )
         select ST_Intersection(gb.geom, ab.geom) as geom

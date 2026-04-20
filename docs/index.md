@@ -20,9 +20,6 @@ Each sentence is on its own line for clean diffs.
 ## Field handouts
 - `docs/install_priority_handout.md` for the cluster-local installer priority export used by field teams.
 
-## LinkedIn-ready notes
-- `docs/posts/` contains post drafts for sharing insights.
-
 ## Reference
 - `docs/glossary.md` for core terms.
 - `docs/naming.md` for naming conventions and canonical labels.

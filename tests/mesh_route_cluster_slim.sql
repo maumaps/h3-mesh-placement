@@ -52,7 +52,8 @@ begin
 end;
 $$;
 
-truncate mesh_route_cluster_slim_failures;
+-- Shadow mutable state with temporary versions for deterministic routing.
+create temporary table mesh_route_cluster_slim_failures (like public.mesh_route_cluster_slim_failures including all) on commit drop;
 
 -- Shadow core tables with lightweight temporary versions for deterministic routing.
 create temporary table mesh_surface_h3_r8 (
@@ -125,8 +126,8 @@ begin
         (seed_two, h3_cell_to_geometry(seed_two)::public.geography, h3_cell_to_boundary_geometry(seed_two), 0, true, false, 0, 0, 2),
         (bridge_one, h3_cell_to_geometry(bridge_one)::public.geography, h3_cell_to_boundary_geometry(bridge_one), 0, true, false, 0, 0, 2),
         (bridge_two, h3_cell_to_geometry(bridge_two)::public.geography, h3_cell_to_boundary_geometry(bridge_two), 0, true, false, 0, 0, 2),
-        (seed_mid, h3_cell_to_geometry(seed_mid)::public.geography, h3_cell_to_boundary_geometry(seed_mid), 0, false, true, 100, 15000, 0),
-        (non_seed_mid, h3_cell_to_geometry(non_seed_mid)::public.geography, h3_cell_to_boundary_geometry(non_seed_mid), 0, false, false, 100, 15000, 0);
+        (seed_mid, h3_cell_to_geometry(seed_mid)::public.geography, h3_cell_to_boundary_geometry(seed_mid), 0, false, true, 100, null, 0),
+        (non_seed_mid, h3_cell_to_geometry(non_seed_mid)::public.geography, h3_cell_to_boundary_geometry(non_seed_mid), 0, false, false, 100, null, 0);
 
     -- Register towers with deterministic IDs so mesh_visibility_edges can reference them.
     insert into mesh_towers (h3, source)

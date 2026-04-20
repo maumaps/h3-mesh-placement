@@ -2,12 +2,14 @@ set client_min_messages = warning;
 
 begin;
 
--- Shadow the production LOS cache so this fixture never truncates or mutates precious cache state.
+-- Shadow production planning tables so this fixture never mutates live placement state.
 create temporary table mesh_los_cache (like public.mesh_los_cache including all) on commit drop;
-
-truncate mesh_surface_h3_r8;
-truncate mesh_towers;
-truncate mesh_visibility_edges;
+create temporary table mesh_surface_h3_r8 (like public.mesh_surface_h3_r8 including all) on commit drop;
+create temporary table mesh_visibility_edges (like public.mesh_visibility_edges including all) on commit drop;
+create temporary sequence mesh_towers_test_tower_id_seq;
+create temporary table mesh_towers (like public.mesh_towers including all) on commit drop;
+alter table mesh_towers alter column tower_id set default nextval('mesh_towers_test_tower_id_seq');
+alter sequence mesh_towers_test_tower_id_seq owned by mesh_towers.tower_id;
 
 -- Seed a tiny mesh surface with two towers and a few bridge-capable cells.
 do
@@ -180,8 +182,8 @@ from tower_pair tp,
      ) as far_geom;
 
 -- Mirror the candidate+priority staging tables from fill_mesh_los_cache for this miniature scene.
-drop table if exists mesh_route_candidate_cells;
-create table mesh_route_candidate_cells as
+drop table if exists pg_temp.mesh_route_candidate_cells;
+create temporary table mesh_route_candidate_cells on commit drop as
 select
     s.h3,
     s.centroid_geog,
@@ -199,8 +201,8 @@ create index if not exists mesh_route_candidate_cells_geog_idx
     using gist (centroid_geog);
 
 -- Precompute nearest invisible edge distance per candidate.
-drop table if exists mesh_route_candidate_invisible_dist;
-create table mesh_route_candidate_invisible_dist as
+drop table if exists pg_temp.mesh_route_candidate_invisible_dist;
+create temporary table mesh_route_candidate_invisible_dist on commit drop as
 select
     c.h3,
     coalesce(
@@ -220,8 +222,8 @@ alter table mesh_route_candidate_invisible_dist
     add primary key (h3);
 
 -- Build missing pairs exactly like the procedure does.
-drop table if exists mesh_route_pair_candidates;
-create table mesh_route_pair_candidates as
+drop table if exists pg_temp.mesh_route_pair_candidates;
+create temporary table mesh_route_pair_candidates on commit drop as
 select
     c1.h3 as src_h3,
     c2.h3 as dst_h3,
@@ -234,8 +236,8 @@ join mesh_route_candidate_cells c2
 
 create index on mesh_route_pair_candidates (src_h3, dst_h3);
 
-drop table if exists mesh_route_missing_pairs;
-create table mesh_route_missing_pairs as
+drop table if exists pg_temp.mesh_route_missing_pairs;
+create temporary table mesh_route_missing_pairs on commit drop as
 select
     pr.src_h3,
     pr.dst_h3,

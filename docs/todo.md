@@ -1,14 +1,16 @@
 
 ## Test isolation follow-up
-`db/test/h3_los_between_cells` now shadows `mesh_los_cache` instead of truncating production cache, but the test currently fails one expected-visible fixture (`Poti -> SoNick`) with an empty temporary cache.
-Do not restore production-cache truncation; fix the test by seeding the exact cached clearance rows it requires or by moving the fixture fully onto temporary terrain/metrics tables.
+`db/test/h3_los_between_cells` now shadows `mesh_los_cache` and seeds its documented visibility pairs into that temporary cache.
+Do not restore production-cache truncation; keep LOS unit fixtures independent from the multi-day cache table.
 
 
 ## Incident: LOS cache table dropped by unsafe temp test setup
 A new SQL test fixture used unqualified destructive table setup for `mesh_los_cache`, `mesh_surface_h3_r8`, and `mesh_towers` before creating temporary tables.
 That removed production tables in the local database and invalidated the already-filled LOS cache.
 `AGENTS.md` now requires checking SQL fixtures for unqualified destructive statements, `scripts/backup_mesh_los_cache.sh` provides a guarded backup target that refuses empty cache backups, and `scripts/restore_mesh_los_cache.sh` preserves any existing cache by renaming it before restore.
-The LOS-cache `drop`/`truncate` patterns were removed from SQL scripts/tests; old SQL tests still contain production `truncate` patterns for non-cache placement tables and should be migrated to isolated `pg_temp` fixtures before being run against valuable local state.
+The LOS-cache `drop`/`truncate` patterns were removed from SQL scripts/tests.
+A regression test now checks that SQL fixtures create temporary shadow tables before destructive setup of placement/cache tables; remaining unqualified fixture truncates are against those temporary shadows.
+The default `make test` target was rewired to avoid upstream derived-table rebuilds even under `make -B`; keep checking `make -n` before explicit integration targets such as `db/test/mesh_route_integration`.
 
 Backbone-first iteration is in progress.
 The current live placement restart uses `tables/mesh_pipeline_settings.sql` with coarse and greedy disabled, population anchors enabled with heavy existing-tower KMeans anchors, and route bridge/cluster-slim enabled.

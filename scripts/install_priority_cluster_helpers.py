@@ -9,9 +9,15 @@ from math import hypot
 from typing import Any, Mapping, Sequence
 
 try:
-    from scripts.install_priority_graph_support import multi_source_distances
+    from scripts.install_priority_graph_support import (
+        connector_edge_priority,
+        multi_source_distances,
+    )
 except ModuleNotFoundError:
-    from install_priority_graph_support import multi_source_distances  # type: ignore[no-redef]
+    from install_priority_graph_support import (  # type: ignore[no-redef]
+        connector_edge_priority,
+        multi_source_distances,
+    )
 
 
 def compose_cluster_key(country_code: str, cluster_key: str) -> str:
@@ -175,7 +181,7 @@ def pending_connector_ids(
                     and cluster_country_by_key.get(peer_cluster_key, "") == own_country_code
                 )
                 else 1,
-                _connector_edge_priority(
+                connector_edge_priority(
                     towers_by_id[tower_id].source,
                     towers_by_id[neighbor_id].source,
                 ),
@@ -232,22 +238,6 @@ def pending_same_country_connector_ids(
         towers_by_id=towers_by_id,
     )
 
-
-def _connector_edge_priority(source_a: str, source_b: str) -> int:
-    """Prefer corridors built from route/bridge towers when RF loss is unavailable."""
-
-    ordered_sources = tuple(sorted((source_a, source_b)))
-
-    if ordered_sources == ("route", "route"):
-        return 0
-    if "route" in ordered_sources or "bridge" in ordered_sources:
-        return 1
-    if "coarse" in ordered_sources:
-        return 2
-    if "population" in ordered_sources:
-        return 3
-
-    return 4
 
 
 def _cluster_country_code(
