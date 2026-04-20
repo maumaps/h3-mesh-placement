@@ -78,6 +78,11 @@ Make: Always run `make -n` before every `make` run and fix if something extra is
 Make: Do not use PHONY targets.
 Make: When a rebuild or pipeline step already has a Make target, run it through `make` instead of ad hoc shell/psql/python commands. If the target is broken, fix the target first.
 
+Debugging/Data safety: Before running any SQL test fixture or scratch setup, inspect it for unqualified `drop table`, `truncate`, `create table`, or `alter table` statements against production table names. Temporary fixtures must use `drop table if exists pg_temp.<name>` followed by `create temporary table <name>` so they cannot delete real project tables.
+Debugging/Data safety: SQL tests and scripts must not contain `drop table` or `truncate` statements targeting `mesh_los_cache`; use a temporary `mesh_los_cache` fixture instead. Before running any new or recently edited SQL test, run a text check for dangerous unqualified drops/truncates of precious tables such as `mesh_los_cache`, `mesh_surface_h3_r8`, `mesh_towers`, `mesh_visibility_edges`, route queues, and route graph tables. Fix the test before running it.
+Debugging/Data safety: Before any experiment, test, or Make target that can rebuild/drop/truncate placement or cache tables, run `make -B db/procedure/backup_mesh_los_cache` and verify it produced `data/out/backups/mesh_los_cache.latest.dump`. Do not overwrite the only useful LOS cache backup with an empty cache backup unless explicitly requested.
+Debugging/Data safety: Treat `mesh_los_cache` as precious multi-hour/multi-day state. If it is missing or unexpectedly small, stop and report instead of starting destructive rebuilds or backup rotation.
+
 
 You are explicitly forbidden to use variables in Makefile.
 You are explicitly forbidden to use SQL schemas.

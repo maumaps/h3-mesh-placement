@@ -3,7 +3,8 @@ set client_min_messages = warning;
 -- Validate h3_los_between_cells() using doc/H3 talk visibility pairs.
 begin;
 
-truncate mesh_los_cache;
+-- Shadow the production LOS cache so visibility checks cannot delete the real cache.
+create temporary table mesh_los_cache (like public.mesh_los_cache including all) on commit drop;
 
 do
 $$
