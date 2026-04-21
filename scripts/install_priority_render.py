@@ -8,28 +8,16 @@ from collections import defaultdict
 from html import escape
 from typing import Mapping, Sequence
 
-try:
-    from scripts.install_priority_graph import TowerRecord
-    from scripts.install_priority_maplibre import (
-        cluster_map_id,
-        normalize_rows,
-        render_map_assets,
-    )
-    from scripts.install_priority_render_sections import (
-        render_cluster_section,
-        render_summary_section,
-    )
-except ModuleNotFoundError:
-    from install_priority_graph import TowerRecord  # type: ignore[no-redef]
-    from install_priority_maplibre import (  # type: ignore[no-redef]
-        cluster_map_id,
-        normalize_rows,
-        render_map_assets,
-    )
-    from install_priority_render_sections import (  # type: ignore[no-redef]
-        render_cluster_section,
-        render_summary_section,
-    )
+from scripts.install_priority_graph import TowerRecord
+from scripts.install_priority_maplibre import (
+    cluster_map_id,
+    normalize_rows,
+    render_map_assets,
+)
+from scripts.install_priority_render_sections import (
+    render_cluster_section,
+    render_summary_section,
+)
 
 
 CSV_COLUMNS = [

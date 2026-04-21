@@ -8,24 +8,12 @@ import json
 import re
 from typing import Mapping, Sequence
 
-try:
-    from scripts.install_priority_map_payload import (
-        dedupe_clusters,
-        fallback_cluster_bound_features,
-    )
-    from scripts.install_priority_maplibre_runtime import build_map_script
-    from scripts.install_priority_maplibre_vendor import read_maplibre_assets
-except ModuleNotFoundError:
-    from install_priority_map_payload import (  # type: ignore[no-redef]
-        dedupe_clusters,
-        fallback_cluster_bound_features,
-    )
-    from install_priority_maplibre_runtime import (  # type: ignore[no-redef]
-        build_map_script,
-    )
-    from install_priority_maplibre_vendor import (  # type: ignore[no-redef]
-        read_maplibre_assets,
-    )
+from scripts.install_priority_map_payload import (
+    dedupe_clusters,
+    fallback_cluster_bound_features,
+)
+from scripts.install_priority_maplibre_runtime import build_map_script
+from scripts.install_priority_maplibre_vendor import read_maplibre_assets
 
 
 def normalize_rows(rows: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:

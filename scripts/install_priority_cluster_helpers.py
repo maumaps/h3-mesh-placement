@@ -8,16 +8,10 @@ from collections import defaultdict
 from math import hypot
 from typing import Any, Mapping, Sequence
 
-try:
-    from scripts.install_priority_graph_support import (
-        connector_edge_priority,
-        multi_source_distances,
-    )
-except ModuleNotFoundError:
-    from install_priority_graph_support import (  # type: ignore[no-redef]
-        connector_edge_priority,
-        multi_source_distances,
-    )
+from scripts.install_priority_graph_support import (
+    connector_edge_priority,
+    multi_source_distances,
+)
 
 
 def compose_cluster_key(country_code: str, cluster_key: str) -> str:

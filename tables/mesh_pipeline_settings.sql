@@ -10,6 +10,19 @@ create table if not exists mesh_pipeline_settings (
     updated_at timestamptz not null default now()
 );
 
+-- Ensure boolean-typed settings only accept 'true' or 'false'.
+alter table mesh_pipeline_settings
+    drop constraint if exists mesh_pipeline_settings_bool_check;
+alter table mesh_pipeline_settings
+    add constraint mesh_pipeline_settings_bool_check check (
+        setting not in (
+            'enable_coarse', 'enable_population', 'enable_population_anchor_contract',
+            'enable_generated_pair_contract', 'enable_route_segment_reroute',
+            'enable_route_bridge', 'enable_cluster_slim', 'enable_greedy', 'enable_wiggle'
+        )
+        or value in ('true', 'false')
+    );
+
 -- Drop renamed settings so the user-facing config table does not keep stale aliases.
 delete from mesh_pipeline_settings
 where setting in ('placement_dedup_distance_m', 'population_cluster_factor');

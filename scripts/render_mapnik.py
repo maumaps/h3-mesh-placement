@@ -8,8 +8,11 @@ from __future__ import annotations
 
 import argparse
 import os
-from dataclasses import dataclass
+import sys
+from pathlib import Path
 from typing import List
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 try:
     import mapnik
@@ -25,16 +28,8 @@ except ImportError as exc:
         "psycopg2 is required for database access."
     ) from exc
 
-
-@dataclass(frozen=True)
-class DbConfig:
-    """Container for PostGIS connection details."""
-
-    dbname: str
-    host: str
-    port: int
-    user: str
-    password: str
+from scripts.longfast_animation_lib import DbConfig
+from scripts.pg_connect import add_db_args, pg_conn_kwargs
 
 
 def parse_args() -> argparse.Namespace:
@@ -43,11 +38,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Render a static Mapnik PNG of the mesh surface."
     )
-    parser.add_argument("--dbname", default=os.getenv("PGDATABASE", ""))
-    parser.add_argument("--host", default=os.getenv("PGHOST", ""))
-    parser.add_argument("--port", default=int(os.getenv("PGPORT", "5432")))
-    parser.add_argument("--user", default=os.getenv("PGUSER", ""))
-    parser.add_argument("--password", default=os.getenv("PGPASSWORD", ""))
+    add_db_args(parser)
     parser.add_argument("--style", default="mapnik/styles/mesh_style.xml")
     parser.add_argument("--output", default="data/out/visuals/mesh_surface.png")
     parser.add_argument("--width", type=int, default=1920)
@@ -59,23 +50,15 @@ def parse_args() -> argparse.Namespace:
 def open_readonly_connection(config: DbConfig):
     """Open a read-only connection to PostGIS."""
 
-    conn_kwargs = {
-        "dbname": config.dbname,
-        "host": config.host,
-        "port": config.port,
-        "user": config.user,
-        "password": config.password,
-    }
-    # Drop empty connection fields so libpq can fall back to defaults.
-    if not config.dbname:
-        conn_kwargs.pop("dbname")
-    if not config.host:
-        conn_kwargs.pop("host")
-    if not config.user:
-        conn_kwargs.pop("user")
-    if not config.password:
-        conn_kwargs.pop("password")
-    conn = psycopg2.connect(**conn_kwargs)
+    conn = psycopg2.connect(
+        **pg_conn_kwargs(
+            dbname=config.dbname,
+            host=config.host,
+            port=config.port,
+            user=config.user,
+            password=config.password,
+        )
+    )
     conn.set_session(readonly=True, autocommit=True)
 
     return conn

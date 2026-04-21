@@ -13,41 +13,21 @@ from datetime import datetime
 from heapq import heappop, heappush
 from typing import Mapping, Sequence
 
-try:
-    from scripts.install_priority_cluster_helpers import (
-        assign_unreachable_to_nearest_seed_cluster,
-        cluster_key,
-        group_towers_by_country,
-        pending_connector_ids,
-    )
-    from scripts.install_priority_graph_support import (
-        build_adjacency,
-        component_members,
-        connected_components,
-        estimate_component_people,
-        restrict_adjacency_to_towers,
-        shortest_path_to_targets,
-    )
-    from scripts.install_priority_points import EndpointObservation, reconstruct_tower_points
-except ModuleNotFoundError:
-    from install_priority_cluster_helpers import (  # type: ignore[no-redef]
-        assign_unreachable_to_nearest_seed_cluster,
-        cluster_key,
-        group_towers_by_country,
-        pending_connector_ids,
-    )
-    from install_priority_graph_support import (  # type: ignore[no-redef]
-        build_adjacency,
-        component_members,
-        connected_components,
-        estimate_component_people,
-        restrict_adjacency_to_towers,
-        shortest_path_to_targets,
-    )
-    from install_priority_points import (  # type: ignore[no-redef]
-        EndpointObservation,
-        reconstruct_tower_points,
-    )
+from scripts.install_priority_cluster_helpers import (
+    assign_unreachable_to_nearest_seed_cluster,
+    cluster_key,
+    group_towers_by_country,
+    pending_connector_ids,
+)
+from scripts.install_priority_graph_support import (
+    build_adjacency,
+    component_members,
+    connected_components,
+    estimate_component_people,
+    restrict_adjacency_to_towers,
+    shortest_path_to_targets,
+)
+from scripts.install_priority_points import EndpointObservation, reconstruct_tower_points
 
 
 SOURCE_PRIORITY = {

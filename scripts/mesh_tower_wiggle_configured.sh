@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-enabled="$(psql --no-psqlrc --set=ON_ERROR_STOP=1 -At -c "select value::boolean from mesh_pipeline_settings where setting = 'enable_wiggle'")"
+# shellcheck source=pg_settings.sh
+source "$(dirname "$0")/pg_settings.sh"
+
+enabled="$(pg_setting_bool enable_wiggle)"
 
 if [ "${enabled}" != t ]; then
     echo ">> Tower wiggle disabled by mesh_pipeline_settings.enable_wiggle"
     exit 0
 fi
 
-max_iters="${WIGGLE_ITERATIONS:-$(psql --no-psqlrc --set=ON_ERROR_STOP=1 -At -c "select value::integer from mesh_pipeline_settings where setting = 'wiggle_iterations'")}"
+max_iters="${WIGGLE_ITERATIONS:-$(pg_setting_int wiggle_iterations)}"
 iter=0
 reset=true
 

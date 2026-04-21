@@ -35,6 +35,9 @@ begin
     ), 4)
     into coarse_resolution;
 
+    raise notice 'Coarse placement: enabled=%, max_distance_m=%, coarse_resolution=%',
+        enabled, max_distance, coarse_resolution;
+
     -- Reset prior coarse towers so reruns stay idempotent and disabling the
     -- stage removes stale coarse anchors from previous runs.
     delete from mesh_towers where source = 'coarse';
@@ -151,5 +154,7 @@ begin
         group by s2.h3
     ) sub
     where s.h3 = sub.h3;
+
+    raise notice 'Coarse placement complete: % towers inserted', inserted_count;
 end;
 $$;

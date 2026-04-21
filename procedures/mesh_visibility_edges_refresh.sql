@@ -8,7 +8,13 @@ $$
 declare
     missing_list text;
     missing_count integer;
+    v_tower_count integer;
+    v_edge_count integer;
+    v_visible_count integer;
 begin
+    select count(*) into v_tower_count from mesh_towers;
+    raise notice 'Visibility edges refresh: rebuilding from % towers', v_tower_count;
+
     truncate mesh_visibility_edges;
 
 if to_regclass('tmp_visibility_missing_elevation') is not null then
@@ -180,6 +186,11 @@ end if;
 if to_regclass('tmp_visibility_cluster_edges') is not null then
     execute 'drop table tmp_visibility_cluster_edges';
 end if;
+
+    select count(*), count(*) filter (where is_visible)
+    into v_edge_count, v_visible_count
+    from mesh_visibility_edges;
+    raise notice 'Visibility edges refresh complete: % edges, % visible', v_edge_count, v_visible_count;
 
     select
         string_agg(h3::text, ', ' order by h3),

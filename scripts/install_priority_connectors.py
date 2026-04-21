@@ -8,18 +8,11 @@ from dataclasses import dataclass
 from math import inf
 from typing import Mapping, Sequence
 
-try:
-    from scripts.install_priority_graph import PlanRow
-    from scripts.install_priority_graph_support import (
-        connector_edge_priority,
-        multi_source_distances,
-    )
-except ModuleNotFoundError:
-    from install_priority_graph import PlanRow  # type: ignore[no-redef]
-    from install_priority_graph_support import (  # type: ignore[no-redef]
-        connector_edge_priority,
-        multi_source_distances,
-    )
+from scripts.install_priority_graph import PlanRow
+from scripts.install_priority_graph_support import (
+    connector_edge_priority,
+    multi_source_distances,
+)
 
 
 @dataclass(frozen=True)

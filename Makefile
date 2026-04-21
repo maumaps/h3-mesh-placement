@@ -1,6 +1,12 @@
-all: db/procedure/mesh_run_greedy ## [FINAL] Build pipeline through routing (greedy disabled)
+all: db/procedure/mesh_run_greedy ## [FINAL] Build full pipeline; greedy stage skipped unless enable_greedy=true in mesh_pipeline_settings
 
-test: db/test/seed_nodes_py db/test/pipeline_regressions_py db/test/georgia_roads_geom db/test/georgia_unfit_areas db/test/population_h3_r8 db/test/mesh_surface_building_fields db/test/h3_los_between_cells db/test/mesh_surface_visible_towers db/test/mesh_surface_refresh_reception_metrics db/test/mesh_surface_refresh_visible_tower_counts db/test/mesh_visibility_edges db/test/mesh_visibility_edges_type db/test/mesh_visibility_invisible_route_geom db/test/mesh_run_greedy_prepare db/test/fill_mesh_los_cache_priority db/test/mesh_population db/test/mesh_route_bootstrap_pairs db/test/mesh_route_corridor_between_towers db/test/mesh_route_cluster_slim db/test/mesh_coarse_grid db/test/mesh_population_anchor_contract db/test/mesh_generated_pair_contract db/test/mesh_route_segment_reroute db/test/mesh_tower_wiggle db/test/install_priority_py ## [FINAL] Run non-destructive verification suite
+help: ## Show available targets
+	@grep -E '^[^#[:space:]][^:]*:.*## ' Makefile | \
+	  sed 's/:.*## /\t/' | \
+	  sort | \
+	  awk -F'\t' '{printf "%-55s %s\n", $$1, $$2}'
+
+test: db/test/seed_nodes_py db/test/pipeline_regressions_py db/test/pg_connect_py db/test/georgia_roads_geom db/test/georgia_unfit_areas db/test/population_h3_r8 db/test/mesh_surface_building_fields db/test/h3_los_between_cells db/test/mesh_surface_visible_towers db/test/mesh_surface_refresh_reception_metrics db/test/mesh_surface_refresh_visible_tower_counts db/test/mesh_visibility_edges db/test/mesh_visibility_edges_type db/test/mesh_visibility_invisible_route_geom db/test/mesh_run_greedy_prepare db/test/fill_mesh_los_cache_priority db/test/mesh_population db/test/mesh_route_bootstrap_pairs db/test/mesh_route_corridor_between_towers db/test/mesh_route_cluster_slim db/test/mesh_coarse_grid db/test/mesh_population_anchor_contract db/test/mesh_generated_pair_contract db/test/mesh_route_segment_reroute db/test/mesh_tower_wiggle db/test/install_priority_py ## [FINAL] Run non-destructive verification suite
 
 clean: ## [FINAL] Remove intermediate data and build markers
 	@if [ -n "$(filter clean,$(MAKECMDGOALS))" ]; then rm -rf data/mid data/out db; fi
@@ -65,9 +71,11 @@ db/test: | db ## Ensure test marker directory exists
 
 data/in/osm/georgia-latest.osm.pbf: | data/in/osm ## Download Georgia OSM extract
 	curl -L --retry 3 --continue-at - -o data/in/osm/georgia-latest.osm.pbf https://download.geofabrik.de/europe/georgia-latest.osm.pbf
+	test -s data/in/osm/georgia-latest.osm.pbf
 
 data/in/osm/armenia-latest.osm.pbf: | data/in/osm ## Download Armenia OSM extract
 	curl -L --retry 3 --continue-at - -o data/in/osm/armenia-latest.osm.pbf https://download.geofabrik.de/asia/armenia-latest.osm.pbf
+	test -s data/in/osm/armenia-latest.osm.pbf
 
 data/mid/osm/osm_for_mesh_placement.osm.pbf: data/in/osm/georgia-latest.osm.pbf data/in/osm/armenia-latest.osm.pbf | data/mid/osm ## Merge Georgia and Armenia OSM extracts for mesh placement
 	osmium merge data/in/osm/georgia-latest.osm.pbf data/in/osm/armenia-latest.osm.pbf -o data/mid/osm/osm_for_mesh_placement.osm.pbf -f pbf
@@ -75,6 +83,7 @@ data/mid/osm/osm_for_mesh_placement.osm.pbf: data/in/osm/georgia-latest.osm.pbf 
 data/in/population/kontur_population_20231101.gpkg.gz: | data/in/population ## Download Kontur population archive
 	rm -f data/in/population/kontur_population_20231101.gpkg.gz
 	curl -L --retry 3 --continue-at - -o data/in/population/kontur_population_20231101.gpkg.gz https://geodata-eu-central-1-kontur-public.s3.eu-central-1.amazonaws.com/kontur_datasets/kontur_population_20231101.gpkg.gz
+	test -s data/in/population/kontur_population_20231101.gpkg.gz
 
 data/mid/population/kontur_population_20231101.gpkg: data/in/population/kontur_population_20231101.gpkg.gz | data/mid/population ## Decompress Kontur population geopackage
 	rm -f data/mid/population/kontur_population_20231101.gpkg
@@ -82,6 +91,7 @@ data/mid/population/kontur_population_20231101.gpkg: data/in/population/kontur_p
 
 data/in/gebco/gebco_2024_geotiff.zip: | data/in/gebco ## Download GEBCO 2024 GeoTIFF archive
 	curl -L --retry 3 --continue-at - -o data/in/gebco/gebco_2024_geotiff.zip https://www.bodc.ac.uk/data/open_download/gebco/gebco_2024/geotiff/
+	test -s data/in/gebco/gebco_2024_geotiff.zip
 
 data/mid/gebco/gebco_2024_geotiffs_unzip: data/in/gebco/gebco_2024_geotiff.zip | data/mid/gebco ## Unpack GEBCO rasters
 	rm -f data/mid/gebco/*.tif
@@ -126,6 +136,7 @@ data/in/existing_mesh_nodes.geojson: data/in/existing_mesh_nodes_curated.geojson
 
 data/in/meshtastic_liamcottle_nodes_region.json: | data/in/meshtastic ## Download raw Meshtastic node snapshot for manual seed refresh
 	curl -L --retry 3 --output data/in/meshtastic_liamcottle_nodes_region.json https://meshtastic.liamcottle.net/api/v1/nodes
+	test -s data/in/meshtastic_liamcottle_nodes_region.json
 
 data/in/existing_mesh_nodes_refresh: data/in/meshtastic_liamcottle_nodes_region.json data/in/existing_mesh_nodes_curated.geojson scripts/merge_seed_nodes.py | data/in ## Refresh canonical seed GeoJSON using the latest Meshtastic snapshot
 	python scripts/merge_seed_nodes.py --curated-geojson data/in/existing_mesh_nodes_curated.geojson --raw-json data/in/meshtastic_liamcottle_nodes_region.json --output-geojson data/in/existing_mesh_nodes.geojson
@@ -274,6 +285,10 @@ db/test/seed_nodes_py: tests/test_seed_nodes.py scripts/merge_seed_nodes.py | db
 db/test/pipeline_regressions_py: tests/test_pipeline_regressions.py Makefile procedures/fill_mesh_los_cache.sql docs/calculations.md docs/placement_strategies.md | db/test ## Run pipeline regression unit tests
 	python -m unittest -q tests/test_pipeline_regressions.py
 	touch db/test/pipeline_regressions_py
+
+db/test/pg_connect_py: tests/test_pg_connect.py scripts/pg_connect.py | db/test ## Run pg_connect unit tests
+	python -m unittest -q tests/test_pg_connect.py
+	touch db/test/pg_connect_py
 
 db/test/h3_los_helpers: tables/h3_visibility_metrics.sql functions/h3_path_loss.sql functions/h3_visibility_clearance.sql functions/h3_los_between_cells.sql | db/test ## Install LOS helper definitions for non-destructive SQL tests
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/h3_visibility_metrics.sql

@@ -5,10 +5,15 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 from pathlib import Path
 from typing import Iterable
 
 import psycopg2
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from scripts.pg_connect import pg_conn_kwargs
 
 
 def parse_args() -> argparse.Namespace:
@@ -24,23 +29,15 @@ def parse_args() -> argparse.Namespace:
 def connect_db() -> psycopg2.extensions.connection:
     """Open a database connection using environment variables."""
 
-    connection_kwargs = {
-        "dbname": os.getenv("PGDATABASE", ""),
-        "host": os.getenv("PGHOST", ""),
-        "port": int(os.getenv("PGPORT", "5432")),
-        "user": os.getenv("PGUSER", ""),
-        "password": os.getenv("PGPASSWORD", ""),
-    }
-    if not connection_kwargs["dbname"]:
-        connection_kwargs.pop("dbname")
-    if not connection_kwargs["host"]:
-        connection_kwargs.pop("host")
-    if not connection_kwargs["user"]:
-        connection_kwargs.pop("user")
-    if not connection_kwargs["password"]:
-        connection_kwargs.pop("password")
-
-    return psycopg2.connect(**connection_kwargs)
+    return psycopg2.connect(
+        **pg_conn_kwargs(
+            dbname=os.getenv("PGDATABASE", ""),
+            host=os.getenv("PGHOST", ""),
+            port=int(os.getenv("PGPORT", "5432")),
+            user=os.getenv("PGUSER", ""),
+            password=os.getenv("PGPASSWORD", ""),
+        )
+    )
 
 
 def list_markers(directory: Path) -> list[str]:

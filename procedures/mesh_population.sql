@@ -1,6 +1,21 @@
 set client_min_messages = notice;
 
 -- Add a small fixed-k set of serviceable population anchors before routing.
+
+do $$
+declare
+    v_enabled boolean;
+    v_min_count integer;
+    v_max_count integer;
+begin
+    select
+        coalesce((select value::boolean from mesh_pipeline_settings where setting = 'enable_population'), true),
+        greatest(coalesce((select value::integer from mesh_pipeline_settings where setting = 'population_anchor_min_count'), 7), 0),
+        greatest(coalesce((select value::integer from mesh_pipeline_settings where setting = 'population_anchor_max_count'), 7), 0)
+    into v_enabled, v_min_count, v_max_count;
+    raise notice 'Population stage: enabled=%, min_count=%, max_count=%', v_enabled, v_min_count, v_max_count;
+end;
+$$;
 -- The stage deliberately has no city-specific inputs; calibration places
 -- belong in tests, not in production configuration.
 
@@ -253,3 +268,15 @@ from (
     group by s2.h3
 ) sub
 where s.h3 = sub.h3;
+
+do $$
+declare
+    v_count integer;
+    v_source text;
+begin
+    select coalesce(value, 'population') into v_source
+    from mesh_pipeline_settings where setting = 'population_anchor_source';
+    select count(*) into v_count from mesh_towers where source = coalesce(v_source, 'population');
+    raise notice 'Population stage complete: % anchor towers (source=%)', v_count, coalesce(v_source, 'population');
+end;
+$$;

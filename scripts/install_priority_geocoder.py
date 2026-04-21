@@ -9,10 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Iterable
 from urllib import error, request
 
-try:
-    from scripts.install_priority_graph import PlanRow
-except ModuleNotFoundError:
-    from install_priority_graph import PlanRow  # type: ignore[no-redef]
+from scripts.install_priority_graph import PlanRow
 
 
 def fetch_geocoder_reverse(

@@ -120,9 +120,14 @@ class PipelineRegressionTest(unittest.TestCase):
             "Makefile should expose a safe current-wiggle target that does not rebuild route inputs when only local refinement is requested.",
         )
         self.assertIn(
-            "delete from mesh_towers where source in ('greedy', 'bridge'); truncate mesh_greedy_iterations;",
+            "delete from mesh_towers where source in ('greedy', 'bridge')",
             greedy_script_text,
-            "Disabling greedy placement should clean stale greedy/bridge towers and iteration logs during a restart.",
+            "Disabling greedy placement should clean stale greedy/bridge towers during a restart.",
+        )
+        self.assertIn(
+            "truncate mesh_greedy_iterations",
+            greedy_script_text,
+            "Disabling greedy placement should clear iteration logs during a restart.",
         )
         self.assertIn(
             "power(ln(1 + rc.nearby_population)",
@@ -308,7 +313,7 @@ class PipelineRegressionTest(unittest.TestCase):
             "The GNU parallel launcher script should feed a finite batch-count job queue into GNU parallel so ETA reflects the remaining LOS batches.",
         )
         self.assertIn(
-            'parallel_jobs="$(psql',
+            'parallel_jobs="$(pg_setting_int los_parallel_jobs)"',
             parallel_script_text,
             "The GNU parallel launcher should read worker parallelism from mesh_pipeline_settings instead of hardcoding the current machine shape.",
         )
@@ -333,7 +338,7 @@ class PipelineRegressionTest(unittest.TestCase):
             "The GNU parallel launcher should request ETA output when it has a TTY, but stay quiet under nohup where /dev/tty is unavailable.",
         )
         self.assertIn(
-            'batch_limit="$(psql',
+            'batch_limit="$(pg_setting_int los_batch_limit)"',
             parallel_script_text,
             "The GNU parallel launcher should read its batch size from mesh_pipeline_settings so users can tune finite job granularity in one file.",
         )

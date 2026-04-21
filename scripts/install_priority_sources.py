@@ -6,10 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-try:
-    from scripts.install_priority_graph import TowerRecord
-except ModuleNotFoundError:
-    from install_priority_graph import TowerRecord  # type: ignore[no-redef]
+from scripts.install_priority_graph import TowerRecord
 
 
 def fetch_table_columns(cursor, table_name: str) -> set[str]:

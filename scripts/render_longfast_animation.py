@@ -12,7 +12,11 @@ import random
 import re
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import mapnik
 
@@ -24,7 +28,9 @@ except ImportError:  # pragma: no cover - optional dependency
     ImageFont = None
 
 
-from longfast_animation_lib import (
+from scripts.pg_connect import add_db_args
+
+from scripts.longfast_animation_lib import (
     AnimationConfig,
     DbConfig,
     RadioConfig,
@@ -110,11 +116,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Render a LongFast propagation animation using cached LOS data."
     )
-    parser.add_argument("--dbname", default=os.getenv("PGDATABASE", ""))
-    parser.add_argument("--host", default=os.getenv("PGHOST", ""))
-    parser.add_argument("--port", default=int(os.getenv("PGPORT", "5432")))
-    parser.add_argument("--user", default=os.getenv("PGUSER", ""))
-    parser.add_argument("--password", default=os.getenv("PGPASSWORD", ""))
+    add_db_args(parser)
     parser.add_argument("--style", default="mapnik/styles/mesh_style.xml")
     parser.add_argument("--output-dir", default="data/out/visuals/longfast")
     parser.add_argument("--width", type=int, default=1920)

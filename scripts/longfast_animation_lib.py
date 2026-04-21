@@ -24,6 +24,8 @@ except ImportError as exc:
         "psycopg2 is required for database access."
     ) from exc
 
+from scripts.pg_connect import pg_conn_kwargs
+
 
 @dataclass(frozen=True)
 class DbConfig:
@@ -64,23 +66,15 @@ class AnimationConfig:
 def open_readonly_connection(config: DbConfig):
     """Open a read-only connection to PostGIS."""
 
-    conn_kwargs = {
-        "dbname": config.dbname,
-        "host": config.host,
-        "port": config.port,
-        "user": config.user,
-        "password": config.password,
-    }
-    # Drop empty connection fields so libpq can fall back to defaults.
-    if not config.dbname:
-        conn_kwargs.pop("dbname")
-    if not config.host:
-        conn_kwargs.pop("host")
-    if not config.user:
-        conn_kwargs.pop("user")
-    if not config.password:
-        conn_kwargs.pop("password")
-    conn = psycopg2.connect(**conn_kwargs)
+    conn = psycopg2.connect(
+        **pg_conn_kwargs(
+            dbname=config.dbname,
+            host=config.host,
+            port=config.port,
+            user=config.user,
+            password=config.password,
+        )
+    )
     conn.set_session(readonly=True, autocommit=True)
 
     return conn

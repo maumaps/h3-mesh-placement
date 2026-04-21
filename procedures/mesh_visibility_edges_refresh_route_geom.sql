@@ -5,7 +5,16 @@ create or replace procedure mesh_visibility_edges_refresh_route_geom()
     language plpgsql
 as
 $$
+declare
+    v_route_count integer;
+    v_updated_count integer;
 begin
+    select count(*) into v_route_count
+    from mesh_visibility_edges
+    where (not is_visible and is_between_clusters)
+       or (cluster_hops is not null and cluster_hops >= 8);
+    raise notice 'Route geom backfill: % inter-cluster / long-hop edges to route', v_route_count;
+
     with edges_requiring_routes as (
         -- Route only the diagnostic edges that already proved they cross clusters or exceed the hop budget.
         -- This reuses mesh_visibility_edges metadata instead of recomputing tower clusters and LOS again.
@@ -64,5 +73,7 @@ begin
     where e.source_id = err.source_id
       and e.target_id = err.target_id
       and err.routed_geom is not null;
+    get diagnostics v_updated_count = row_count;
+    raise notice 'Route geom backfill complete: % edges updated', v_updated_count;
 end;
 $$;

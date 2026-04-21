@@ -1,18 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-enabled="$(psql --no-psqlrc --set=ON_ERROR_STOP=1 -At -c "select value::boolean from mesh_pipeline_settings where setting = 'enable_cluster_slim'")"
+# shellcheck source=pg_settings.sh
+source "$(dirname "$0")/pg_settings.sh"
+
+enabled="$(pg_setting_bool enable_cluster_slim)"
 
 if [ "${enabled}" != t ]; then
     echo ">> Cluster slim disabled by mesh_pipeline_settings.enable_cluster_slim"
-    psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "delete from mesh_towers where source = 'cluster_slim';"
+    deleted="$(psql --no-psqlrc --set=ON_ERROR_STOP=1 -At -c "with d as (delete from mesh_towers where source = 'cluster_slim' returning h3) select count(*) from d;")"
+    echo ">> Cleared ${deleted:-0} previous cluster-slim towers (stage disabled)"
     exit 0
 fi
 
 echo ">> Clearing previous cluster-slim towers and failures"
 psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "delete from mesh_towers where source = 'cluster_slim'; truncate mesh_route_cluster_slim_failures;"
 
-max_iters="${SLIM_ITERATIONS:-$(psql --no-psqlrc --set=ON_ERROR_STOP=1 -At -c "select value::integer from mesh_pipeline_settings where setting = 'cluster_slim_iterations'")}"
+max_iters="${SLIM_ITERATIONS:-$(pg_setting_int cluster_slim_iterations)}"
 iter=0
 
 while :; do

@@ -6,26 +6,15 @@ from __future__ import annotations
 
 from typing import Any
 
-try:
-    from scripts.install_priority_graph import PlanRow, TowerRecord
-    from scripts.install_priority_render import (
-        build_display_name,
-        format_connection_labels,
-        format_location_description,
-        google_maps_url,
-        humanize_tower_code,
-        osm_url,
-    )
-except ModuleNotFoundError:
-    from install_priority_graph import PlanRow, TowerRecord  # type: ignore[no-redef]
-    from install_priority_render import (  # type: ignore[no-redef]
-        build_display_name,
-        format_connection_labels,
-        format_location_description,
-        google_maps_url,
-        humanize_tower_code,
-        osm_url,
-    )
+from scripts.install_priority_graph import PlanRow, TowerRecord
+from scripts.install_priority_render import (
+    build_display_name,
+    format_connection_labels,
+    format_location_description,
+    google_maps_url,
+    humanize_tower_code,
+    osm_url,
+)
 
 
 def prepare_context_tables(cursor) -> None:

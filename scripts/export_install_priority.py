@@ -11,82 +11,46 @@ from __future__ import annotations
 
 import argparse
 import csv
-import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+# Ensure the repo root is in sys.path so `scripts.*` imports work when this
+# script is invoked directly (e.g. `python scripts/export_install_priority.py`).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 try:
     import psycopg2
 except ImportError as exc:
     raise SystemExit("psycopg2 is required for database access.") from exc
 
-try:
-    from scripts.install_priority_cluster_bounds import (
-        fetch_cluster_bound_features,
-    )
-    from scripts.install_priority_connectors import (
-        select_inter_cluster_connectors,
-    )
-    from scripts.install_priority_enrichment import (
-        build_output_row,
-        enrich_tower_records,
-        fetch_local_context,
-        prepare_context_tables,
-    )
-    from scripts.install_priority_geocoder import (
-        extract_admin_context,
-        fetch_geocoder_batch,
-    )
-    from scripts.install_priority_lib import (
-        CSV_COLUMNS,
-        build_adjacency,
-        build_cluster_plan,
-        format_display_label,
-        render_html_document,
-    )
-    from scripts.install_priority_sources import (
-        build_tower_records,
-        choose_visible_edge_table,
-        fetch_seed_points,
-        fetch_tower_metadata,
-        fetch_tower_points,
-        fetch_visible_edges,
-        match_seed_names,
-    )
-except ModuleNotFoundError:
-    from install_priority_cluster_bounds import (  # type: ignore[no-redef]
-        fetch_cluster_bound_features,
-    )
-    from install_priority_connectors import (  # type: ignore[no-redef]
-        select_inter_cluster_connectors,
-    )
-    from install_priority_enrichment import (  # type: ignore[no-redef]
-        build_output_row,
-        enrich_tower_records,
-        fetch_local_context,
-        prepare_context_tables,
-    )
-    from install_priority_geocoder import (  # type: ignore[no-redef]
-        extract_admin_context,
-        fetch_geocoder_batch,
-    )
-    from install_priority_lib import (  # type: ignore[no-redef]
-        CSV_COLUMNS,
-        build_adjacency,
-        build_cluster_plan,
-        format_display_label,
-        render_html_document,
-    )
-    from install_priority_sources import (  # type: ignore[no-redef]
-        build_tower_records,
-        choose_visible_edge_table,
-        fetch_seed_points,
-        fetch_tower_metadata,
-        fetch_tower_points,
-        fetch_visible_edges,
-        match_seed_names,
-    )
+from scripts.pg_connect import add_db_args, pg_conn_kwargs
+from scripts.install_priority_cluster_bounds import fetch_cluster_bound_features
+from scripts.install_priority_connectors import select_inter_cluster_connectors
+from scripts.install_priority_enrichment import (
+    build_output_row,
+    enrich_tower_records,
+    fetch_local_context,
+    prepare_context_tables,
+)
+from scripts.install_priority_geocoder import extract_admin_context, fetch_geocoder_batch
+from scripts.install_priority_lib import (
+    CSV_COLUMNS,
+    build_adjacency,
+    build_cluster_plan,
+    format_display_label,
+    render_html_document,
+)
+from scripts.install_priority_sources import (
+    build_tower_records,
+    choose_visible_edge_table,
+    fetch_seed_points,
+    fetch_tower_metadata,
+    fetch_tower_points,
+    fetch_visible_edges,
+    match_seed_names,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -95,11 +59,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Export the installer-priority handout."
     )
-    parser.add_argument("--dbname", default=os.getenv("PGDATABASE", ""))
-    parser.add_argument("--host", default=os.getenv("PGHOST", ""))
-    parser.add_argument("--port", default=int(os.getenv("PGPORT", "5432")))
-    parser.add_argument("--user", default=os.getenv("PGUSER", ""))
-    parser.add_argument("--password", default=os.getenv("PGPASSWORD", ""))
+    add_db_args(parser)
     parser.add_argument("--csv-output", default="data/out/install_priority.csv")
     parser.add_argument("--html-output", default="data/out/install_priority.html")
     parser.add_argument(
@@ -115,20 +75,15 @@ def parse_args() -> argparse.Namespace:
 def open_connection(args: argparse.Namespace):
     """Open a Postgres connection using libpq-style defaults."""
 
-    conn_kwargs: dict[str, Any] = {
-        "dbname": args.dbname,
-        "host": args.host,
-        "port": args.port,
-        "user": args.user,
-        "password": args.password,
-    }
-
-    # Drop empty values so local libpq defaults continue to work.
-    for key in ["dbname", "host", "user", "password"]:
-        if not conn_kwargs[key]:
-            conn_kwargs.pop(key)
-
-    connection = psycopg2.connect(**conn_kwargs)
+    connection = psycopg2.connect(
+        **pg_conn_kwargs(
+            dbname=args.dbname,
+            host=args.host,
+            port=args.port,
+            user=args.user,
+            password=args.password,
+        )
+    )
     connection.autocommit = True
 
     return connection
@@ -292,7 +247,7 @@ def export_rows(
 ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     """Build the final flat rows for CSV and HTML outputs."""
 
-    print(">> Loading tower registry and visibility graph")
+    print(">> Loading tower registry and visibility graph", file=sys.stderr)
     tower_points = fetch_tower_points(cursor)
     tower_metadata = fetch_tower_metadata(cursor)
     visible_edge_table = choose_visible_edge_table(
@@ -316,7 +271,7 @@ def export_rows(
         seed_name_by_tower_id=seed_name_by_tower_id,
     )
 
-    print(">> Preparing local road and terrain context tables")
+    print(">> Preparing local road and terrain context tables", file=sys.stderr)
     prepare_context_tables(cursor)
     local_context_by_tower_id = {
         tower_id: fetch_local_context(cursor, tower.lon, tower.lat)
@@ -342,10 +297,11 @@ def export_rows(
         adjacency=adjacency,
     )
     print(
-        f">> Loaded {len(towers_by_id)} towers and {len(visible_edges)} visible edges from {visible_edge_table}"
+        f">> Loaded {len(towers_by_id)} towers and {len(visible_edges)} visible edges from {visible_edge_table}",
+        file=sys.stderr,
     )
 
-    print(">> Fetching bilingual reverse-geocoder context")
+    print(">> Fetching bilingual reverse-geocoder context", file=sys.stderr)
     geocoder_results = fetch_geocoder_batch(
         plan_rows=plan_rows,
         geocoder_base_url=args.geocoder_base_url,
@@ -353,7 +309,7 @@ def export_rows(
         timeout_s=args.geocoder_timeout_s,
     )
 
-    print(">> Assembling final installer handout rows")
+    print(">> Assembling final installer handout rows", file=sys.stderr)
     final_rows: list[dict[str, object]] = []
     rank_by_tower_id = {
         plan_row.tower_id: plan_row.cluster_install_rank
@@ -431,7 +387,7 @@ def export_rows(
         )
         final_rows.append(output_row)
 
-    print(">> Building Voronoi cluster bounds in PostGIS")
+    print(">> Building Voronoi cluster bounds in PostGIS", file=sys.stderr)
     cluster_bound_features = fetch_cluster_bound_features(
         cursor,
         final_rows,
@@ -458,8 +414,8 @@ def main() -> None:
         args.geocoder_base_url,
         cluster_bound_features,
     )
-    print(f">> Wrote {len(rows)} rows to {csv_output}")
-    print(f">> Wrote {len(rows)} rows to {html_output}")
+    print(f">> Wrote {len(rows)} rows to {csv_output}", file=sys.stderr)
+    print(f">> Wrote {len(rows)} rows to {html_output}", file=sys.stderr)
 
 
 if __name__ == "__main__":
