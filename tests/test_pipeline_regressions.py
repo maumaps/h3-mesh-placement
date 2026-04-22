@@ -264,6 +264,26 @@ class PipelineRegressionTest(unittest.TestCase):
             surface_text,
             "mesh_surface_h3_r8 should opt out of server-side interactive statement_timeout because its 100 km ST_DWithin population and LOS checks can run longer than 10 minutes on geocint.",
         )
+        self.assertIn(
+            "create temporary table mesh_surface_population_points as",
+            surface_text,
+            "mesh_surface_h3_r8 should stage populated cells in a temporary projected geometry table so the 100 km population weight does not scan geography pairs directly.",
+        )
+        self.assertIn(
+            "create index mesh_surface_population_points_geom_idx on mesh_surface_population_points using gist (geom);",
+            surface_text,
+            "mesh_surface_h3_r8 should index the temporary projected population points before the 100 km ST_DWithin aggregation.",
+        )
+        self.assertIn(
+            "create temporary table mesh_surface_tower_candidates as",
+            surface_text,
+            "mesh_surface_h3_r8 should stage tower candidates separately so the 100 km population aggregation can resume from an inspectable SQL block.",
+        )
+        self.assertIn(
+            "ST_DWithin(pop.geom, c.geom, 100000)",
+            surface_text,
+            "mesh_surface_h3_r8 should run the 100 km population aggregation against projected geometry in meters after staging candidate and population points.",
+        )
 
     def test_fill_mesh_los_cache_main_target_stays_partial_and_backfill_loops(self) -> None:
         """The main pipeline should do one committed batch, while manual backfill drains the queue later."""

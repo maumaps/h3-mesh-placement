@@ -105,15 +105,46 @@ from (
 ) sub
 where s.h3 = sub.h3;
 
--- Sum population within 100 km (no LOS) only for tower-eligible cells to speed up clustering weights.
+drop table if exists pg_temp.mesh_surface_population_points;
+-- Create temporary projected population points so the 100 km clustering weight uses a meter-based GiST lookup instead of repeated geography distance checks.
+create temporary table mesh_surface_population_points as
+select
+    h3,
+    population,
+    ST_Transform(centroid_geog::geometry, 32638) as geom
+from mesh_surface_h3_r8
+where population > 0;
+
+-- Create a temporary GiST index for the population neighborhood lookup below.
+create index mesh_surface_population_points_geom_idx on mesh_surface_population_points using gist (geom);
+
+analyze mesh_surface_population_points;
+
+drop table if exists pg_temp.mesh_surface_tower_candidates;
+-- Create temporary projected candidate points; this keeps the heavy neighborhood aggregation copyable and easy to inspect.
+create temporary table mesh_surface_tower_candidates as
+select
+    h3,
+    ST_Transform(centroid_geog::geometry, 32638) as geom
+from mesh_surface_h3_r8
+where can_place_tower;
+
+analyze mesh_surface_tower_candidates;
+
+with candidate_population as (
+    -- Sum population within 100 km (no LOS) only for tower-eligible cells to speed up clustering weights.
+    select
+        c.h3,
+        coalesce(sum(pop.population), 0) as population_100km
+    from mesh_surface_tower_candidates c
+    left join mesh_surface_population_points pop
+        on ST_DWithin(pop.geom, c.geom, 100000)
+    group by c.h3
+)
 update mesh_surface_h3_r8 s
-set population_70km = coalesce((
-    select sum(pop.population)
-    from mesh_surface_h3_r8 pop
-    where pop.population > 0
-      and ST_DWithin(pop.centroid_geog, s.centroid_geog, 100000)
-), 0)
-where s.can_place_tower;
+set population_70km = cp.population_100km
+from candidate_population cp
+where s.h3 = cp.h3;
 
 with tower_points as (
     select h3, centroid_geog
