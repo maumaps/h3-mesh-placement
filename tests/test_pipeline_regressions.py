@@ -289,6 +289,21 @@ class PipelineRegressionTest(unittest.TestCase):
             surface_text,
             "mesh_surface_h3_r8 should run the 100 km population aggregation against projected geometry in meters after staging candidate and population points.",
         )
+        self.assertIn(
+            "from mesh_los_cache lc",
+            surface_text,
+            "mesh_surface_h3_r8 should initialize visible_tower_count from cached LOS metrics instead of computing fresh terrain LOS during the full surface rebuild.",
+        )
+        self.assertNotIn(
+            "where h3_los_between_cells(vp.cell_h3, vp.tower_h3)",
+            surface_text,
+            "mesh_surface_h3_r8 must not call h3_los_between_cells for every tower pair during the full surface rebuild; cache warming is handled by resumable LOS targets.",
+        )
+        self.assertIn(
+            "db/table/mesh_surface_h3_r8: tables/mesh_surface_h3_r8.sql db/table/mesh_surface_domain_h3_r8 db/table/roads_h3_r8 db/table/population_h3_r8 db/table/buildings_h3_r8 db/table/mesh_initial_nodes_h3_r8 db/table/mesh_towers db/table/georgia_unfit_areas db/table/gebco_elevation_h3_r8 db/table/mesh_los_cache",
+            (REPO_ROOT / "Makefile").read_text(),
+            "mesh_surface_h3_r8 should depend on the preserved LOS cache table when it initializes visible_tower_count from cached metrics.",
+        )
 
     def test_fill_mesh_los_cache_main_target_stays_partial_and_backfill_loops(self) -> None:
         """The main pipeline should do one committed batch, while manual backfill drains the queue later."""

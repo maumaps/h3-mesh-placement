@@ -331,7 +331,7 @@ db/test/mesh_surface_building_fields: tests/mesh_surface_building_fields.sql | d
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_surface_building_fields.sql
 	touch db/test/mesh_surface_building_fields
 
-db/table/mesh_surface_h3_r8: tables/mesh_surface_h3_r8.sql db/table/mesh_surface_domain_h3_r8 db/table/roads_h3_r8 db/table/population_h3_r8 db/table/buildings_h3_r8 db/table/mesh_initial_nodes_h3_r8 db/table/mesh_towers db/table/georgia_unfit_areas db/table/gebco_elevation_h3_r8 db/function/h3_los_between_cells | db/table ## Populate mesh_surface_h3_r8 table
+db/table/mesh_surface_h3_r8: tables/mesh_surface_h3_r8.sql db/table/mesh_surface_domain_h3_r8 db/table/roads_h3_r8 db/table/population_h3_r8 db/table/buildings_h3_r8 db/table/mesh_initial_nodes_h3_r8 db/table/mesh_towers db/table/georgia_unfit_areas db/table/gebco_elevation_h3_r8 db/table/mesh_los_cache | db/table ## Populate mesh_surface_h3_r8 table
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/mesh_surface_h3_r8.sql
 	touch db/table/mesh_surface_h3_r8
 

@@ -170,9 +170,17 @@ visible_pairs as (
 visible_counts as (
     select
         vp.cell_h3,
-        count(*) as visible_count
+        count(distinct vp.tower_h3) as visible_count
     from visible_pairs vp
-    where h3_los_between_cells(vp.cell_h3, vp.tower_h3)
+    where exists (
+        -- Use already computed LOS metrics during the full surface build; cache warming happens in later resumable batch targets.
+        select 1
+        from mesh_los_cache lc
+        where lc.src_h3 = least(vp.cell_h3, vp.tower_h3)
+          and lc.dst_h3 = greatest(vp.cell_h3, vp.tower_h3)
+          and lc.clearance > 0
+          and lc.path_loss_db is not null
+    )
     group by vp.cell_h3
 )
 update mesh_surface_h3_r8 s
