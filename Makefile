@@ -119,7 +119,11 @@ db/table/mesh_los_cache: tables/mesh_los_cache.sql db/table/postgis_extension | 
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/mesh_los_cache.sql
 	touch db/table/mesh_los_cache
 
-db/table/mesh_route_bootstrap_pairs: tables/mesh_route_bootstrap_pairs.sql data/in/install_priority_bootstrap.csv data/in/install_priority_bootstrap_manual.csv db/procedure/mesh_population db/table/mesh_surface_h3_r8 db/table/mesh_towers db/table/osm_for_mesh_placement db/table/georgia_boundary | db/table ## Load configured population anchors into route bootstrap LOS pairs
+db/function/mesh_tower_clusters: functions/mesh_tower_clusters.sql db/table/mesh_towers db/function/h3_los_between_cells | db/function ## Label tower connected components from cached LOS edges
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f functions/mesh_tower_clusters.sql
+	touch db/function/mesh_tower_clusters
+
+db/table/mesh_route_bootstrap_pairs: tables/mesh_route_bootstrap_pairs.sql data/in/install_priority_bootstrap.csv data/in/install_priority_bootstrap_manual.csv db/procedure/mesh_population db/table/mesh_surface_h3_r8 db/table/mesh_towers db/table/osm_for_mesh_placement db/table/georgia_boundary db/function/mesh_tower_clusters | db/table ## Load configured population anchors into route bootstrap LOS pairs
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/mesh_route_bootstrap_pairs.sql
 	touch db/table/mesh_route_bootstrap_pairs
 

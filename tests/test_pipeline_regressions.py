@@ -1258,6 +1258,16 @@ class PipelineRegressionTest(unittest.TestCase):
             "mesh_route_bootstrap_pairs should depend on the committed data/in bootstrap snapshot.",
         )
         self.assertIn(
+            "db/function/mesh_tower_clusters: functions/mesh_tower_clusters.sql db/table/mesh_towers db/function/h3_los_between_cells",
+            makefile_text,
+            "Makefile should install mesh_tower_clusters before any route-bootstrap SQL uses it.",
+        )
+        self.assertIn(
+            "db/table/mesh_route_bootstrap_pairs: tables/mesh_route_bootstrap_pairs.sql data/in/install_priority_bootstrap.csv data/in/install_priority_bootstrap_manual.csv db/procedure/mesh_population db/table/mesh_surface_h3_r8 db/table/mesh_towers db/table/osm_for_mesh_placement db/table/georgia_boundary db/function/mesh_tower_clusters",
+            makefile_text,
+            "mesh_route_bootstrap_pairs should depend on mesh_tower_clusters so clean make -j runs cannot reach the SQL before the function exists.",
+        )
+        self.assertIn(
             "data/in/install_priority_bootstrap_refresh: data/out/install_priority.csv | data/in",
             makefile_text,
             "Makefile should expose an explicit refresh target for copying the latest installer export into the committed bootstrap snapshot.",
