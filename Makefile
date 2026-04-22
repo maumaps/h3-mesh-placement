@@ -226,7 +226,7 @@ db/table/roads_h3_r8: tables/roads_h3_r8.sql db/table/georgia_roads_geom | db/ta
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/roads_h3_r8.sql
 	touch db/table/roads_h3_r8
 
-db/table/population_h3_r8: tables/population_h3_r8.sql db/table/georgia_boundary db/table/roads_h3_r8 | db/table ## Aggregate population into H3 without rebuild
+db/table/population_h3_r8: tables/population_h3_r8.sql db/raw/kontur_population db/table/georgia_boundary db/table/roads_h3_r8 | db/table ## Aggregate population into H3 without rebuild
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/population_h3_r8.sql
 	touch db/table/population_h3_r8
 
