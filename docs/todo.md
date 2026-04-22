@@ -37,6 +37,7 @@ The installer handout still triggers one MapLibre warning about a `null` numeric
 `mesh_visibility_edges_refresh()` currently skips 14 towers because their H3 cells have no GEBCO elevation sample; those towers stay in `mesh_towers`, but downstream visibility edges will be incomplete until DEM coverage or a deliberate exclusion rule is added.
 `fill_mesh_los_cache` now resumes safely in committed 250k-pair batches, and the main pipeline intentionally uses only one batch before routing.
 Use `db/procedure/fill_mesh_los_cache_backfill` later when you want to spend more time thickening the route graph from the cached queue.
+`mesh_surface_h3_r8.population_70km` now uses the configured 100 km LOS planning distance, so the column name is stale; rename it in a dedicated migration/procedure update after the current remote calculation finishes.
 
 - mesh_route_cluster_slim progress notices print malformed `0.0` fragments in psql output; keep the iteration logging but fix the formatting in a later pass.
 `db/test/mesh_population` now runs as a direct sparse-anchor smoke test and no longer replays placement in dry-run.
