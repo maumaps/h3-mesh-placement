@@ -106,14 +106,22 @@ from (
 where s.h3 = sub.h3;
 
 drop table if exists pg_temp.mesh_surface_population_points;
--- Create temporary projected population points so the 100 km clustering weight uses a meter-based GiST lookup instead of repeated geography distance checks.
+-- Create temporary projected r6 population buckets so the 100 km clustering weight avoids a huge r8-to-r8 neighborhood matrix.
 create temporary table mesh_surface_population_points as
+with parent_population as (
+    -- Roll r8 population cells up to r6 buckets; this preserves the regional demand signal used for ranking while keeping the join bounded.
+    select
+        h3_cell_to_parent(h3, 6) as h3,
+        sum(population) as population
+    from mesh_surface_h3_r8
+    where population > 0
+    group by h3_cell_to_parent(h3, 6)
+)
 select
     h3,
     population,
-    ST_Transform(centroid_geog::geometry, 32638) as geom
-from mesh_surface_h3_r8
-where population > 0;
+    ST_Transform(h3_cell_to_geometry(h3), 32638) as geom
+from parent_population;
 
 -- Create a temporary GiST index for the population neighborhood lookup below.
 create index mesh_surface_population_points_geom_idx on mesh_surface_population_points using gist (geom);

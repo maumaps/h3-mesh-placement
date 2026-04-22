@@ -267,12 +267,17 @@ class PipelineRegressionTest(unittest.TestCase):
         self.assertIn(
             "create temporary table mesh_surface_population_points as",
             surface_text,
-            "mesh_surface_h3_r8 should stage populated cells in a temporary projected geometry table so the 100 km population weight does not scan geography pairs directly.",
+            "mesh_surface_h3_r8 should stage coarse populated buckets in a temporary projected geometry table so the 100 km population weight does not scan geography pairs directly.",
+        )
+        self.assertIn(
+            "h3_cell_to_parent(h3, 6) as h3",
+            surface_text,
+            "mesh_surface_h3_r8 should roll r8 population cells up to r6 demand buckets before the 100 km ranking-weight join.",
         )
         self.assertIn(
             "create index mesh_surface_population_points_geom_idx on mesh_surface_population_points using gist (geom);",
             surface_text,
-            "mesh_surface_h3_r8 should index the temporary projected population points before the 100 km ST_DWithin aggregation.",
+            "mesh_surface_h3_r8 should index the temporary projected population buckets before the 100 km ST_DWithin aggregation.",
         )
         self.assertIn(
             "create temporary table mesh_surface_tower_candidates as",
