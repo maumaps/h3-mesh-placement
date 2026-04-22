@@ -49,7 +49,7 @@ class PipelineRegressionTest(unittest.TestCase):
             "enable_route_bridge": "true",
             "enable_cluster_slim": "true",
             "los_batch_limit": "50000",
-            "los_parallel_jobs": "8",
+            "los_parallel_jobs": "0",
             "min_tower_separation_m": "0",
             "generated_tower_merge_distance_m": "10000",
             "enable_population": "true",
@@ -235,6 +235,26 @@ class PipelineRegressionTest(unittest.TestCase):
             "db/raw/initial_nodes must not skip importing just because mesh_initial_nodes already exists, otherwise refreshed seeds never reach Postgres.",
         )
 
+    def test_population_import_uses_active_pg_connection(self) -> None:
+        """Kontur import should honor the selected database under make -j runs."""
+        makefile_text = (REPO_ROOT / "Makefile").read_text()
+
+        self.assertIn(
+            "db/table/population_h3_r8: tables/population_h3_r8.sql db/raw/kontur_population db/table/georgia_boundary db/table/roads_h3_r8 | db/table",
+            makefile_text,
+            "population_h3_r8 should depend on db/raw/kontur_population so make -j cannot aggregate population before the raw import exists.",
+        )
+        self.assertIn(
+            'ogr2ogr -f PostgreSQL "PG:dbname=$${PGDATABASE:-$${USER}} user=$${PGUSER:-$${USER}} host=$${PGHOST:-/var/run/postgresql} port=$${PGPORT:-5432}" data/mid/population/kontur_population_20231101.gpkg -nln kontur_population -nlt MULTIPOLYGON -lco GEOMETRY_NAME=geom -overwrite -t_srs EPSG:4326',
+            makefile_text,
+            "db/raw/kontur_population should import into the active PGDATABASE instead of using an empty PG connection string.",
+        )
+        self.assertNotIn(
+            'ogr2ogr -f PostgreSQL PG:\\"\\" data/mid/population/kontur_population_20231101.gpkg',
+            makefile_text,
+            "db/raw/kontur_population must not use PG:\"\", which GDAL treats as invalid connection info on geocint.",
+        )
+
     def test_fill_mesh_los_cache_main_target_stays_partial_and_backfill_loops(self) -> None:
         """The main pipeline should do one committed batch, while manual backfill drains the queue later."""
         makefile_text = (REPO_ROOT / "Makefile").read_text()
@@ -315,12 +335,22 @@ class PipelineRegressionTest(unittest.TestCase):
         self.assertIn(
             'parallel_jobs="$(pg_setting_int los_parallel_jobs)"',
             parallel_script_text,
-            "The GNU parallel launcher should read worker parallelism from mesh_pipeline_settings instead of hardcoding the current machine shape.",
+            "The GNU parallel launcher should read optional worker parallelism from mesh_pipeline_settings instead of hardcoding the current machine shape.",
         )
         self.assertIn(
-            '--jobs "${parallel_jobs}"',
+            'if [ "${parallel_jobs}" -gt 0 ]; then',
             parallel_script_text,
-            "The GNU parallel launcher should pass the configured job count to GNU parallel.",
+            "The GNU parallel launcher should let los_parallel_jobs=0 fall through to GNU parallel's CPU-count default.",
+        )
+        self.assertIn(
+            'parallel_job_args+=(--jobs "${parallel_jobs}")',
+            parallel_script_text,
+            "The GNU parallel launcher should pass --jobs only when the operator pins a positive job count.",
+        )
+        self.assertIn(
+            '"${parallel_job_args[@]}"',
+            parallel_script_text,
+            "The GNU parallel launcher should use the optional job arguments when invoking GNU parallel.",
         )
         self.assertIn(
             "--line-buffer",

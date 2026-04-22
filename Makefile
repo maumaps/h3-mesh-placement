@@ -173,7 +173,7 @@ db/raw/kontur_population: data/mid/population/kontur_population_20231101.gpkg db
 	@if psql --no-psqlrc --set=ON_ERROR_STOP=1 -Atc "select to_regclass('kontur_population')" | grep -q kontur_population; then \
 		echo "kontur_population already exists, skipping import"; \
 	else \
-		ogr2ogr -f PostgreSQL PG:\"\" data/mid/population/kontur_population_20231101.gpkg -nln kontur_population -nlt MULTIPOLYGON -lco GEOMETRY_NAME=geom -overwrite -t_srs EPSG:4326; \
+		ogr2ogr -f PostgreSQL "PG:dbname=$${PGDATABASE:-$${USER}} user=$${PGUSER:-$${USER}} host=$${PGHOST:-/var/run/postgresql} port=$${PGPORT:-5432}" data/mid/population/kontur_population_20231101.gpkg -nln kontur_population -nlt MULTIPOLYGON -lco GEOMETRY_NAME=geom -overwrite -t_srs EPSG:4326; \
 	fi
 	@if psql --no-psqlrc --set=ON_ERROR_STOP=1 -Atc "select to_regclass('kontur_population')" | grep -q kontur_population; then \
 		touch db/raw/kontur_population; \

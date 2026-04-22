@@ -30,9 +30,16 @@ if [ -t 1 ] || [ -t 2 ]; then
     parallel_eta_args+=(--eta)
 fi
 
+# Let GNU parallel use its CPU-count default when the config value is 0.
+# Operators can still pin a smaller worker count by setting los_parallel_jobs.
+parallel_job_args=()
+if [ "${parallel_jobs}" -gt 0 ]; then
+    parallel_job_args+=(--jobs "${parallel_jobs}")
+fi
+
 # Feed one finite job per batch into GNU parallel so each worker claims once and exits.
 seq "${job_count}" | parallel \
-    --jobs "${parallel_jobs}" \
+    "${parallel_job_args[@]}" \
     "${parallel_eta_args[@]}" \
     --halt now,fail=1 \
     --line-buffer \

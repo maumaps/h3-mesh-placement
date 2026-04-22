@@ -175,7 +175,11 @@ Each batch is committed separately so rerunning the manual backfill target resum
 Disconnected-cluster distance is now ranked ahead of generic invisible-edge distance, so cache seeding prefers corridors that can attach currently isolated tower groups before spending work on less urgent pairs.
 Use `db/procedure/fill_mesh_los_cache_backfill` later when you want to drain more of the queue and rebuild the route graph from a fuller cache.
 
-The operator-facing parallel launcher `db/procedure/fill_mesh_los_cache_parallel` reads `los_batch_limit` and `los_parallel_jobs` from `tables/mesh_pipeline_settings.sql`, snapshots the current `mesh_route_missing_pairs` length into `ceil(count(*) / los_batch_limit)` finite jobs, and feeds that list into GNU parallel. Each GNU parallel job runs exactly one committed `fill_mesh_los_cache_batch.sql` invocation, and the existing `for update skip locked` claim logic guarantees that concurrent jobs still pull disjoint queue slices without any pre-assigned chunk ids. This makes GNU parallel ETA meaningful for that run, because the job count is fixed at launch time instead of being hidden behind infinite shell loops. Late-start jobs that find no rows left to claim now exit cleanly instead of failing the whole run, while claimed batches that compute zero cache rows still fail loudly as a real inconsistency.
+The operator-facing parallel launcher `db/procedure/fill_mesh_los_cache_parallel` reads `los_batch_limit` and optional `los_parallel_jobs` from `tables/mesh_pipeline_settings.sql`, snapshots the current `mesh_route_missing_pairs` length into `ceil(count(*) / los_batch_limit)` finite jobs, and feeds that list into GNU parallel.
+When `los_parallel_jobs` is `0`, the launcher omits `--jobs` and lets GNU parallel use its CPU-count default.
+Each GNU parallel job runs exactly one committed `fill_mesh_los_cache_batch.sql` invocation, and the existing `for update skip locked` claim logic guarantees that concurrent jobs still pull disjoint queue slices without any pre-assigned chunk ids.
+This makes GNU parallel ETA meaningful for that run, because the job count is fixed at launch time instead of being hidden behind infinite shell loops.
+Late-start jobs that find no rows left to claim now exit cleanly instead of failing the whole run, while claimed batches that compute zero cache rows still fail loudly as a real inconsistency.
 
 ### Cluster bridge (`mesh_route_bridge`)
 **Where:** `procedures/mesh_route_bridge.sql`.

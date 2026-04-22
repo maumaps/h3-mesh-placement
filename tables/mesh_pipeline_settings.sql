@@ -38,7 +38,7 @@ values
     ('mast_height_m', '28'),
     ('frequency_hz', '868000000'),
     ('los_batch_limit', '50000'),
-    ('los_parallel_jobs', '8'),
+    ('los_parallel_jobs', '0'),
     ('enable_coarse', 'false'),
     ('coarse_resolution', '4'),
     ('enable_population', 'true'),
