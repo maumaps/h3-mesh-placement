@@ -10,8 +10,8 @@ create or replace procedure mesh_route_cluster_slim(iteration_label integer, ino
 as
 $$
 declare
-    max_distance constant double precision := 80000;
-    refresh_radius constant double precision := 80000;
+    max_distance constant double precision := 100000;
+    refresh_radius constant double precision := 100000;
     separation constant double precision := 0;
     hop_limit constant integer := 7;
     -- Keep this batch high by default: evaluating more candidates in one pass helps

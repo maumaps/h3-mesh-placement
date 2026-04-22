@@ -28,7 +28,7 @@ begin
     from mesh_surface_h3_r8 s
     where s.h3 <> missing_h3
       and s.ele is not null
-      and ST_DWithin(s.centroid_geog, missing_h3::geography, 80000)
+      and ST_DWithin(s.centroid_geog, missing_h3::geography, 100000)
     order by s.centroid_geog <-> missing_h3::geography
     limit 1;
 

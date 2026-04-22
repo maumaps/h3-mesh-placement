@@ -18,7 +18,7 @@ with recursive base_pairs as (
     from mesh_towers t1
     join mesh_towers t2
         on t1.tower_id < t2.tower_id
-    where ST_DWithin(t1.centroid_geog, t2.centroid_geog, 80000)
+    where ST_DWithin(t1.centroid_geog, t2.centroid_geog, 100000)
 ),
 visible_edges as (
     select

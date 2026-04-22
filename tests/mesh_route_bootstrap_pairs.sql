@@ -88,7 +88,7 @@ begin
     into invalid_distance_count
     from mesh_route_bootstrap_pairs
     where distance_m <= 0
-       or distance_m > 80000;
+       or distance_m > 100000;
 
     if invalid_distance_count <> 0 then
         raise exception 'mesh_route_bootstrap_pairs should keep only in-range LOS pairs, found % invalid rows', invalid_distance_count;

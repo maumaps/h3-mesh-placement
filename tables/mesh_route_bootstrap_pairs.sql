@@ -250,7 +250,7 @@ disconnected_coarse_pairs as (
         order by coarse.h3::geography <-> other_tower.h3::geography
         limit 6
     ) other on true
-    where ST_DWithin(coarse.h3::geography, other.h3::geography, 80000)
+    where ST_DWithin(coarse.h3::geography, other.h3::geography, 100000)
     order by coarse.cluster_id, other.cluster_id, distance_m, src_h3, dst_h3
 ),
 bootstrap_pairs as (
@@ -285,7 +285,7 @@ select distinct on (
     bootstrap_pairs.bootstrap_rank,
     bootstrap_pairs.distance_m
 from bootstrap_pairs
-where bootstrap_pairs.distance_m <= 80000
+where bootstrap_pairs.distance_m <= 100000
 order by
     bootstrap_pairs.src_h3,
     bootstrap_pairs.dst_h3,

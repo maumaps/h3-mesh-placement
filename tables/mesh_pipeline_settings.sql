@@ -31,8 +31,8 @@ where setting in ('placement_dedup_distance_m', 'population_cluster_factor');
 insert into mesh_pipeline_settings (setting, value)
 values
     ('h3_res', '8'),
-    ('max_los_distance_m', '80000'),
-    ('refresh_radius_m', '80000'),
+    ('max_los_distance_m', '100000'),
+    ('refresh_radius_m', '100000'),
     ('min_tower_separation_m', '0'),
     ('generated_tower_merge_distance_m', '10000'),
     ('mast_height_m', '28'),

@@ -81,7 +81,7 @@ begin
     perform mesh_surface_refresh_visible_tower_counts(
         tower_h3,
         10000,
-        80000
+        100000
     );
 
     select visible_tower_count

@@ -214,7 +214,7 @@ select
             order by c.centroid_geog::geometry <-> e.geom
             limit 1
         ),
-        80000
+        100000
     ) as distance_m
 from mesh_route_candidate_cells c;
 
@@ -231,7 +231,7 @@ select
 from mesh_route_candidate_cells c1
 join mesh_route_candidate_cells c2
   on c2.h3 > c1.h3
- where ST_DWithin(c1.centroid_geog, c2.centroid_geog, 80000)
+ where ST_DWithin(c1.centroid_geog, c2.centroid_geog, 100000)
    and not ST_DWithin(c1.centroid_geog, c2.centroid_geog, 5000);
 
 create index on mesh_route_pair_candidates (src_h3, dst_h3);

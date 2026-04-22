@@ -58,7 +58,7 @@ with settings as (
         greatest(coalesce((select value::integer from mesh_pipeline_settings where setting = 'population_anchor_min_count'), 7), 0) as min_count,
         greatest(coalesce((select value::integer from mesh_pipeline_settings where setting = 'population_anchor_max_count'), 7), 0) as max_count,
         coalesce((select value from mesh_pipeline_settings where setting = 'population_anchor_source'), 'population') as source,
-        coalesce((select value::double precision from mesh_pipeline_settings where setting = 'max_los_distance_m'), 80000) as max_los_distance_m,
+        coalesce((select value::double precision from mesh_pipeline_settings where setting = 'max_los_distance_m'), 100000) as max_los_distance_m,
         coalesce((select value::double precision from mesh_pipeline_settings where setting = 'population_building_weight'), 1.0) as building_weight,
         coalesce((select value::double precision from mesh_pipeline_settings where setting = 'population_nearby_population_weight'), 1.0) as nearby_population_weight,
         coalesce((select value from mesh_pipeline_settings where setting = 'population_cluster_weight_metric'), 'population') as cluster_weight_metric,

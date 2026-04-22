@@ -157,7 +157,7 @@ where mlc.mast_height_src = :mast_height
   and mlc.mast_height_dst = :mast_height
   and mlc.frequency_hz = :frequency
   and mlc.clearance > 0
-  and mlc.distance_m <= 80000;
+  and mlc.distance_m <= 100000;
 
 alter table mesh_route_edges
     add primary key (edge_id);

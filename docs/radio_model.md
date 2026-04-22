@@ -31,4 +31,4 @@ The Meshtastic site planner table lists LongFast with 125 kHz bandwidth and SF11
 Use the preset your hardware actually runs, and override parameters in the render script if needed.
 References are in `docs/visuals_mapnik.md` along with the animation configuration.
 The planning defaults for LOS are 28 m mast height and 868 MHz frequency.
-The hard distance cut is 80 km to match the Meshtastic planning radius.
+The hard distance cut is 100 km to match the Meshtastic planning radius.

@@ -10,7 +10,7 @@ They are hardcoded because the pipeline is intended to be reproducible and easy 
 - **H3 resolution: 8**
   This is the planning granularity for candidate tower locations and all derived metrics.
   It is dense enough to allow meaningful local moves (wiggle) while still being small enough to store and index country-scale surfaces.
-- **Maximum LOS link distance: 80 km (`80000` meters)**
+- **Maximum LOS link distance: 100 km (`100000` meters)**
   This is the Meshtastic hop/link planning bound used by every LOS and (re)calculation radius.
   Keeping one shared radius means cache invalidations can be localized and consistent.
 - **Minimum tower separation: 0 m by default**
@@ -87,9 +87,9 @@ This is the main “planning surface” that every procedure reads and increment
   The greedy loop and routing stages intentionally clear these fields to `null` in a radius around new towers.
   Functions then recompute only the invalidated region.
 - `has_reception` is generated from `has_tower` or the presence of valid `clearance` and `path_loss`.
-- `visible_tower_count` counts how many individual towers a cell can see within 80 km.
+- `visible_tower_count` counts how many individual towers a cell can see within 100 km.
   The pipeline uses it as a hard constraint (`>= 2`) to avoid installing isolated towers.
-- `visible_population` is the total population within 80 km that is visible from a candidate cell.
+- `visible_population` is the total population within 100 km that is visible from a candidate cell.
   It is computed per-cell by `mesh_surface_fill_visible_population(...)` and reused by the wiggle stage.
 - `visible_uncovered_population` is the greedy objective value.
   It is invalidated (set to `null`) in a “double radius” around each newly added tower so recomputation always sees consistent neighbor coverage.
@@ -111,7 +111,7 @@ These functions are the “physics core” of the pipeline.
 
 ### `h3_los_between_cells(a, b)`
 **Where:** `functions/h3_los_between_cells.sql`.
-**What:** A boolean helper that rejects links beyond 80 km and treats `clearance > 0` as LOS-visible.
+**What:** A boolean helper that rejects links beyond 100 km and treats `clearance > 0` as LOS-visible.
 **Why:** It is the most common predicate in the pipeline (`visible_tower_count`, visibility edges, candidate filtering).
 **Optimization:** Make the hot-path boolean cheap and push detailed metrics into the cached function family.
 
@@ -123,10 +123,10 @@ These functions are the “physics core” of the pipeline.
 
 ## Diagnostics: Visibility Edges (`mesh_visibility_edges`)
 **Where:** `tables/mesh_visibility_edges.sql`, `procedures/mesh_visibility_edges_refresh.sql`.
-**What:** Materializes every tower-to-tower pair’s distance and LOS-like diagnostic state. Pairs within 80 km get a real LOS calculation; longer pairs are still stored as invisible diagnostic edges so routing and debug views can target long gaps between existing towers. Intra-cluster hop counts are then computed on the visible <=80 km subgraph.
+**What:** Materializes every tower-to-tower pair’s distance and LOS-like diagnostic state. Pairs within 100 km get a real LOS calculation; longer pairs are still stored as invisible diagnostic edges so routing and debug views can target long gaps between existing towers. Intra-cluster hop counts are then computed on the visible <=100 km subgraph.
 Each edge stores a `type` label that orders tower sources by stage priority (seed, coarse, route, bridge, cluster_slim, greedy, plus legacy population) so pairs group consistently (for example `seed-route`).
 **Why:** It is both the debugging view for “is the graph connected” / “which pairs violate the hop budget” and the geometric guide rail for route expansion, because cache seeding and route corridor selection measure distance to currently invisible tower-to-tower gaps.
-**Optimization:** The expensive LOS function runs only for pairs within 80 km, while longer tower pairs are kept as pre-marked invisible edges. Hop counts are computed via pgRouting on the temporary graph of only visible <=80 km edges, and connected components are derived from that same graph instead of recalculating tower LOS a second time.
+**Optimization:** The expensive LOS function runs only for pairs within 100 km, while longer tower pairs are kept as pre-marked invisible edges. Hop counts are computed via pgRouting on the temporary graph of only visible <=100 km edges, and connected components are derived from that same graph instead of recalculating tower LOS a second time.
 
 ### Routed geometry for invisible edges
 **Where:** `tables/mesh_route_graph.sql`, `tables/mesh_route_graph_cache.sql`, `functions/mesh_visibility_invisible_route_geom.sql`, `scripts/mesh_visibility_edges_refresh_route_geom.sql`.
@@ -166,7 +166,7 @@ The score interleaves nearby population and building count with `power(ln(1 + po
 
 ### Cache and graph prep (`fill_mesh_los_cache`)
 **Where:** `scripts/fill_mesh_los_cache_prepare.sql`, `scripts/fill_mesh_los_cache_batch.sql`, `scripts/fill_mesh_los_cache_finalize.sql`.
-**What:** Enumerates all eligible tower-or-candidate pairs within 80 km, commits one missing-LOS batch in the normal pipeline, and then builds a pgRouting graph with `path_loss_db` edge costs from the currently available cache.
+**What:** Enumerates all eligible tower-or-candidate pairs within 100 km, commits one missing-LOS batch in the normal pipeline, and then builds a pgRouting graph with `path_loss_db` edge costs from the currently available cache.
 **Why:** Routing stages should spend time choosing corridors, not repeatedly recomputing LOS.
 **Optimization:** Orders missing-pair batches by building-bearing endpoints first, then by distance to the nearest currently “problematic” visibility edge, then by total `building_count`, after the smaller `mesh_route_bootstrap` stage has already warmed the cache around installer-priority corridors.
 `fill_mesh_los_cache_prepare` now materializes the filtered invisible edges and disconnected towers into small GiST-backed staging tables first, because profiling showed the old correlated subplans spending most of their time in repeated index rescans, tuple allocation/free, and geography-to-geometry conversions.

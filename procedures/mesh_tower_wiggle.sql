@@ -10,7 +10,7 @@ create or replace function mesh_tower_wiggle(reset_run boolean default false)
 as
 $$
 declare
-    max_distance constant double precision := 80000;
+    max_distance constant double precision := 100000;
     separation_default constant double precision := 0;
     generated_tower_merge_distance double precision := 10000;
     mast_height double precision := 28;
@@ -162,7 +162,7 @@ begin
     ),
     -- Build a local candidate pool before candidate-to-neighbor LOS checks.
     -- The preservation checks use only mesh_los_cache primary-key lookups, so
-    -- we can test the whole 80 km pool and avoid missing mountain relay moves
+    -- we can test the whole 100 km pool and avoid missing mountain relay moves
     -- that are not in the first few hundred demand-ranked cells.
     candidate_pool as materialized (
         select

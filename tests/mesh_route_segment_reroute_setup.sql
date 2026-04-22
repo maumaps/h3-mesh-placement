@@ -10,7 +10,7 @@ create temporary table mesh_pipeline_settings (
 insert into mesh_pipeline_settings (setting, value)
 values
     ('enable_route_segment_reroute', 'true'),
-    ('max_los_distance_m', '80000'),
+    ('max_los_distance_m', '100000'),
     ('mast_height_m', '28'),
     ('frequency_hz', '868000000'),
     ('route_segment_reroute_candidate_limit', '32'),

@@ -8,7 +8,7 @@ do
 $$
 declare
     enabled boolean := true;
-    max_distance constant double precision := 80000;
+    max_distance constant double precision := 100000;
     mast_height double precision := 28;
     frequency double precision := 868000000;
     merge_distance double precision := 0;

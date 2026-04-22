@@ -60,7 +60,7 @@ end if;
     edge_pairs as (
         -- Build every tower-to-tower diagnostic edge so long invisible gaps remain available
         -- to routing heuristics and QGIS inspection.
-        -- Only pairs within the shared 80 km planning radius pay the expensive LOS computation.
+        -- Only pairs within the shared 100 km planning radius pay the expensive LOS computation.
         select
             t1.tower_id as source_id,
             t2.tower_id as target_id,
@@ -74,7 +74,7 @@ end if;
             end as type,
             pair.distance_m,
             case
-                when pair.distance_m <= 80000 then h3_los_between_cells(t1.h3, t2.h3)
+                when pair.distance_m <= 100000 then h3_los_between_cells(t1.h3, t2.h3)
                 else false
             end as is_visible,
             ST_MakeLine(t1.centroid_geog::geometry, t2.centroid_geog::geometry) as geom
@@ -109,7 +109,7 @@ end if;
 if to_regclass('tmp_visibility_cluster_edges') is not null then
     execute 'drop table tmp_visibility_cluster_edges';
 end if;
-    -- Temporary graph holding LOS-adjacent tower pairs (<=80 km) so pgRouting can recover hop counts.
+    -- Temporary graph holding LOS-adjacent tower pairs (<=100 km) so pgRouting can recover hop counts.
     create temporary table tmp_visibility_cluster_edges (
         edge_id bigserial primary key,
         source_id integer not null,
@@ -124,7 +124,7 @@ end if;
         e.target_id
     from mesh_visibility_edges e
     where e.is_visible
-      and e.distance_m <= 80000;
+      and e.distance_m <= 100000;
 
     with vertex_ids as (
         -- Limit pgRouting sources/targets to towers that participate in any LOS edge.

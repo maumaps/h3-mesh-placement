@@ -9,8 +9,8 @@ Towers with `source` in `population`, `route`, `cluster_slim`, or `bridge` sit i
 The selector picks towers with the smallest `recalculation_count` first and breaks ties by the largest stored `visible_population` (falling back to the cell population).
 
 Each call:
-- Collects every tower that currently has direct LOS within 80 km.
-- Searches road-served, in-bounds cells within 80 km that keep LOS to all of those neighbors and stay outside the tower spacing guard (default 5 km from other towers).
+- Collects every tower that currently has direct LOS within 100 km.
+- Searches road-served, in-bounds cells within 100 km that keep LOS to all of those neighbors and stay outside the tower spacing guard (default 5 km from other towers).
 - Scores LOS-safe candidates by cached marginal population first, then falls back to stored visible/nearby population so adjacent route relays do not chase the same settlement.
 - Moves the tower to the best-scoring cell, increments its `recalculation_count`, and logs both the pick and the chosen target (or logs that the tower stayed put).
 
@@ -20,7 +20,7 @@ The stage refreshes `mesh_visibility_edges` whenever a move succeeds so downstre
 
 ## Optimization Notes
 The function processes one tower per call so Make can loop it as a sequence of small transactions with readable logs.
-Candidate searches are bounded by `ST_DWithin(..., 80000)` and by road/boundary/unfit gates so the planner can use GiST indexes on `centroid_geog`.
+Candidate searches are bounded by `ST_DWithin(..., 100000)` and by road/boundary/unfit gates so the planner can use GiST indexes on `centroid_geog`.
 Recalculations are localized to the old/new tower neighborhoods, which avoids recomputing RF metrics for the entire country after every small move.
 
 `wiggle_candidate_limit` limits how many LOS-safe candidates receive cached marginal-population scoring in each tower evaluation.

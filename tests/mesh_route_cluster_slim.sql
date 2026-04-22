@@ -15,8 +15,8 @@ $$;
 
 create or replace function mesh_surface_refresh_visible_tower_counts(
         center_h3 h3index,
-        radius double precision default 80000,
-        los_distance double precision default 80000
+        radius double precision default 100000,
+        los_distance double precision default 100000
     )
     returns void
     language plpgsql
@@ -29,8 +29,8 @@ $$;
 
 create or replace function mesh_surface_refresh_reception_metrics(
         center_h3 h3index,
-        radius double precision default 80000,
-        los_distance double precision default 80000,
+        radius double precision default 100000,
+        los_distance double precision default 100000,
         neighbor_limit integer default 5
     )
     returns void

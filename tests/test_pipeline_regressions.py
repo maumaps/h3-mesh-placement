@@ -984,18 +984,18 @@ class PipelineRegressionTest(unittest.TestCase):
 
 
     def test_mesh_visibility_edges_refresh_keeps_long_invisible_pairs(self) -> None:
-        """Visibility refresh should keep all tower pairs for routing diagnostics, but only run LOS for pairs inside the 80 km planning radius."""
+        """Visibility refresh should keep all tower pairs for routing diagnostics, but only run LOS for pairs inside the 100 km planning radius."""
         refresh_text = (REPO_ROOT / "procedures" / "mesh_visibility_edges_refresh.sql").read_text()
 
         self.assertNotIn(
-            "and ST_DWithin(t1.centroid_geog, t2.centroid_geog, 80000)",
+            "and ST_DWithin(t1.centroid_geog, t2.centroid_geog, 100000)",
             refresh_text,
             "mesh_visibility_edges_refresh should not drop long tower pairs from mesh_visibility_edges because invisible long gaps are later used to pick route corridors.",
         )
         self.assertIn(
-            "when pair.distance_m <= 80000 then h3_los_between_cells(t1.h3, t2.h3)",
+            "when pair.distance_m <= 100000 then h3_los_between_cells(t1.h3, t2.h3)",
             refresh_text,
-            "mesh_visibility_edges_refresh should gate the expensive LOS computation by 80 km instead of dropping the pair entirely.",
+            "mesh_visibility_edges_refresh should gate the expensive LOS computation by 100 km instead of dropping the pair entirely.",
         )
         self.assertIn(
             "else false",
@@ -1018,12 +1018,12 @@ class PipelineRegressionTest(unittest.TestCase):
             "mesh_visibility_edges_refresh should derive cluster ids from tmp_visibility_cluster_edges after building visible edge pairs.",
         )
         self.assertIn(
-            "when pair.distance_m <= 80000 then h3_los_between_cells(t1.h3, t2.h3)",
+            "when pair.distance_m <= 100000 then h3_los_between_cells(t1.h3, t2.h3)",
             refresh_text,
-            "mesh_visibility_edges_refresh should cap only the expensive LOS computation at 80 km, while still keeping longer invisible tower-to-tower edges for routing diagnostics.",
+            "mesh_visibility_edges_refresh should cap only the expensive LOS computation at 100 km, while still keeping longer invisible tower-to-tower edges for routing diagnostics.",
         )
         self.assertNotIn(
-            "and ST_DWithin(t1.centroid_geog, t2.centroid_geog, 80000)",
+            "and ST_DWithin(t1.centroid_geog, t2.centroid_geog, 100000)",
             refresh_text,
             "mesh_visibility_edges_refresh should not drop long tower pairs from mesh_visibility_edges, because invisible long gaps are later used to steer route expansion.",
         )

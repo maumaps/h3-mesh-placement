@@ -11,7 +11,7 @@ create temporary table mesh_pipeline_settings (
 insert into mesh_pipeline_settings (setting, value)
 values
     ('enable_coarse', 'true'),
-    ('max_los_distance_m', '80000'),
+    ('max_los_distance_m', '100000'),
     ('coarse_resolution', '4');
 
 -- Shadow production planning tables so this fixture never mutates live placement state.

@@ -13,8 +13,8 @@ declare
     norm_dst      h3index;
     distance_m    double precision;
     clearance     double precision;
-    -- Hard cut at 80 km to match the planning radius.
-    max_distance  constant double precision := 80000;
+    -- Hard cut at 100 km to match the planning radius.
+    max_distance  constant double precision := 100000;
     -- Tower height above ground in meters.
     default_mast_height constant double precision := 28;
     -- Planning frequency in hertz (868 MHz).

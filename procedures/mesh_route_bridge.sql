@@ -1,7 +1,7 @@
 set client_min_messages = notice;
 
-\set max_distance 80000
-\set refresh_radius 80000
+\set max_distance 100000
+\set refresh_radius 100000
 
 -- Return ordered intermediate H3 cells for cheapest bridge between two clusters.
 drop function if exists mesh_route_intermediate_hexes(integer, integer);
@@ -148,8 +148,8 @@ $$;
 do
 $$
 declare
-    max_distance constant double precision := 80000;
-    refresh_radius constant double precision := 80000;
+    max_distance constant double precision := 100000;
+    refresh_radius constant double precision := 100000;
     total_new integer := 0;
     cluster_total integer;
     candidate_pair_limit constant integer := 256;

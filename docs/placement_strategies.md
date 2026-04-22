@@ -16,7 +16,7 @@ See `docs/calculations.md` for the per-stage calculation details and optimizatio
   After KMeans, clusters containing an existing tower anchor are dropped, and remaining cluster centroids snap to the nearest placeable H3 with score/population/building-count tie-breakers.
   Target `db/procedure/mesh_population` driven by `procedures/mesh_population.sql`.
 - **LOS cache and routing graph (all-pairs prep)**
-  First seeds `mesh_los_cache` from `data/in/install_priority_bootstrap.csv` via `mesh_route_bootstrap`, and only then precomputes line-of-sight metrics for every tower or placeable candidate within 80 km. Route heuristics still read longer invisible tower-to-tower gaps from `mesh_visibility_edges`, because those gaps define where intermediate routing towers should be explored next.
+  First seeds `mesh_los_cache` from `data/in/install_priority_bootstrap.csv` via `mesh_route_bootstrap`, and only then precomputes line-of-sight metrics for every tower or placeable candidate within 100 km. Route heuristics still read longer invisible tower-to-tower gaps from `mesh_visibility_edges`, because those gaps define where intermediate routing towers should be explored next.
   Before `fill_mesh_los_cache_prepare`, `db/procedure/mesh_visibility_edges_route_priority_geom` routes the same invisible or over-hop visibility gaps through `mesh_route_graph_edges` with pgRouting and stores the resulting corridor line back into `mesh_visibility_edges.geom`, so cache warmup and backfill prioritize cells along the routed corridor instead of the straight tower chord.
   Builds the weighted pgRouting graph used by every downstream routing step.
   This is the all-pairs visibility preparation step that behaves like a shortest-path precompute over a visibility graph.

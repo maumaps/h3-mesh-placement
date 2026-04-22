@@ -1,18 +1,18 @@
 -- Greedy iteration terminology:
 -- * bridge mode: prioritize connecting tower clusters to each other
 -- * greedy mode: fall back to maximizing uncovered population
--- * visible_tower_count: count of individual towers with LOS within 80 km
+-- * visible_tower_count: count of individual towers with LOS within 100 km
 -- * visible_cluster_count: count of unique tower clusters reachable from a candidate
--- * max_distance: any LOS/(re)calculation stays within 80 km by design
+-- * max_distance: any LOS/(re)calculation stays within 100 km by design
 -- * separation: minimum spacing between towers (currently disabled; adjacent hexes allowed)
 -- * recalc_reception: radius for recomputing clearance/path loss around placements
 -- * recalc_population: radius for recomputing uncovered population (same as talk)
 -- All distances are meters and rely on geography SRIDs with ST_DWithin.
 -- Constants for this single greedy iteration
-\set max_distance 80000
+\set max_distance 100000
 \set separation 0
-\set recalc_reception 80000
-\set recalc_population 80000
+\set recalc_reception 100000
+\set recalc_population 100000
 
 set client_min_messages = notice;
 
@@ -28,7 +28,7 @@ with reception_targets as (
     from mesh_surface_h3_r8 s1
     where s1.has_tower is not true
       and s1.clearance is null
-      and s1.distance_to_closest_tower < 80000
+      and s1.distance_to_closest_tower < 100000
 ),
 -- Pair each reception target with nearby towers
 reception_candidate_towers as (
@@ -41,7 +41,7 @@ reception_candidate_towers as (
         select t.h3, t.centroid_geog
         from mesh_towers t
         where t.h3 <> rt.h3
-          and ST_DWithin(rt.centroid_geog, t.centroid_geog, 80000)
+          and ST_DWithin(rt.centroid_geog, t.centroid_geog, 100000)
     ) t on true
 ),
 -- Evaluate visibility exactly once for every (cell, tower) pair
@@ -101,8 +101,8 @@ do
 $$
 declare
     separation constant double precision := 0;
-    recalc_radius constant double precision := 80000;
-    max_distance constant double precision := 80000;
+    recalc_radius constant double precision := 100000;
+    max_distance constant double precision := 100000;
     previous_iteration integer := coalesce((select max(iteration) from mesh_greedy_iterations), 0);
     next_iteration integer := previous_iteration + 1;
     candidate record;
@@ -137,7 +137,7 @@ begin
           and s.distance_to_closest_tower < max_distance
           and s.visible_tower_count >= 2
     ),
-    -- Collect all towers per cluster within 80 km, or the closest one if none are in range
+    -- Collect all towers per cluster within 100 km, or the closest one if none are in range
     candidate_cluster_towers as (
         select
             c.h3 as candidate_h3,

@@ -8,7 +8,7 @@ as
 $$
 declare
     enabled boolean := true;
-    max_distance double precision := 80000;
+    max_distance double precision := 100000;
     coarse_resolution integer := 4;
     inserted_count integer := 0;
 begin
@@ -25,7 +25,7 @@ begin
         select value::double precision
         from mesh_pipeline_settings
         where setting = 'max_los_distance_m'
-    ), 80000)
+    ), 100000)
     into max_distance;
 
     select coalesce((

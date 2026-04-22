@@ -92,7 +92,7 @@ begin
     perform mesh_surface_refresh_reception_metrics(
         tower_h3,
         10000,
-        80000,
+        100000,
         5
     );
 

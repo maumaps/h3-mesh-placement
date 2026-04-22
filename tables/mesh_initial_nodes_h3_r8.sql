@@ -3,7 +3,7 @@ drop table if exists mesh_initial_nodes_h3_r8;
 create table mesh_initial_nodes_h3_r8 as
 with allowed_initial_nodes as (
     -- Keep curated seed points unchanged, but clip MQTT-imported nodes to the
-    -- Georgia+Armenia planning outline plus an 80 km border buffer in PostGIS.
+    -- Georgia+Armenia planning outline plus an 100 km border buffer in PostGIS.
     select
         mesh_initial_nodes.geom,
         mesh_initial_nodes.name,
@@ -14,7 +14,7 @@ with allowed_initial_nodes as (
        or ST_DWithin(
             mesh_initial_nodes.geom::geography,
             georgia_boundary.geom::geography,
-            80000
+            100000
         )
 )
 select

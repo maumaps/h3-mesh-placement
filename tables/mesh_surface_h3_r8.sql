@@ -103,13 +103,13 @@ from (
 ) sub
 where s.h3 = sub.h3;
 
--- Sum population within 80 km (no LOS) only for tower-eligible cells to speed up clustering weights.
+-- Sum population within 100 km (no LOS) only for tower-eligible cells to speed up clustering weights.
 update mesh_surface_h3_r8 s
 set population_70km = coalesce((
     select sum(pop.population)
     from mesh_surface_h3_r8 pop
     where pop.population > 0
-      and ST_DWithin(pop.centroid_geog, s.centroid_geog, 80000)
+      and ST_DWithin(pop.centroid_geog, s.centroid_geog, 100000)
 ), 0)
 where s.can_place_tower;
 
@@ -124,7 +124,7 @@ visible_pairs as (
     from mesh_surface_h3_r8 s
     join tower_points tp
         on tp.h3 <> s.h3
-       and ST_DWithin(s.centroid_geog, tp.centroid_geog, 80000)
+       and ST_DWithin(s.centroid_geog, tp.centroid_geog, 100000)
 ),
 visible_counts as (
     select

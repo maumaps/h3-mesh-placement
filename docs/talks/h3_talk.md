@@ -12,7 +12,7 @@ I got another hobby, Meshtastic. LoRA based recievers and transmitters.
 Let's imagine how to create a country coverage for it.
 We know:
  - 7 hop limit
- - 80 km max distance of link
+ - 100 km max distance of link
  - Can install nodes where roads are
  - Height is 28m above ground
  - We don't want nodes closer than ~5km of one another

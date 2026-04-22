@@ -54,11 +54,11 @@ The key stage order is:
 
 The default constants in `tables/mesh_pipeline_settings.sql` are:
 - H3 resolution 8 (`h3_res`).
-- 80 km maximum real LOS computation distance (`max_los_distance_m`).
+- 100 km maximum real LOS computation distance (`max_los_distance_m`).
 - 50,000 LOS pairs per committed batch (`los_batch_limit`).
 - 8 GNU parallel workers for finite cache-fill runs (`los_parallel_jobs`).
 - Up to 7 fixed-k population anchors (`population_anchor_max_count`), with `population_anchor_cluster_oversampling` controlling extra KMeans clusters before already-anchored clusters are dropped.
-- `mesh_visibility_edges` still keeps longer tower-to-tower diagnostic edges as invisible route targets; only the expensive LOS calculation is capped at 80 km.
+- `mesh_visibility_edges` still keeps longer tower-to-tower diagnostic edges as invisible route targets; only the expensive LOS calculation is capped at 100 km.
 - Before `fill_mesh_los_cache_prepare`, `db/procedure/mesh_visibility_edges_route_priority_geom` uses pgRouting to draw fallback corridor geometry for the same invisible or over-hop visibility edges that drive cache priority, so backfill follows routed gaps instead of straight chords.
 - No minimum tower separation; adjacent H3 cells are allowed.
 See `docs/calculations.md` for where they appear in SQL and why they are shared.
