@@ -255,6 +255,16 @@ class PipelineRegressionTest(unittest.TestCase):
             "db/raw/kontur_population must not use PG:\"\", which GDAL treats as invalid connection info on geocint.",
         )
 
+    def test_surface_build_disables_interactive_statement_timeout(self) -> None:
+        """The 100 km surface neighborhood build is expected to exceed short server timeouts."""
+        surface_text = (REPO_ROOT / "tables" / "mesh_surface_h3_r8.sql").read_text()
+
+        self.assertIn(
+            "set statement_timeout = 0;",
+            surface_text,
+            "mesh_surface_h3_r8 should opt out of server-side interactive statement_timeout because its 100 km ST_DWithin population and LOS checks can run longer than 10 minutes on geocint.",
+        )
+
     def test_fill_mesh_los_cache_main_target_stays_partial_and_backfill_loops(self) -> None:
         """The main pipeline should do one committed batch, while manual backfill drains the queue later."""
         makefile_text = (REPO_ROOT / "Makefile").read_text()

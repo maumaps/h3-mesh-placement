@@ -1,4 +1,6 @@
 set client_min_messages = warning;
+-- This surface build includes 100 km geography neighborhoods and cached LOS checks, which can legitimately exceed the server's interactive statement timeout.
+set statement_timeout = 0;
 
 drop table if exists mesh_surface_h3_r8;
 -- Create core mesh surface table with indicators per H3 cell
