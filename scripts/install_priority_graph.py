@@ -16,7 +16,6 @@ from typing import Mapping, Sequence
 from scripts.install_priority_cluster_helpers import (
     assign_unreachable_to_nearest_seed_cluster,
     cluster_key,
-    group_towers_by_country,
     pending_connector_ids,
 )
 from scripts.install_priority_graph_support import (
@@ -98,51 +97,19 @@ def build_cluster_plan(
         for tower_id, tower in towers_by_id.items()
         if tower.installed
     )
-    grouped_tower_ids = group_towers_by_country(towers_by_id)
     seed_components: list[tuple[int, ...]] = []
     assignment: dict[int, str] = {}
     cluster_members: dict[str, set[int]] = defaultdict(set)
 
-    for _country_code, country_tower_ids in sorted(grouped_tower_ids.items()):
-        country_seed_ids = sorted(
-            tower_id
-            for tower_id in installed_seed_ids
-            if tower_id in country_tower_ids
-        )
-        if not country_seed_ids:
-            continue
-
-        country_seed_components = connected_components(
-            country_seed_ids,
-            adjacency,
-        )
-        seed_components.extend(country_seed_components)
-        country_assignment, country_cluster_members = _assign_nodes_to_seed_clusters(
-            towers_by_id=towers_by_id,
-            adjacency=adjacency,
-            seed_components=country_seed_components,
-            allowed_ids=country_tower_ids,
-        )
-        assignment.update(country_assignment)
-        for current_cluster_key, tower_ids in country_cluster_members.items():
-            cluster_members.setdefault(current_cluster_key, set()).update(tower_ids)
-
-        unreachable_country_ids = sorted(
-            tower_id
-            for tower_id in country_tower_ids
-            if tower_id not in country_assignment
-        )
-        if unreachable_country_ids:
-            for current_cluster_key, blocked_ids in assign_unreachable_to_nearest_seed_cluster(
-                towers_by_id=towers_by_id,
-                seed_components=country_seed_components,
-                unreachable_ids=unreachable_country_ids,
-            ).items():
-                cluster_members.setdefault(current_cluster_key, set()).update(
-                    blocked_ids
-                )
-                for blocked_id in blocked_ids:
-                    assignment[blocked_id] = current_cluster_key
+    seed_components = connected_components(
+        installed_seed_ids,
+        adjacency,
+    )
+    assignment, cluster_members = _assign_nodes_to_seed_clusters(
+        towers_by_id=towers_by_id,
+        adjacency=adjacency,
+        seed_components=seed_components,
+    )
 
     unreachable_ids = sorted(
         tower_id
@@ -151,16 +118,17 @@ def build_cluster_plan(
     )
 
     if unreachable_ids and seed_components:
-        for current_cluster_key, blocked_ids in assign_unreachable_to_nearest_seed_cluster(
-            towers_by_id=towers_by_id,
-            seed_components=seed_components,
-            unreachable_ids=unreachable_ids,
-        ).items():
-            cluster_members.setdefault(current_cluster_key, set()).update(
-                blocked_ids
-            )
-            for blocked_id in blocked_ids:
-                assignment[blocked_id] = current_cluster_key
+        for unreachable_component in connected_components(unreachable_ids, adjacency):
+            for current_cluster_key, detached_ids in assign_unreachable_to_nearest_seed_cluster(
+                towers_by_id=towers_by_id,
+                seed_components=seed_components,
+                unreachable_ids=(min(unreachable_component),),
+            ).items():
+                cluster_members.setdefault(current_cluster_key, set()).update(
+                    unreachable_component
+                )
+                for detached_id in unreachable_component:
+                    assignment[detached_id] = current_cluster_key
 
     cluster_by_tower_id = dict(assignment)
 

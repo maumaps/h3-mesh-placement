@@ -209,8 +209,8 @@ class InstallPriorityTests(unittest.TestCase):
             msg=f"Cross-border visibility should still allow separate queues to progress toward each other, got {next_rows!r} from rows {plan_rows!r}",
         )
 
-    def test_build_cluster_plan_clamps_cross_border_only_chain_to_own_country_cluster(self) -> None:
-        """A foreign-only chain should stay attached to the nearest installed seed in its own country."""
+    def test_build_cluster_plan_keeps_visible_cross_border_chain_connected(self) -> None:
+        """A visible chain should stay attached to the seed it can actually reach."""
 
         towers_by_id = {
             1: TowerRecord(1, "seed", 41.60, 41.70, "Batumi", True, country_code="ge", country_name="Georgia"),
@@ -226,24 +226,24 @@ class InstallPriorityTests(unittest.TestCase):
         )
 
         plan_rows = build_cluster_plan(towers_by_id, adjacency)
-        detached_row = next(
+        connected_row = next(
             row for row in plan_rows if row.tower_id == 3
         )
 
         self.assertEqual(
-            detached_row.cluster_label,
-            "Yerevan",
-            msg=f"Cross-border-only reachable tower should stay with the nearest installed seed in its own country, got row {detached_row!r}",
+            connected_row.cluster_label,
+            "Batumi",
+            msg=f"Cross-border visible tower should stay with the seed cluster reached through visible edges, got row {connected_row!r}",
         )
         self.assertEqual(
-            detached_row.rollout_status,
-            "next",
-            msg=f"Detached same-country tower should still be exported as an installable next step, got row {detached_row!r}",
+            connected_row.rollout_status,
+            "planned",
+            msg=f"Cross-border visible tower should remain a normal planned continuation, got row {connected_row!r}",
         )
         self.assertEqual(
-            detached_row.cluster_install_rank,
-            1,
-            msg=f"Detached same-country tower should receive a normal queue rank, got row {detached_row!r}",
+            connected_row.previous_connection_ids,
+            (2,),
+            msg=f"Cross-border visible tower should keep its visible predecessor in the plan, got row {connected_row!r}",
         )
         self.assertNotIn(
             "blocked",
