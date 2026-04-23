@@ -8,7 +8,7 @@ do
 $$
 declare
     enabled boolean := true;
-    max_distance constant double precision := 100000;
+    max_distance double precision := 100000;
     mast_height double precision := 28;
     frequency double precision := 868000000;
     merge_distance double precision := 10000;
@@ -43,6 +43,13 @@ begin
         raise notice 'Required placement tables missing, skipping generated pair contraction';
         return;
     end if;
+
+    select coalesce((
+        select value::double precision
+        from mesh_pipeline_settings
+        where setting = 'max_los_distance_m'
+    ), 100000)
+    into max_distance;
 
     select coalesce((
         select value::double precision
@@ -115,6 +122,7 @@ begin
              and keep_link.mast_height_dst = mast_height
              and keep_link.frequency_hz = frequency
              and keep_link.clearance > 0
+             and keep_link.distance_m <= max_distance
             where nb.tower_id not in (pair.keep_tower_id, pair.remove_tower_id)
               and nb.source <> 'population'
 
@@ -131,6 +139,7 @@ begin
              and remove_link.mast_height_dst = mast_height
              and remove_link.frequency_hz = frequency
              and remove_link.clearance > 0
+             and remove_link.distance_m <= max_distance
             where nb.tower_id not in (pair.keep_tower_id, pair.remove_tower_id)
               and nb.source <> 'population'
         ),
@@ -166,6 +175,7 @@ begin
                               and candidate_link.mast_height_dst = mast_height
                               and candidate_link.frequency_hz = frequency
                               and candidate_link.clearance > 0
+                              and candidate_link.distance_m <= max_distance
                         )
                 )
         )
@@ -206,6 +216,7 @@ begin
              and link.mast_height_dst = mast_height
              and link.frequency_hz = frequency
              and link.clearance > 0
+             and link.distance_m <= max_distance
         ),
         current_walk(root_id, tower_id, path) as (
             select
@@ -271,6 +282,7 @@ begin
                  and link.mast_height_dst = mast_height
                  and link.frequency_hz = frequency
                  and link.clearance > 0
+                 and link.distance_m <= max_distance
             ),
             current_walk(root_id, tower_id, path) as (
                 select
