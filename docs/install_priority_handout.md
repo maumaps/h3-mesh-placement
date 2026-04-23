@@ -35,10 +35,10 @@ Otherwise it falls back to `mesh_visibility_edges` so the handout does not silen
 When the optional routed-geometry backfill has run, those same long invisible edges also carry a pgRouting corridor line in `geom`, so the handout and QGIS can show the actual surface route the planner would use between the two towers.
 Installed seed towers define the starting backbone.
 Seed-only connectivity defines the initial field clusters.
-Planned towers are assigned to the nearest seed cluster by shortest visible-path distance with deterministic tie-breaking, but cluster ownership still respects country boundaries.
-That means a Georgian tower stays in a Georgian rollout queue and an Armenian tower stays in an Armenian rollout queue even when a cross-border line of sight exists.
-Cross-country rollout joins are still allowed as connectors when the visibility graph supports them, but same-country joins are preferred first.
-If a tower is disconnected from every installed seed inside its own country, it is still clamped to the nearest installed seed cluster in that country so the handout can show where that blocked island belongs operationally.
+Planned towers are assigned to the nearest seed cluster by shortest visible-path distance with deterministic tie-breaking.
+Cluster ownership is global across the live visible graph, so a cross-border visible corridor can legitimately pull a tower into the neighboring country's rollout queue when that path is cheaper than every domestic alternative.
+Cross-country rollout joins are therefore allowed both for cluster ownership and for connector summaries when the visibility graph supports them.
+If a tower is disconnected from every installed seed, it is still clamped to the geometrically nearest installed seed cluster so the handout can show where that detached island belongs operationally.
 That row is then marked as `blocked` until a visible path from any installed seed exists.
 Inside each cluster, the rollout order is computed greedily from the current frontier.
 A candidate can be chosen only when it already sees a tower that is installed or appears earlier in that cluster’s rollout.

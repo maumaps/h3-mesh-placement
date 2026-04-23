@@ -180,6 +180,43 @@ class InstallPriorityTests(unittest.TestCase):
             msg=f"Downstream tower 4 should follow tower 3 into the same assigned cluster, got row {route_four_row!r}",
         )
 
+    def test_build_cluster_plan_prefers_shorter_visible_distance_over_fewer_hops(self) -> None:
+        """A frontier tower should follow the cheaper visible path even if another seed is fewer hops away."""
+
+        towers_by_id = {
+            3: TowerRecord(3, "seed", 44.70, 41.70, "Tbilisi", True, country_code="ge", country_name="Georgia"),
+            8: TowerRecord(8, "seed", 44.50, 40.17, "Yerevan", True, country_code="am", country_name="Armenia"),
+            17: TowerRecord(17, "route", 44.72, 41.60, "route #17", False, country_code="ge", country_name="Georgia"),
+            23: TowerRecord(23, "route", 44.30, 40.50, "route #23", False, country_code="am", country_name="Armenia"),
+            30: TowerRecord(30, "route", 44.60, 41.00, "route #30", False, country_code="ge", country_name="Georgia"),
+            32: TowerRecord(32, "route", 44.20, 40.70, "route #32", False, country_code="am", country_name="Armenia"),
+        }
+        adjacency = build_adjacency(
+            [
+                (3, 17, 11823.0),
+                (17, 30, 43648.4),
+                (30, 32, 76372.3),
+                (8, 23, 1000.0),
+                (23, 32, 44819.6),
+            ]
+        )
+
+        plan_rows = build_cluster_plan(towers_by_id, adjacency)
+        route_thirty_two_row = next(
+            row for row in plan_rows if row.tower_id == 32
+        )
+
+        self.assertEqual(
+            route_thirty_two_row.cluster_label,
+            "Yerevan",
+            msg=f"Route tower 32 should stay with the cheaper Yerevan visible corridor instead of the longer Tbilisi path, got row {route_thirty_two_row!r}",
+        )
+        self.assertEqual(
+            route_thirty_two_row.previous_connection_ids,
+            (23,),
+            msg=f"Route tower 32 should keep the Armenian visible predecessor once cluster assignment follows weighted distance, got row {route_thirty_two_row!r}",
+        )
+
     def test_build_cluster_plan_allows_cross_country_rollout_links(self) -> None:
         """Cross-border links should still stay eligible across separate country-local queues."""
 
@@ -367,8 +404,8 @@ class InstallPriorityTests(unittest.TestCase):
             msg=f"Connector targeting should choose the cheapest join boundary even when it crosses a country boundary, got {target_boundary_ids!r}",
         )
 
-    def test_build_cluster_plan_prefers_lowest_cost_cluster_join_over_lower_id_boundary(self) -> None:
-        """Connector-first rollout should chase the cheapest same-country join corridor."""
+    def test_build_cluster_plan_keeps_boundary_node_with_cheapest_seed_cluster(self) -> None:
+        """A contested boundary node should stay with the seed cluster that reaches it more cheaply."""
 
         towers_by_id = {
             1: TowerRecord(1, "seed", 41.60, 41.70, "Batumi", True, country_code="ge", country_name="Georgia"),
@@ -395,11 +432,19 @@ class InstallPriorityTests(unittest.TestCase):
             for row in plan_rows
             if row.is_next_for_cluster
         }
+        route_twenty_row = next(
+            row for row in plan_rows if row.tower_id == 20
+        )
 
         self.assertEqual(
-            next_rows["Batumi"],
-            20,
-            msg=f"Batumi queue should chase the lower total join-cost route corridor instead of the lower-id boundary node, got next rows {next_rows!r} from rows {plan_rows!r}",
+            next_rows,
+            {"Batumi": 2, "Tbilisi": 21},
+            msg=f"Queues should keep a contested boundary node with the cheaper seed-side corridor, got next rows {next_rows!r} from rows {plan_rows!r}",
+        )
+        self.assertEqual(
+            route_twenty_row.cluster_label,
+            "Tbilisi",
+            msg=f"Route tower 20 should stay with the cheaper Tbilisi-side visible path instead of being claimed by Batumi, got row {route_twenty_row!r}",
         )
 
     def test_build_cluster_plan_prefers_route_corridor_proxy_when_distance_only_is_misleading(self) -> None:

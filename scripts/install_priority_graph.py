@@ -168,7 +168,7 @@ def _assign_nodes_to_seed_clusters(
     seed_components: Sequence[Sequence[int]],
     allowed_ids: set[int] | None = None,
 ) -> tuple[dict[int, str], dict[str, set[int]]]:
-    """Assign every reachable tower to the nearest installed seed cluster."""
+    """Assign every reachable tower to the cheapest visible path from an installed seed cluster."""
 
     allowed_tower_ids = set(towers_by_id) if allowed_ids is None else set(allowed_ids)
     # Order seed clusters once so tie-breaking stays deterministic.
@@ -179,21 +179,23 @@ def _assign_nodes_to_seed_clusters(
         )
     }
     cluster_members: dict[str, set[int]] = defaultdict(set)
-    best_costs: dict[int, tuple[int, float, int]] = {}
+    best_costs: dict[int, tuple[float, int, int]] = {}
     assignment: dict[int, str] = {}
-    heap: list[tuple[int, float, int, int]] = []
+    heap: list[tuple[float, int, int, int]] = []
 
-    # Run a multi-source Dijkstra-like wave from all installed seed clusters.
+    # Run a weighted multi-source wave from all installed seed clusters.
+    # Visible path length stays the primary ownership signal so border towers
+    # do not drift into a fewer-hop but much longer rollout corridor.
     for seed_cluster_key, order_index in sorted(cluster_order.items(), key=lambda item: item[1]):
         seed_ids = tuple(int(value) for value in seed_cluster_key.removeprefix("seed:").split("+"))
         for seed_id in seed_ids:
             if seed_id not in allowed_tower_ids:
                 continue
-            heappush(heap, (0, 0.0, order_index, seed_id))
+            heappush(heap, (0.0, 0, order_index, seed_id))
 
     while heap:
-        hop_count, total_distance_m, order_index, tower_id = heappop(heap)
-        candidate_cost = (hop_count, total_distance_m, order_index)
+        total_distance_m, hop_count, order_index, tower_id = heappop(heap)
+        candidate_cost = (total_distance_m, hop_count, order_index)
 
         if tower_id in best_costs and candidate_cost >= best_costs[tower_id]:
             continue
@@ -212,7 +214,7 @@ def _assign_nodes_to_seed_clusters(
                 continue
             heappush(
                 heap,
-                (hop_count + 1, total_distance_m + distance_m, order_index, neighbor_id),
+                (total_distance_m + distance_m, hop_count + 1, order_index, neighbor_id),
             )
 
     # Keep installed seeds inside their final cluster membership even if they had
