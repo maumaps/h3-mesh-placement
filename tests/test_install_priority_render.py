@@ -368,6 +368,35 @@ class InstallPriorityRenderTests(unittest.TestCase):
                     },
                 }
             ],
+            seed_mqtt_points=[
+                {
+                    "h3": "882c2026d7fffff",
+                    "name": "Feria 2",
+                    "source": "seed",
+                    "marker": "S",
+                    "lon": 41.60,
+                    "lat": 41.70,
+                    "country_code": "ge",
+                    "country_name": "Georgia",
+                },
+                {
+                    "h3": "882c01da1bfffff",
+                    "name": "Yerevan MQTT",
+                    "source": "mqtt",
+                    "marker": "M",
+                    "lon": 44.52,
+                    "lat": 40.18,
+                    "country_code": "am",
+                    "country_name": "Armenia",
+                },
+            ],
+            seed_mqtt_links=[
+                {
+                    "geometry": "{\"type\":\"LineString\",\"coordinates\":[[41.60,41.70],[41.61,41.71]]}",
+                    "source_h3": "882c2026d7fffff",
+                    "target_h3": "882c20275dfffff",
+                }
+            ],
         )
 
         self.assertEqual(
@@ -469,6 +498,31 @@ class InstallPriorityRenderTests(unittest.TestCase):
             "\"cluster_bounds\"",
             html_text,
             msg="HTML handout should embed cluster-bound GeoJSON in the map payload.",
+        )
+        self.assertIn(
+            "\"mqtt_points\"",
+            html_text,
+            msg="HTML handout should embed the seed/MQTT overview points in the map payload.",
+        )
+        self.assertIn(
+            "\"seed_mqtt_links\"",
+            html_text,
+            msg="HTML handout should embed the direct seed/MQTT link overlays in the map payload.",
+        )
+        self.assertIn(
+            "addSeedMqttMarkers",
+            html_text,
+            msg="HTML handout should render dedicated M/S map markers for reachable seed and MQTT points.",
+        )
+        self.assertIn(
+            "addSeedMqttLinkLayers",
+            html_text,
+            msg="HTML handout should render every direct visible link touching the seed/MQTT overview points.",
+        )
+        self.assertIn(
+            "markerEl.textContent = source === 'mqtt' ? 'M' : 'S';",
+            html_text,
+            msg="Reachable overview points should be labeled with M/S markers on the map.",
         )
         self.assertIn(
             "[41.58, 41.68]",

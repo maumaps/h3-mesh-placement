@@ -71,6 +71,8 @@ def render_map_assets(
     normalized_rows: Sequence[Mapping[str, object]],
     *,
     cluster_bound_features: Sequence[Mapping[str, object]] | None = None,
+    mqtt_points: Sequence[Mapping[str, object]] | None = None,
+    seed_mqtt_links: Sequence[Mapping[str, object]] | None = None,
 ) -> list[str]:
     """Return inline script tags needed for the one-file MapLibre handout."""
 
@@ -85,6 +87,8 @@ def render_map_assets(
                 deduped_clusters,
             )
         ),
+        "mqtt_points": list(mqtt_points or []),
+        "seed_mqtt_links": list(seed_mqtt_links or []),
     }
     map_payload_json = json.dumps(map_payload, ensure_ascii=False).replace("</", "<\\/")
     maplibre_css, maplibre_js = read_maplibre_assets()

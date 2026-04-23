@@ -195,6 +195,8 @@ def render_html_document(
     generated_at: str,
     geocoder_base_url: str,
     cluster_bound_features: Sequence[Mapping[str, object]] | None = None,
+    seed_mqtt_points: Sequence[Mapping[str, object]] | None = None,
+    seed_mqtt_links: Sequence[Mapping[str, object]] | None = None,
 ) -> str:
     """Render a compact, mobile-friendly HTML handout."""
 
@@ -341,6 +343,8 @@ def render_html_document(
         render_map_assets(
             normalized_rows,
             cluster_bound_features=cluster_bound_features,
+            mqtt_points=seed_mqtt_points,
+            seed_mqtt_links=seed_mqtt_links,
         )
     )
     html_parts.extend(["</div>", "</body>", "</html>"])

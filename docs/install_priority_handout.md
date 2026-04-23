@@ -75,6 +75,8 @@ Solid lines show the recommended rollout path inside each cluster.
 The overview map shows every rollout number plus the merged Voronoi outline around each cluster’s current extent.
 Dashed gray lines show the cheapest visible connector between rollout clusters.
 Those links are context only and do not drive the install order itself.
+The same overview now overlays reachable seed and MQTT import points as `S` and `M` markers.
+For those `S`/`M` points, every direct visible link from the live visibility graph is drawn as a thin context line so imported backbone candidates can be inspected without changing the rollout queue itself.
 On the mini maps, those connector lines and large outer Voronoi edges no longer stretch the viewport away from the local cluster geometry.
 `blocked` means the tower belongs to that rollout queue, yet there is still no visible path from any installed seed to that tower.
 The basemap uses the public OpenFreeMap `liberty` style so the handout does not depend on referrer-gated access to OpenStreetMap standard tiles.

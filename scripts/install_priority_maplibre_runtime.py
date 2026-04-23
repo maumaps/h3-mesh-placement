@@ -106,6 +106,22 @@ if (!payloadEl || !window.maplibregl) {
     });
   });
   const clusterBoundFeatures = payload.cluster_bounds || [];
+  const seedMqttFeatures = (payload.mqtt_points || []).map((point) => ({
+    type: 'Feature',
+    geometry: {
+      type: 'Point',
+      coordinates: [point.lon, point.lat],
+    },
+    properties: point,
+  }));
+  const seedMqttLinkFeatures = (payload.seed_mqtt_links || []).map((item) => ({
+    type: 'Feature',
+    geometry: JSON.parse(item.geometry),
+    properties: {
+      source_h3: item.source_h3,
+      target_h3: item.target_h3,
+    },
+  }));
 
   const addRouteLayers = (map, sourceName, featureCollection, mapMode) => {
     map.addSource(sourceName, { type: 'geojson', data: featureCollection });
@@ -179,6 +195,43 @@ if (!payloadEl || !window.maplibregl) {
         'line-opacity': mapMode === 'cluster' ? 0.9 : 0.55,
         'line-dasharray': [2.4, 1.2],
       },
+    });
+  };
+  const addSeedMqttLinkLayers = (map, sourceName, featureCollection) => {
+    map.addSource(sourceName, { type: 'geojson', data: featureCollection });
+    map.addLayer({
+      id: `${sourceName}-links`,
+      type: 'line',
+      source: sourceName,
+      layout: {
+        'line-cap': 'round',
+        'line-join': 'round',
+      },
+      paint: {
+        'line-width': 1.5,
+        'line-color': '#6f7f90',
+        'line-opacity': 0.5,
+      },
+    });
+  };
+  const addSeedMqttMarkers = (map, featureCollection) => {
+    featureCollection.features.forEach((feature) => {
+      const markerEl = document.createElement('div');
+      const source = String(feature.properties.source || '').toLowerCase();
+      markerEl.className = `order-marker ${source === 'mqtt' ? 'planned' : 'installed'} overview`;
+      markerEl.textContent = source === 'mqtt' ? 'M' : 'S';
+      markerEl.title = `${feature.properties.name} (${feature.properties.country_name || feature.properties.country_code || 'unknown'})`;
+
+      new maplibregl.Marker({ element: markerEl, anchor: 'center' })
+        .setLngLat(feature.geometry.coordinates)
+        .setPopup(
+          new maplibregl.Popup({ offset: 12 }).setHTML(`
+            <div class="node-title">${feature.properties.name}</div>
+            <div class="node-subtitle">${source === 'mqtt' ? 'MQTT node' : 'Seed node'}</div>
+            <div style="margin-top:8px"><strong>Country:</strong> ${feature.properties.country_name || feature.properties.country_code || 'unknown'}</div>
+          `)
+        )
+        .addTo(map);
     });
   };
 
@@ -295,6 +348,14 @@ if (!payloadEl || !window.maplibregl) {
   const overviewBounds = {
     type: 'FeatureCollection',
     features: clusterBoundFeatures,
+  };
+  const overviewSeedMqtt = {
+    type: 'FeatureCollection',
+    features: seedMqttFeatures,
+  };
+  const overviewSeedMqttLinks = {
+    type: 'FeatureCollection',
+    features: seedMqttLinkFeatures,
   };
   const clusterByMapId = new Map(payload.clusters.map((cluster) => [cluster.map_id, cluster]));
   const clusterCollectionsByMapId = new Map(payload.clusters.map((cluster) => {
@@ -457,9 +518,11 @@ if (!payloadEl || !window.maplibregl) {
   runOnStyleReady(overviewMap, () => {
     safeOverlayStep('overview bounds', () => addClusterBoundLayers(overviewMap, 'overview-cluster-bounds', overviewBounds, 'overview'));
     safeOverlayStep('overview connectors', () => addContextLayers(overviewMap, 'overview-context-segments', overviewContext, 'overview'));
+    safeOverlayStep('overview seed/mqtt links', () => addSeedMqttLinkLayers(overviewMap, 'overview-seed-mqtt-links', overviewSeedMqttLinks));
     safeOverlayStep('overview nodes', () => addNodeLayers(overviewMap, 'overview-nodes', overviewCollection, 'overview'));
     safeOverlayStep('overview routes', () => addRouteLayers(overviewMap, 'overview-route-segments', overviewRoutes, 'overview'));
     safeOverlayStep('overview order markers', () => addOrderMarkers(overviewMap, overviewCollection, 'overview'));
+    safeOverlayStep('overview seed/mqtt markers', () => addSeedMqttMarkers(overviewMap, overviewSeedMqtt));
     requestAnimationFrame(() => { overviewMap.resize(); fitToFeatures(overviewMap, features); });
   });
   initializeClusterMaps();

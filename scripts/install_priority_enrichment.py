@@ -278,6 +278,116 @@ def fetch_local_context(cursor, lon: float, lat: float) -> dict[str, Any]:
     }
 
 
+def fetch_reachable_seed_mqtt_overview(
+    cursor,
+    visible_edge_table: str,
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    """Fetch reachable seed/MQTT overview points and every direct visible link they have."""
+
+    overview_points_query = f"""
+        with country_filtered_points as (
+            select
+                mesh_initial_nodes_h3_r8.h3,
+                mesh_initial_nodes_h3_r8.name,
+                coalesce(mesh_initial_nodes_h3_r8.source, 'seed') as source,
+                ST_X(mesh_initial_nodes_h3_r8.h3::geometry) as lon,
+                ST_Y(mesh_initial_nodes_h3_r8.h3::geometry) as lat,
+                install_priority_countries.country_code,
+                install_priority_countries.label_en as country_name
+            from mesh_initial_nodes_h3_r8
+            join lateral (
+                select
+                    install_priority_countries.country_code,
+                    install_priority_countries.label_en,
+                    install_priority_countries.geom
+                from install_priority_countries
+                where ST_DWithin(
+                    mesh_initial_nodes_h3_r8.h3::geography,
+                    install_priority_countries.geom::geography,
+                    100000
+                )
+                order by
+                    ST_Distance(
+                        mesh_initial_nodes_h3_r8.h3::geography,
+                        install_priority_countries.geom::geography
+                    ),
+                    install_priority_countries.country_code
+                limit 1
+            ) as install_priority_countries on true
+            where coalesce(mesh_initial_nodes_h3_r8.source, 'seed') in ('seed', 'mqtt')
+        )
+        select
+            country_filtered_points.h3::text,
+            country_filtered_points.name,
+            country_filtered_points.source,
+            country_filtered_points.lon,
+            country_filtered_points.lat,
+            country_filtered_points.country_code,
+            country_filtered_points.country_name
+        from country_filtered_points
+        where exists (
+            select 1
+            from {visible_edge_table}
+            where is_visible
+              and (
+                    source_h3 = country_filtered_points.h3
+                    or target_h3 = country_filtered_points.h3
+                )
+        )
+        order by
+            country_filtered_points.source,
+            country_filtered_points.country_code,
+            country_filtered_points.name;
+    """
+    cursor.execute(overview_points_query)
+    point_rows = cursor.fetchall()
+    points = [
+        {
+            "h3": str(h3),
+            "name": str(name or "Seed node"),
+            "source": str(source),
+            "marker": "M" if str(source) == "mqtt" else "S",
+            "lon": float(lon),
+            "lat": float(lat),
+            "country_code": str(country_code or ""),
+            "country_name": str(country_name or ""),
+        }
+        for h3, name, source, lon, lat, country_code, country_name in point_rows
+    ]
+
+    if not points:
+        return [], []
+
+    h3_values_sql = ", ".join(["%s"] * len(points))
+    overview_links_query = f"""
+        select
+            ST_AsGeoJSON(geom),
+            source_h3::text,
+            target_h3::text
+        from {visible_edge_table}
+        where is_visible
+          and (
+                source_h3::text in ({h3_values_sql})
+                or target_h3::text in ({h3_values_sql})
+            )
+        order by
+            source_h3::text,
+            target_h3::text;
+    """
+    h3_params = [point["h3"] for point in points]
+    cursor.execute(overview_links_query, [*h3_params, *h3_params])
+    links = [
+        {
+            "geometry": geojson_text,
+            "source_h3": str(source_h3),
+            "target_h3": str(target_h3),
+        }
+        for geojson_text, source_h3, target_h3 in cursor.fetchall()
+    ]
+
+    return points, links
+
+
 def _pick_unique_named_feature(
     rows: list[tuple[Any, ...]],
     distance_limit_m: float,

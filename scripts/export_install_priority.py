@@ -31,6 +31,7 @@ from scripts.install_priority_connectors import select_inter_cluster_connectors
 from scripts.install_priority_enrichment import (
     build_output_row,
     enrich_tower_records,
+    fetch_reachable_seed_mqtt_overview,
     fetch_local_context,
     prepare_context_tables,
 )
@@ -105,6 +106,8 @@ def write_html(
     output_path: Path,
     geocoder_base_url: str,
     cluster_bound_features: list[dict[str, object]],
+    seed_mqtt_points: list[dict[str, object]],
+    seed_mqtt_links: list[dict[str, object]],
 ) -> None:
     """Write the mobile-friendly HTML output."""
 
@@ -114,6 +117,8 @@ def write_html(
         generated_at=datetime.now(timezone.utc).isoformat(),
         geocoder_base_url=geocoder_base_url,
         cluster_bound_features=cluster_bound_features,
+        seed_mqtt_points=seed_mqtt_points,
+        seed_mqtt_links=seed_mqtt_links,
     )
     output_path.write_text(html_text, encoding="utf-8")
 
@@ -244,7 +249,12 @@ def build_neighbor_cluster_summaries(
 def export_rows(
     cursor,
     args: argparse.Namespace,
-) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+) -> tuple[
+    list[dict[str, object]],
+    list[dict[str, object]],
+    list[dict[str, object]],
+    list[dict[str, object]],
+]:
     """Build the final flat rows for CSV and HTML outputs."""
 
     print(">> Loading tower registry and visibility graph", file=sys.stderr)
@@ -280,6 +290,10 @@ def export_rows(
     towers_by_id = enrich_tower_records(
         towers_by_id=towers_by_id,
         local_context_by_tower_id=local_context_by_tower_id,
+    )
+    seed_mqtt_points, seed_mqtt_links = fetch_reachable_seed_mqtt_overview(
+        cursor=cursor,
+        visible_edge_table=visible_edge_table,
     )
     adjacency = build_adjacency(visible_edges)
     plan_rows = build_cluster_plan(
@@ -393,7 +407,7 @@ def export_rows(
         final_rows,
     )
 
-    return final_rows, cluster_bound_features
+    return final_rows, cluster_bound_features, seed_mqtt_points, seed_mqtt_links
 
 
 def main() -> None:
@@ -405,7 +419,7 @@ def main() -> None:
 
     with open_connection(args) as connection:
         with connection.cursor() as cursor:
-            rows, cluster_bound_features = export_rows(cursor, args)
+            rows, cluster_bound_features, seed_mqtt_points, seed_mqtt_links = export_rows(cursor, args)
 
     write_csv(rows, csv_output)
     write_html(
@@ -413,6 +427,8 @@ def main() -> None:
         html_output,
         args.geocoder_base_url,
         cluster_bound_features,
+        seed_mqtt_points,
+        seed_mqtt_links,
     )
     print(f">> Wrote {len(rows)} rows to {csv_output}", file=sys.stderr)
     print(f">> Wrote {len(rows)} rows to {html_output}", file=sys.stderr)
