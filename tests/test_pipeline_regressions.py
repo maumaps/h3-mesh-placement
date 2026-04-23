@@ -813,6 +813,11 @@ class PipelineRegressionTest(unittest.TestCase):
             "Installer handout export should not depend on db/table markers, because missing remote markers can drag unrelated raw-import rebuild chains before export.",
         )
         self.assertIn(
+            'PGOPTIONS="$${PGOPTIONS:-} -c temp_buffers=256MB -c work_mem=128MB" python scripts/export_install_priority.py --csv-output data/out/install_priority.csv --html-output data/out/install_priority.html',
+            makefile_text,
+            "Installer handout export should raise temp_buffers/work_mem for its large temporary OSM context tables so the current-state Make target works on geocint without manual shell overrides.",
+        )
+        self.assertIn(
             "separation_default constant double precision := 0",
             wiggle_text,
             "mesh_tower_wiggle should keep fallback tower spacing at 0 so adjacent hex placements stay allowed during wiggle moves.",
