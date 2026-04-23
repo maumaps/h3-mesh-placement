@@ -517,12 +517,14 @@ db/procedure/mesh_route_bridge: procedures/mesh_route_bridge.sql scripts/mesh_ro
 db/procedure/mesh_tower_wiggle: procedures/mesh_tower_wiggle.sql scripts/mesh_tower_wiggle_configured.sh scripts/assert_mesh_towers_single_los_component.sql db/procedure/mesh_route db/procedure/mesh_route_cluster_slim db/procedure/mesh_visibility_edges_refresh db/function/mesh_surface_fill_visible_population db/function/mesh_surface_refresh_reception_metrics db/function/mesh_surface_refresh_visible_tower_counts db/table/mesh_surface_h3_r8 db/table/mesh_towers db/table/mesh_visibility_edges db/table/mesh_pipeline_settings | db/procedure ## Apply configured tower-wiggle refinement stage
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_tower_wiggle.sql
 	scripts/mesh_tower_wiggle_configured.sh
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_visibility_edges_refresh.sql
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 	touch db/procedure/mesh_tower_wiggle
 
-db/procedure/mesh_tower_wiggle_current: procedures/mesh_tower_wiggle.sql scripts/mesh_tower_wiggle_configured.sh scripts/assert_mesh_towers_single_los_component.sql db/table/mesh_pipeline_settings | db/procedure ## Replay tower-wiggle on current towers without rebuilding route inputs
+db/procedure/mesh_tower_wiggle_current: procedures/mesh_tower_wiggle.sql scripts/mesh_tower_wiggle_configured.sh scripts/mesh_visibility_edges_refresh.sql scripts/assert_mesh_towers_single_los_component.sql db/table/mesh_pipeline_settings | db/procedure ## Replay tower-wiggle on current towers without rebuilding route inputs
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_tower_wiggle.sql
 	scripts/mesh_tower_wiggle_configured.sh
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_visibility_edges_refresh.sql
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 	touch db/procedure/mesh_tower_wiggle
 	touch db/procedure/mesh_tower_wiggle_current

@@ -115,6 +115,14 @@ class PipelineRegressionTest(unittest.TestCase):
             "Safe placement restart should include the configured tower-wiggle stage so enable_wiggle works without a full table rebuild.",
         )
         self.assertIn(
+            "scripts/mesh_tower_wiggle_configured.sh\n\n"
+            'echo ">> Refreshing visibility diagnostics after tower wiggle"\n'
+            "psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_visibility_edges_refresh.sql\n"
+            "psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql",
+            placement_restart_text,
+            "Safe placement restart should refresh mesh_visibility_edges after tower wiggle moves towers, so exports and cluster checks read current LOS diagnostics.",
+        )
+        self.assertIn(
             "db/procedure/mesh_tower_wiggle_current",
             makefile_text,
             "Makefile should expose a safe current-wiggle target that does not rebuild route inputs when only local refinement is requested.",
@@ -806,6 +814,13 @@ class PipelineRegressionTest(unittest.TestCase):
             "db/procedure/mesh_route_refresh_visibility_current: scripts/mesh_visibility_edges_refresh.sql scripts/assert_mesh_towers_single_los_component.sql | db/procedure",
             makefile_text,
             "Makefile should provide a current visibility refresh target after wiggle that does not replay route or rebuild surface tables.",
+        )
+        self.assertIn(
+            "scripts/mesh_tower_wiggle_configured.sh\n"
+            "\tpsql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_visibility_edges_refresh.sql\n"
+            "\tpsql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql",
+            makefile_text,
+            "Tower-wiggle Make targets should refresh mesh_visibility_edges after moving towers and before asserting connectivity.",
         )
         self.assertIn(
             "db/procedure/mesh_population_anchor_contract_current: procedures/mesh_population_anchor_contract.sql scripts/assert_mesh_towers_single_los_component.sql | db/procedure",
