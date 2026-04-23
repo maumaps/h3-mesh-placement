@@ -214,10 +214,10 @@ cluster_winners as (
       and not cc.cluster_has_existing_anchor
     order by
         cl.cluster_id,
-        ST_3DDistance(cl.cluster_geom, cc.centroid_geom) asc,
         cl.score desc,
         cl.nearby_population desc,
         cl.building_count desc,
+        ST_3DDistance(cl.cluster_geom, cc.centroid_geom) asc,
         cl.h3
 ),
 selected_anchors as (

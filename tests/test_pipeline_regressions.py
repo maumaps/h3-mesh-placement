@@ -178,9 +178,9 @@ class PipelineRegressionTest(unittest.TestCase):
             "mesh_population should reconstruct weighted KMeans centroids before snapping winners to placeable H3 cells.",
         )
         self.assertIn(
-            "ST_3DDistance(cl.cluster_geom, cc.centroid_geom) asc",
+            "cl.score desc,\n        cl.nearby_population desc,\n        cl.building_count desc,\n        ST_3DDistance(cl.cluster_geom, cc.centroid_geom) asc",
             population_text,
-            "mesh_population should choose the candidate nearest to each weighted centroid before using score tie-breakers.",
+            "mesh_population should choose high-demand candidates inside each weighted cluster before using centroid distance as a tie-breaker.",
         )
         self.assertNotIn(
             "kutaisi",
