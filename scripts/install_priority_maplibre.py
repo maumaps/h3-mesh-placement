@@ -130,6 +130,8 @@ def _as_int(value: object) -> int | None:
 def _build_map_order_label(row: Mapping[str, object]) -> str:
     """Create a short on-map label that matches the local rollout order."""
 
+    if bool(row.get("installed")) and str(row.get("source")) == "mqtt":
+        return "M"
     if bool(row.get("installed")):
         return "S"
     if row.get("cluster_install_rank") in (None, ""):

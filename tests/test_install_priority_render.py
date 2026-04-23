@@ -540,6 +540,60 @@ class InstallPriorityRenderTests(unittest.TestCase):
             msg="Installed seed rows should not leak into the next-node summary table.",
         )
 
+    def test_html_marks_installed_mqtt_rows_with_m_not_numeric_order(self) -> None:
+        """Installed MQTT rows should render as already-present backbone points, not install steps."""
+
+        html_text = render_html_document(
+            rows=[
+                {
+                    "cluster_key": "seed:1",
+                    "cluster_label": "Batumi",
+                    "cluster_install_rank": 6,
+                    "is_next_for_cluster": "false",
+                    "rollout_status": "installed",
+                    "installed": "true",
+                    "tower_id": 8,
+                    "label": "mqtt #8",
+                    "display_name": "Marmarik / Hankavan-Hrazdan Highway",
+                    "display_type": "Installed MQTT",
+                    "source": "mqtt",
+                    "impact_score": 1620,
+                    "impact_people_est": 1620,
+                    "impact_tower_count": 0,
+                    "next_unlock_count": 0,
+                    "backlink_count": 0,
+                    "primary_previous_tower_id": "",
+                    "inter_cluster_neighbor_ids": "",
+                    "inter_cluster_connections": "",
+                    "blocked_reason": "",
+                    "previous_connections": "",
+                    "next_connections": "",
+                    "lon": "44.700000",
+                    "lat": "40.800000",
+                    "country_code": "am",
+                    "country_name": "Armenia",
+                    "location_status": "ok",
+                    "location_en": "Marmarik, near Hankavan-Hrazdan Highway, Armenia",
+                    "location_ru": "Мармарик, рядом с трассой Анкаван-Раздан, Армения",
+                    "google_maps_url": "https://maps.google.com/?q=40.800000,44.700000",
+                    "osm_url": "https://www.openstreetmap.org/?mlat=40.800000&mlon=44.700000#map=14/40.800000/44.700000",
+                }
+            ],
+            generated_at="2026-04-24T00:00:00+00:00",
+            geocoder_base_url="https://geocoder.batu.market",
+        )
+
+        self.assertIn(
+            "\"map_order_label\": \"M\"",
+            html_text,
+            msg="Installed MQTT rows should expose map_order_label M instead of a numeric rollout rank in the map payload.",
+        )
+        self.assertIn(
+            "Installed MQTT",
+            html_text,
+            msg="Installed MQTT rows should render as already-installed backbone nodes in the popup and table text.",
+        )
+
     def test_build_output_row_falls_back_to_local_country_when_admin_context_is_empty(self) -> None:
         """Location text should still carry the country from local OSM context."""
 

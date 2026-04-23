@@ -78,6 +78,8 @@ def humanize_tower_code(source: str, tower_id: int, installed: bool) -> str:
 
     if installed and source == "seed":
         return "Installed Seed"
+    if installed and source == "mqtt":
+        return "Installed MQTT"
 
     source_titles = {
         "coarse": "Coarse",

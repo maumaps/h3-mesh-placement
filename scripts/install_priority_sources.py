@@ -359,7 +359,7 @@ def build_tower_records(
             lon=lon,
             lat=lat,
             label=label,
-            installed=(source == "seed"),
+            installed=(source in {"seed", "mqtt"}),
             created_at=created_at,
         )
 
