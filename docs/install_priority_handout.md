@@ -63,7 +63,7 @@ If the hosted geocoder is sparse or unavailable, the export still succeeds and f
 Estimated reach also uses nearby populated OSM localities because the current live `mesh_surface_h3_r8` table has drifted away from its geometry/H3 key columns.
 
 ## Outputs
-Run `make data/out/install_priority.html` to build both deliverables.
+Run `make data/out/install_priority.html` to build both deliverables from the current database state.
 The export writes:
 - `data/out/install_priority.html`
 - `data/out/install_priority.csv`

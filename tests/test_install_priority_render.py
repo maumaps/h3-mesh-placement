@@ -395,6 +395,11 @@ class InstallPriorityRenderTests(unittest.TestCase):
             "",
             msg=f"Output rows should default to no inter-cluster connector ids until the exporter fills them, got row {output_rows[1]!r}",
         )
+        self.assertEqual(
+            output_rows[1]["country_code"],
+            "",
+            msg=f"Output rows should leave country_code empty when no local country fallback exists, got row {output_rows[1]!r}",
+        )
         self.assertIn(
             "maplibre-gl.js",
             html_text,
@@ -479,6 +484,74 @@ class InstallPriorityRenderTests(unittest.TestCase):
             "<td>Batumi</td>\n<td>\n<div class='node-title'>Batumi</div>",
             html_text,
             msg="Installed seed rows should not leak into the next-node summary table.",
+        )
+
+    def test_build_output_row_falls_back_to_local_country_when_admin_context_is_empty(self) -> None:
+        """Location text should still carry the country from local OSM context."""
+
+        output_row = build_output_row(
+            plan_row=PlanRow(
+                cluster_key="seed:20",
+                cluster_label="Tbilisi hackerspace",
+                cluster_install_rank=3,
+                is_next_for_cluster=False,
+                rollout_status="planned",
+                installed=False,
+                tower_id=32,
+                label="route #32",
+                source="route",
+                impact_score=5,
+                impact_tower_count=2,
+                next_unlock_count=0,
+                backlink_count=1,
+                previous_connection_ids=(31,),
+                next_connection_ids=(),
+                lon=45.238069,
+                lat=40.869971,
+            ),
+            towers_by_id={
+                31: TowerRecord(31, "route", 45.210000, 40.860000, "route #31", False),
+                32: TowerRecord(32, "route", 45.238069, 40.869971, "route #32", False),
+            },
+            local_context={
+                "road_en": "Ijevan-Berd Highway",
+                "road_ru": "Иджеван-Бердское шоссе",
+                "place_en": "Skhtorut",
+                "place_ru": "Схторут",
+                "country_code": "am",
+                "country_en": "Armenia",
+                "country_ru": "Армения",
+            },
+            admin_context_en={
+                "city": None,
+                "district": None,
+                "province": None,
+                "country": None,
+            },
+            admin_context_ru={
+                "city": None,
+                "district": None,
+                "province": None,
+                "country": None,
+            },
+            geocoder_status_en="error",
+            geocoder_status_ru="error",
+        )
+
+        self.assertEqual(
+            output_row["country_code"],
+            "am",
+            msg=f"Output row should preserve local OSM country_code, got row {output_row!r}",
+        )
+        self.assertEqual(
+            output_row["country_name"],
+            "Armenia",
+            msg=f"Output row should preserve local OSM country_name, got row {output_row!r}",
+        )
+        self.assertEqual(
+            output_row["location_en"],
+            "Skhtorut, near Ijevan-Berd Highway, Armenia",
+            msg=f"Location fallback should append the local country when admin context is empty, got row {output_row!r}",
         )
 
 

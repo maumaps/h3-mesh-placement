@@ -45,6 +45,8 @@ CSV_COLUMNS = [
     "next_connections",
     "lon",
     "lat",
+    "country_code",
+    "country_name",
     "location_status",
     "location_en",
     "location_ru",

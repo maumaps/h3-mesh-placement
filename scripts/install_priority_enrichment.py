@@ -382,6 +382,14 @@ def build_output_row(
         plan_row.tower_id,
         plan_row.installed,
     )
+    admin_context_en_with_country = dict(admin_context_en)
+    admin_context_ru_with_country = dict(admin_context_ru)
+
+    if not admin_context_en_with_country.get("country") and local_context.get("country_en"):
+        admin_context_en_with_country["country"] = local_context.get("country_en")
+
+    if not admin_context_ru_with_country.get("country") and local_context.get("country_ru"):
+        admin_context_ru_with_country["country"] = local_context.get("country_ru")
 
     return {
         "cluster_key": plan_row.cluster_key,
@@ -422,6 +430,8 @@ def build_output_row(
         ),
         "lon": f"{plan_row.lon:.6f}",
         "lat": f"{plan_row.lat:.6f}",
+        "country_code": local_context.get("country_code") or "",
+        "country_name": local_context.get("country_en") or "",
         "location_status": infer_location_status(
             geocoder_status_en=geocoder_status_en,
             geocoder_status_ru=geocoder_status_ru,
@@ -432,7 +442,7 @@ def build_output_row(
             locale="en",
             road_name=local_context.get("road_en"),
             place_name=local_context.get("place_en"),
-            admin_context=admin_context_en,
+            admin_context=admin_context_en_with_country,
             lon=plan_row.lon,
             lat=plan_row.lat,
         ),
@@ -440,7 +450,7 @@ def build_output_row(
             locale="ru",
             road_name=local_context.get("road_ru"),
             place_name=local_context.get("place_ru"),
-            admin_context=admin_context_ru,
+            admin_context=admin_context_ru_with_country,
             lon=plan_row.lon,
             lat=plan_row.lat,
         ),
