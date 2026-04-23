@@ -1555,6 +1555,21 @@ class PipelineRegressionTest(unittest.TestCase):
             "The tower component invariant must fail the pipeline immediately when connectivity is broken.",
         )
 
+    def test_mesh_placement_restart_declares_greedy_iteration_table(self) -> None:
+        """The restart wrapper truncates mesh_greedy_iterations, so Make must install that table first."""
+        makefile_text = (REPO_ROOT / "Makefile").read_text()
+
+        self.assertIn(
+            "db/procedure/mesh_placement_restart: scripts/mesh_placement_restart.sh",
+            makefile_text,
+            "mesh_placement_restart target should remain declared in Makefile.",
+        )
+        self.assertIn(
+            "db/table/mesh_greedy_iterations | db/procedure",
+            makefile_text,
+            "mesh_placement_restart must depend on db/table/mesh_greedy_iterations because the wrapper truncates that table before replaying route stages.",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
