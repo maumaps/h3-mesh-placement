@@ -3,6 +3,10 @@ Debugging: Use docs/todo.md as to put issues, inconveniences and impediments tha
 SQL: Format queries in a way so it's easy to copy them out of the codebase and debug standalone.
 Make: Makefile: If you need intermediate result from other target, split it into two and depend on the intermediate result.
 Make: Always run `make -n <target>` before running `make <target>`, and fix any unexpected commands that would run.
+Make/Remote safety: Over SSH, never use `make -B`.
+Make/Remote safety: `make -n` is a hard gate, not a preview. If dry-run shows unexpected prerequisites or commands, do not run `make`; fix the target or use a narrower resume path.
+Make/Remote safety: For seed/import/visibility/handout refreshes, never let `make` recreate `mesh_towers`, `mesh_surface_h3_r8`, OSM imports, GEBCO imports, or LOS cache unless the user explicitly asked for a full rebuild.
+Make/Remote safety: After any interrupted remote `make`, immediately verify row counts in `mesh_towers` and `mesh_visibility_edges` before continuing.
 Make: Do not use `.PHONY` targets; use real file/directory targets and correct marker handling instead.
 Make/Debugging: If a multi-hour iterated calculation times out after hours, do not restart it from scratch.
 Make/Debugging: Use `make -n`, inspect the SQL/procedures, and design a safe resume step that continues from where it stopped.

@@ -282,7 +282,7 @@ def fetch_reachable_seed_mqtt_overview(
     cursor,
     visible_edge_table: str,
 ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
-    """Fetch reachable seed/MQTT overview points and every direct visible link they have."""
+    """Fetch reachable seed/MQTT overview points and every direct link they have."""
 
     overview_points_query = f"""
         with country_filtered_points as (
@@ -365,8 +365,7 @@ def fetch_reachable_seed_mqtt_overview(
             source_h3::text,
             target_h3::text
         from {visible_edge_table}
-        where is_visible
-          and (
+        where (
                 source_h3::text in ({h3_values_sql})
                 or target_h3::text in ({h3_values_sql})
             )
