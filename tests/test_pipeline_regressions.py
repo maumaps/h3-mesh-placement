@@ -245,6 +245,16 @@ class PipelineRegressionTest(unittest.TestCase):
             "db/raw/initial_nodes must not skip importing just because mesh_initial_nodes already exists, otherwise refreshed seeds never reach Postgres.",
         )
 
+    def test_osm_merge_target_overwrites_existing_mid_pbf(self) -> None:
+        """OSM merge refresh should succeed when the merged PBF already exists."""
+        makefile_text = (REPO_ROOT / "Makefile").read_text()
+
+        self.assertIn(
+            "osmium merge data/in/osm/georgia-latest.osm.pbf data/in/osm/armenia-latest.osm.pbf --overwrite -o data/mid/osm/osm_for_mesh_placement.osm.pbf -f pbf",
+            makefile_text,
+            "The merged OSM PBF target should pass --overwrite so safe seed-layer reruns do not fail just because data/mid/osm/osm_for_mesh_placement.osm.pbf already exists.",
+        )
+
     def test_population_import_uses_active_pg_connection(self) -> None:
         """Kontur import should honor the selected database under make -j runs."""
         makefile_text = (REPO_ROOT / "Makefile").read_text()

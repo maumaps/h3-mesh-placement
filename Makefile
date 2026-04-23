@@ -78,7 +78,7 @@ data/in/osm/armenia-latest.osm.pbf: | data/in/osm ## Download Armenia OSM extrac
 	test -s data/in/osm/armenia-latest.osm.pbf
 
 data/mid/osm/osm_for_mesh_placement.osm.pbf: data/in/osm/georgia-latest.osm.pbf data/in/osm/armenia-latest.osm.pbf | data/mid/osm ## Merge Georgia and Armenia OSM extracts for mesh placement
-	osmium merge data/in/osm/georgia-latest.osm.pbf data/in/osm/armenia-latest.osm.pbf -o data/mid/osm/osm_for_mesh_placement.osm.pbf -f pbf
+	osmium merge data/in/osm/georgia-latest.osm.pbf data/in/osm/armenia-latest.osm.pbf --overwrite -o data/mid/osm/osm_for_mesh_placement.osm.pbf -f pbf
 
 data/in/population/kontur_population_20231101.gpkg.gz: | data/in/population ## Download Kontur population archive
 	rm -f data/in/population/kontur_population_20231101.gpkg.gz
