@@ -71,8 +71,8 @@ Configured iteration caps:
 - `wiggle_iterations` controls the tower-wiggle loop when `enable_wiggle=true`, with `WIGGLE_ITERATIONS=<n>` still available as a one-run override.
 - `population_existing_anchor_weight` controls how strongly current towers pull KMeans clusters away from duplicate population anchors.
 - `enable_route_segment_reroute` controls the post-contract local route-pair optimizer; `route_segment_reroute_candidate_limit` caps each endpoint candidate list and `route_segment_reroute_max_moves` bounds one pass.
-- `enable_population_anchor_contract` controls the post-route cleanup that removes soft population anchors only when generated towers preserve cached non-population LOS neighbors; `population_anchor_contract_distance_m=0` makes that replacement search topology-only; positive values re-enable a distance window.
-- `enable_generated_pair_contract` controls close route-like pair contraction, where one synthetic H3 must preserve the combined cached non-population LOS-neighbor set.
+- `enable_population_anchor_contract` controls the post-route cleanup that removes soft population anchors only when generated towers preserve cached non-population LOS neighbors and the deletion does not increase the live LOS component count; `population_anchor_contract_distance_m=0` makes that replacement search topology-only; positive values re-enable a distance window.
+- `enable_generated_pair_contract` controls close route-like pair contraction, where one synthetic H3 must preserve the combined cached non-population LOS-neighbor set and must not increase the live LOS component count.
 - `wiggle_candidate_limit` bounds cached marginal-population scoring after all local candidates have already passed the cached LOS-neighbor preservation check.
 
 ## Testing

@@ -254,6 +254,7 @@ Like bridge, it now defers local surface and visibility refresh to the later rou
 **Optimization:** Uses only `mesh_los_cache` and `population_anchor_contract_distance_m`; `0` means topology-only replacement search.
 It does not use local-population or building-count thresholds, and it never calls fresh terrain LOS functions.
 Generated route leaves around a contracted anchor are removed only when the chosen replacement also preserves the leaf's non-population visible-neighbor set.
+Each deletion is also guarded by a live-graph component-count check, so the stage cannot turn one routed LOS component into several detached islands.
 
 ### Generated pair contraction (`mesh_generated_pair_contract`)
 **Where:** `procedures/mesh_generated_pair_contract.sql`.
@@ -261,3 +262,4 @@ Generated route leaves around a contracted anchor are removed only when the chos
 **Why:** Some local route blobs are not population anchors; they are two generated relays around the same local service area.
 A distance-only merge is unsafe, but a cached-topology-preserving synthetic replacement can remove the duplicate without breaking route edges.
 **Optimization:** Uses `mesh_los_cache` only; `generated_tower_merge_distance_m` bounds pair selection and synthetic H3 search.
+The stage now also refuses a merge when moving the kept tower to the synthetic H3 would increase the number of live LOS components.

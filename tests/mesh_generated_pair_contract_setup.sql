@@ -75,14 +75,39 @@ values
     ('blocked_left', h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(1.000, 0.000), 4326), 8)),
     ('blocked_right', h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(1.020, 0.000), 4326), 8)),
     ('blocked_required_left', h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(0.970, 0.000), 4326), 8)),
-    ('blocked_required_right', h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(1.050, 0.000), 4326), 8));
+    ('blocked_required_right', h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(1.050, 0.000), 4326), 8)),
+    ('bridge_left', h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(2.000, 0.000), 4326), 8)),
+    ('bridge_right', h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(2.020, 0.000), 4326), 8)),
+    ('bridge_synthetic', h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(2.010, 0.000), 4326), 8)),
+    ('bridge_required_left', h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(1.970, 0.000), 4326), 8)),
+    ('bridge_required_right', h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(2.050, 0.000), 4326), 8)),
+    ('bridge_population', h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(2.035, 0.000), 4326), 8)),
+    ('bridge_seed', h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(2.065, 0.000), 4326), 8));
 
 insert into mesh_surface_h3_r8 (h3, centroid_geog, has_tower, population_70km)
 select
     h3,
     h3_cell_to_geometry(h3)::public.geography,
-    label in ('left_route', 'right_route', 'required_left', 'required_right', 'blocked_left', 'blocked_right', 'blocked_required_left', 'blocked_required_right'),
-    case label when 'synthetic_route' then 1000 else 1 end
+    label in (
+        'left_route',
+        'right_route',
+        'required_left',
+        'required_right',
+        'blocked_left',
+        'blocked_right',
+        'blocked_required_left',
+        'blocked_required_right',
+        'bridge_left',
+        'bridge_right',
+        'bridge_required_left',
+        'bridge_required_right',
+        'bridge_population',
+        'bridge_seed'
+    ),
+    case
+        when label in ('synthetic_route', 'bridge_synthetic') then 1000
+        else 1
+    end
 from test_cells;
 
 insert into mesh_towers (tower_id, h3, source)
@@ -96,7 +121,13 @@ from (
         (200, (select h3 from test_cells where label = 'blocked_left'), 'route'),
         (201, (select h3 from test_cells where label = 'blocked_right'), 'route'),
         (202, (select h3 from test_cells where label = 'blocked_required_left'), 'route'),
-        (203, (select h3 from test_cells where label = 'blocked_required_right'), 'route')
+        (203, (select h3 from test_cells where label = 'blocked_required_right'), 'route'),
+        (300, (select h3 from test_cells where label = 'bridge_left'), 'route'),
+        (301, (select h3 from test_cells where label = 'bridge_right'), 'route'),
+        (302, (select h3 from test_cells where label = 'bridge_required_left'), 'route'),
+        (303, (select h3 from test_cells where label = 'bridge_required_right'), 'route'),
+        (304, (select h3 from test_cells where label = 'bridge_population'), 'population'),
+        (305, (select h3 from test_cells where label = 'bridge_seed'), 'seed')
 ) as towers(tower_id, h3, source);
 
 insert into mesh_tower_wiggle_queue (tower_id, is_dirty)
@@ -132,7 +163,14 @@ from (
         ('synthetic_route', 'required_left'),
         ('synthetic_route', 'required_right'),
         ('blocked_left', 'blocked_required_left'),
-        ('blocked_right', 'blocked_required_right')
+        ('blocked_right', 'blocked_required_right'),
+        ('bridge_left', 'bridge_right'),
+        ('bridge_left', 'bridge_required_left'),
+        ('bridge_right', 'bridge_required_right'),
+        ('bridge_right', 'bridge_population'),
+        ('bridge_population', 'bridge_seed'),
+        ('bridge_synthetic', 'bridge_required_left'),
+        ('bridge_synthetic', 'bridge_required_right')
 ) as links(src_label, dst_label)
 join test_cells src on src.label = links.src_label
 join test_cells dst on dst.label = links.dst_label;
