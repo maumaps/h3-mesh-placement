@@ -285,8 +285,28 @@ def fetch_reachable_seed_mqtt_overview(
 ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     """Fetch reachable seed/MQTT overview points and every direct link they have."""
 
-    overview_points_query = f"""
-        with country_filtered_points as (
+    del visible_edge_table
+
+    overview_points_query = """
+        with params as (
+            select
+                coalesce((
+                    select value::double precision
+                    from mesh_pipeline_settings
+                    where setting = 'max_los_distance_m'
+                ), 100000) as max_distance_m,
+                coalesce((
+                    select value::double precision
+                    from mesh_pipeline_settings
+                    where setting = 'mast_height_m'
+                ), 28) as mast_height_m,
+                coalesce((
+                    select value::double precision
+                    from mesh_pipeline_settings
+                    where setting = 'frequency_hz'
+                ), 868000000) as frequency_hz
+        ),
+        country_filtered_points as (
             select
                 mesh_initial_nodes_h3_r8.h3,
                 mesh_initial_nodes_h3_r8.name,
@@ -328,11 +348,22 @@ def fetch_reachable_seed_mqtt_overview(
         from country_filtered_points
         where exists (
             select 1
-            from {visible_edge_table}
-            where is_visible
-              and (
-                    source_h3 = country_filtered_points.h3
-                    or target_h3 = country_filtered_points.h3
+            from mesh_towers
+            join params on true
+            join mesh_los_cache on mesh_los_cache.clearance > 0
+                and mesh_los_cache.distance_m <= params.max_distance_m
+                and mesh_los_cache.mast_height_src = params.mast_height_m
+                and mesh_los_cache.mast_height_dst = params.mast_height_m
+                and mesh_los_cache.frequency_hz = params.frequency_hz
+                and (
+                    (
+                        mesh_los_cache.src_h3 = country_filtered_points.h3
+                        and mesh_los_cache.dst_h3 = mesh_towers.h3
+                    )
+                    or (
+                        mesh_los_cache.dst_h3 = country_filtered_points.h3
+                        and mesh_los_cache.src_h3 = mesh_towers.h3
+                    )
                 )
         )
         order by
@@ -362,21 +393,74 @@ def fetch_reachable_seed_mqtt_overview(
 
     h3_values_sql = ", ".join(["%s"] * len(points))
     overview_links_query = f"""
+        with params as (
+            select
+                coalesce((
+                    select value::double precision
+                    from mesh_pipeline_settings
+                    where setting = 'max_los_distance_m'
+                ), 100000) as max_distance_m,
+                coalesce((
+                    select value::double precision
+                    from mesh_pipeline_settings
+                    where setting = 'mast_height_m'
+                ), 28) as mast_height_m,
+                coalesce((
+                    select value::double precision
+                    from mesh_pipeline_settings
+                    where setting = 'frequency_hz'
+                ), 868000000) as frequency_hz
+        ),
+        relevant_points as (
+            select h3
+            from mesh_initial_nodes_h3_r8
+            where h3::text in ({h3_values_sql})
+        ),
+        relevant_links as (
+            select distinct
+                mesh_los_cache.src_h3,
+                mesh_los_cache.dst_h3
+            from mesh_los_cache
+            join params on true
+            where mesh_los_cache.clearance > 0
+              and mesh_los_cache.distance_m <= params.max_distance_m
+              and mesh_los_cache.mast_height_src = params.mast_height_m
+              and mesh_los_cache.mast_height_dst = params.mast_height_m
+              and mesh_los_cache.frequency_hz = params.frequency_hz
+              and (
+                    mesh_los_cache.src_h3 in (select h3 from relevant_points)
+                    or mesh_los_cache.dst_h3 in (select h3 from relevant_points)
+                )
+              and (
+                    mesh_los_cache.src_h3 in (select h3 from relevant_points)
+                    or mesh_los_cache.src_h3 in (select h3 from mesh_towers)
+                )
+              and (
+                    mesh_los_cache.dst_h3 in (select h3 from relevant_points)
+                    or mesh_los_cache.dst_h3 in (select h3 from mesh_towers)
+                )
+        )
         select
-            ST_AsGeoJSON(geom),
-            source_h3::text,
-            target_h3::text
-        from {visible_edge_table}
-        where (
-                source_h3::text in ({h3_values_sql})
-                or target_h3::text in ({h3_values_sql})
-            )
+            ST_AsGeoJSON(
+                ST_MakeLine(
+                    direct_links.source_h3::geometry,
+                    direct_links.target_h3::geometry
+                )
+            ),
+            direct_links.source_h3::text,
+            direct_links.target_h3::text
+        from (
+            select
+                relevant_links.src_h3 as source_h3,
+                relevant_links.dst_h3 as target_h3
+            from relevant_links
+        ) as direct_links
         order by
             source_h3::text,
             target_h3::text;
     """
     h3_params = [point["h3"] for point in points]
-    cursor.execute(overview_links_query, [*h3_params, *h3_params])
+    cursor.execute(overview_links_query, h3_params)
     links = [
         {
             "geometry": geojson_text,

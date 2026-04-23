@@ -12,6 +12,7 @@ from scripts.install_priority_cluster_bounds import (
     fetch_cluster_bound_features,
 )
 from scripts.install_priority_enrichment import enrich_tower_records
+from scripts.install_priority_enrichment import fetch_reachable_seed_mqtt_overview
 from scripts.install_priority_enrichment import _prefer_seed_points_over_nearby_mqtt
 from scripts.install_priority_lib import (
     CSV_COLUMNS,
@@ -25,6 +26,68 @@ from scripts.install_priority_lib import (
 
 class InstallPriorityRenderTests(unittest.TestCase):
     """Verify display labels, output rows, and HTML rendering."""
+
+    def test_reachable_seed_mqtt_overview_uses_los_cache_against_live_towers(self) -> None:
+        """Overview M/S markers should come from LOS reachability, not only mesh_visibility_edges rows."""
+
+        class FakeCursor:
+            def __init__(self) -> None:
+                self.queries: list[str] = []
+                self._result_sets = [
+                    [
+                        (
+                            "882c01da19fffff",
+                            "Uber base",
+                            "mqtt",
+                            44.520000,
+                            40.180000,
+                            "am",
+                            "Armenia",
+                        )
+                    ],
+                    [
+                        (
+                            "{\"type\":\"LineString\",\"coordinates\":[[44.52,40.18],[44.50,40.17]]}",
+                            "882c01da19fffff",
+                            "882c01da1bfffff",
+                        )
+                    ],
+                ]
+
+            def execute(self, query, params=None) -> None:
+                del params
+                self.queries.append(str(query))
+
+            def fetchall(self):
+                return self._result_sets.pop(0)
+
+        fake_cursor = FakeCursor()
+
+        points, links = fetch_reachable_seed_mqtt_overview(
+            fake_cursor,
+            "mesh_visibility_edges",
+        )
+
+        self.assertEqual(
+            points[0]["marker"],
+            "M",
+            msg=f"Reachable MQTT overview rows should survive as M markers, got points {points!r}",
+        )
+        self.assertEqual(
+            links[0]["target_h3"],
+            "882c01da1bfffff",
+            msg=f"Overview links should preserve the direct LOS neighbor h3, got links {links!r}",
+        )
+        self.assertIn(
+            "from mesh_towers",
+            fake_cursor.queries[0].lower(),
+            msg=f"Overview-point query should anchor MQTT reachability against live mesh_towers, got SQL {fake_cursor.queries[0]!r}",
+        )
+        self.assertIn(
+            "from mesh_los_cache",
+            fake_cursor.queries[1].lower(),
+            msg=f"Overview-link query should source direct links from mesh_los_cache, got SQL {fake_cursor.queries[1]!r}",
+        )
 
     def test_nearby_seed_point_hides_duplicate_mqtt_overview_marker(self) -> None:
         """A seed should win over a nearby MQTT point in the overview overlay."""
