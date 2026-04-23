@@ -19,13 +19,22 @@ with allowed_initial_nodes as (
 )
 select
     h3_latlng_to_cell(geom, 8) as h3,
-    string_agg(
-        coalesce(name, 'seed'),
-        ', '
-        order by
-            case when coalesce(source, 'curated') <> 'mqtt' then 0 else 1 end,
-            coalesce(name, 'seed')
-    ) as name,
+    case
+        when bool_or(coalesce(source, 'curated') <> 'mqtt') then
+            string_agg(
+                coalesce(name, 'seed'),
+                ', '
+                order by coalesce(name, 'seed')
+            ) filter (
+                where coalesce(source, 'curated') <> 'mqtt'
+            )
+        else
+            string_agg(
+                coalesce(name, 'seed'),
+                ', '
+                order by coalesce(name, 'seed')
+            )
+    end as name,
     case
         when bool_or(coalesce(source, 'curated') <> 'mqtt') then 'seed'
         when bool_or(source = 'mqtt') then 'mqtt'
