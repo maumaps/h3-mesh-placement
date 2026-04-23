@@ -82,6 +82,10 @@ values
     ('synthetic_required_a', h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(4.200, 0.000), 4326), 8)),
     ('synthetic_required_b', h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(4.220, 0.000), 4326), 8)),
     ('synthetic_required_c', h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(4.240, 0.000), 4326), 8)),
+    ('bridge_population_a', h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(5.000, 0.000), 4326), 8)),
+    ('bridge_route', h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(5.010, 0.000), 4326), 8)),
+    ('bridge_population_b', h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(5.020, 0.000), 4326), 8)),
+    ('bridge_seed', h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(5.030, 0.000), 4326), 8)),
     ('close_route_a', h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(3.000, 0.000), 4326), 8)),
     ('close_route_b', h3_latlng_to_cell(ST_SetSRID(ST_MakePoint(3.010, 0.000), 4326), 8));
 
@@ -113,6 +117,10 @@ from (
         (502, (select h3 from test_cells where label = 'synthetic_required_a'), 'route'),
         (503, (select h3 from test_cells where label = 'synthetic_required_b'), 'route'),
         (504, (select h3 from test_cells where label = 'synthetic_required_c'), 'route'),
+        (600, (select h3 from test_cells where label = 'bridge_population_a'), 'population'),
+        (601, (select h3 from test_cells where label = 'bridge_route'), 'route'),
+        (610, (select h3 from test_cells where label = 'bridge_population_b'), 'population'),
+        (611, (select h3 from test_cells where label = 'bridge_seed'), 'seed'),
         (401, (select h3 from test_cells where label = 'close_route_a'), 'route'),
         (402, (select h3 from test_cells where label = 'close_route_b'), 'route')
 ) as towers(tower_id, h3, source);
@@ -161,6 +169,9 @@ from (
         ('synthetic_candidate', 'synthetic_required_a'),
         ('synthetic_candidate', 'synthetic_required_b'),
         ('synthetic_candidate', 'synthetic_required_c'),
+        ('bridge_population_a', 'bridge_route'),
+        ('bridge_population_a', 'bridge_population_b'),
+        ('bridge_population_b', 'bridge_seed'),
         ('close_route_a', 'close_route_b')
 ) as links(src_label, dst_label)
 join test_cells src on src.label = links.src_label

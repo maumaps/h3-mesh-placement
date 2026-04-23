@@ -39,6 +39,18 @@ begin
         raise exception 'Synthetic contraction should preserve external route neighbors 502/503/504';
     end if;
 
+    if not exists (select 1 from mesh_towers where tower_id = 600) then
+        raise exception 'Bridge population anchor 600 should remain because deleting it would break global LOS connectivity between route 601 and seed 611 through population anchor 610';
+    end if;
+
+    if not exists (select 1 from mesh_towers where tower_id = 610) then
+        raise exception 'Bridge population anchor 610 should remain because it has no generated replacement candidate';
+    end if;
+
+    if (select count(*) from mesh_towers where tower_id in (601, 611)) <> 2 then
+        raise exception 'Bridge route 601 and seed 611 should remain while the connectivity-preserving population anchors stay installed';
+    end if;
+
     if (select count(*) from mesh_towers where tower_id in (401, 402)) <> 2 then
         raise exception 'Close route-only pair 401/402 should remain because contraction only processes population-anchor stars';
     end if;
