@@ -190,6 +190,52 @@ def multi_source_distances(
     return best_distances
 
 
+def multi_source_path_costs(
+    start_ids: Iterable[int],
+    allowed_ids: set[int],
+    adjacency: Mapping[int, Mapping[int, float]],
+) -> dict[int, tuple[float, int]]:
+    """Return shortest visible-path cost tuples as (distance_m, hop_count)."""
+
+    best_costs: dict[int, tuple[float, int]] = {}
+    heap: list[tuple[float, int, int]] = []
+
+    for start_id in sorted(set(start_ids)):
+        if start_id not in allowed_ids:
+            continue
+        best_costs[start_id] = (0.0, 0)
+        heap.append((0.0, 0, start_id))
+
+    while heap:
+        total_distance_m, hop_count, tower_id = heappop(heap)
+
+        if (total_distance_m, hop_count) != best_costs.get(
+            tower_id,
+            (float("inf"), 10**9),
+        ):
+            continue
+
+        for neighbor_id, distance_m in adjacency.get(tower_id, {}).items():
+            if neighbor_id not in allowed_ids:
+                continue
+
+            candidate_cost = (
+                total_distance_m + distance_m,
+                hop_count + 1,
+            )
+
+            if candidate_cost >= best_costs.get(
+                neighbor_id,
+                (float("inf"), 10**9),
+            ):
+                continue
+
+            best_costs[neighbor_id] = candidate_cost
+            heappush(heap, (candidate_cost[0], candidate_cost[1], neighbor_id))
+
+    return best_costs
+
+
 def shortest_path_to_targets(
     start_id: int,
     target_ids: set[int],

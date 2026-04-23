@@ -35,9 +35,9 @@ Otherwise it falls back to `mesh_visibility_edges` so the handout does not silen
 When the optional routed-geometry backfill has run, those same long invisible edges also carry a pgRouting corridor line in `geom`, so the handout and QGIS can show the actual surface route the planner would use between the two towers.
 Installed seed towers define the starting backbone.
 Seed-only connectivity defines the initial field clusters.
-Planned towers are assigned to the nearest seed cluster by shortest visible-path distance with deterministic tie-breaking.
-Cluster ownership is global across the live visible graph, so a cross-border visible corridor can legitimately pull a tower into the neighboring country's rollout queue when that path is cheaper than every domestic alternative.
-Cross-country rollout joins are therefore allowed both for cluster ownership and for connector summaries when the visibility graph supports them.
+Planned towers are assigned to the nearest reachable seed cluster by shortest visible-path distance with deterministic tie-breaking.
+When a tower has a known local country code and at least one reachable seed cluster in that same country, ownership stays in the same-country rollout queue even if a cross-border seed path is slightly shorter.
+Cross-country rollout joins are still allowed as connector summaries when the visibility graph supports them, and they remain the fallback ownership path when no same-country seed cluster is reachable.
 If a tower is disconnected from every installed seed, it is still clamped to the geometrically nearest installed seed cluster so the handout can show where that detached island belongs operationally.
 That row is then marked as `blocked` until a visible path from any installed seed exists.
 Inside each cluster, the rollout order is computed greedily from the current frontier.

@@ -23,6 +23,7 @@ from scripts.install_priority_graph_support import (
     component_members,
     connected_components,
     estimate_component_people,
+    multi_source_path_costs,
     restrict_adjacency_to_towers,
     shortest_path_to_targets,
 )
@@ -168,7 +169,7 @@ def _assign_nodes_to_seed_clusters(
     seed_components: Sequence[Sequence[int]],
     allowed_ids: set[int] | None = None,
 ) -> tuple[dict[int, str], dict[str, set[int]]]:
-    """Assign every reachable tower to the cheapest visible path from an installed seed cluster."""
+    """Assign every reachable tower to the nearest eligible installed seed cluster."""
 
     allowed_tower_ids = set(towers_by_id) if allowed_ids is None else set(allowed_ids)
     # Order seed clusters once so tie-breaking stays deterministic.
@@ -179,43 +180,65 @@ def _assign_nodes_to_seed_clusters(
         )
     }
     cluster_members: dict[str, set[int]] = defaultdict(set)
-    best_costs: dict[int, tuple[float, int, int]] = {}
     assignment: dict[int, str] = {}
-    heap: list[tuple[float, int, int, int]] = []
+    cluster_country_codes: dict[str, set[str]] = {}
+    path_costs_by_cluster_key: dict[str, dict[int, tuple[float, int]]] = {}
 
-    # Run a weighted multi-source wave from all installed seed clusters.
-    # Visible path length stays the primary ownership signal so border towers
-    # do not drift into a fewer-hop but much longer rollout corridor.
-    for seed_cluster_key, order_index in sorted(cluster_order.items(), key=lambda item: item[1]):
-        seed_ids = tuple(int(value) for value in seed_cluster_key.removeprefix("seed:").split("+"))
-        for seed_id in seed_ids:
-            if seed_id not in allowed_tower_ids:
-                continue
-            heappush(heap, (0.0, 0, order_index, seed_id))
+    # Precompute seed-to-node path costs once per cluster so ownership can prefer
+    # same-country queues without losing the underlying visible-distance signal.
+    for seed_component in seed_components:
+        current_cluster_key = cluster_key(seed_component)
+        cluster_country_codes[current_cluster_key] = {
+            (towers_by_id[seed_id].country_code or "").strip().lower()
+            for seed_id in seed_component
+            if (towers_by_id[seed_id].country_code or "").strip()
+        }
+        path_costs_by_cluster_key[current_cluster_key] = multi_source_path_costs(
+            start_ids=seed_component,
+            allowed_ids=allowed_tower_ids,
+            adjacency=adjacency,
+        )
 
-    while heap:
-        total_distance_m, hop_count, order_index, tower_id = heappop(heap)
-        candidate_cost = (total_distance_m, hop_count, order_index)
+    ordered_cluster_keys = [
+        current_cluster_key
+        for current_cluster_key, _order_index in sorted(
+            cluster_order.items(),
+            key=lambda item: item[1],
+        )
+    ]
 
-        if tower_id in best_costs and candidate_cost >= best_costs[tower_id]:
+    for tower_id in sorted(allowed_tower_ids):
+        tower_country_code = (towers_by_id[tower_id].country_code or "").strip().lower()
+        reachable_cluster_keys = [
+            current_cluster_key
+            for current_cluster_key in ordered_cluster_keys
+            if tower_id in path_costs_by_cluster_key[current_cluster_key]
+        ]
+
+        if not reachable_cluster_keys:
             continue
 
-        best_costs[tower_id] = candidate_cost
-        assigned_cluster_key = next(
-            key
-            for key, key_order in cluster_order.items()
-            if key_order == order_index
+        same_country_cluster_keys = [
+            current_cluster_key
+            for current_cluster_key in reachable_cluster_keys
+            if tower_country_code
+            and tower_country_code in cluster_country_codes[current_cluster_key]
+        ]
+        eligible_cluster_keys = (
+            same_country_cluster_keys
+            if same_country_cluster_keys
+            else reachable_cluster_keys
+        )
+        assigned_cluster_key = min(
+            eligible_cluster_keys,
+            key=lambda current_cluster_key: (
+                path_costs_by_cluster_key[current_cluster_key][tower_id][0],
+                path_costs_by_cluster_key[current_cluster_key][tower_id][1],
+                cluster_order[current_cluster_key],
+            ),
         )
         assignment[tower_id] = assigned_cluster_key
         cluster_members[assigned_cluster_key].add(tower_id)
-
-        for neighbor_id, distance_m in adjacency.get(tower_id, {}).items():
-            if neighbor_id not in allowed_tower_ids:
-                continue
-            heappush(
-                heap,
-                (total_distance_m + distance_m, hop_count + 1, order_index, neighbor_id),
-            )
 
     # Keep installed seeds inside their final cluster membership even if they had
     # no outbound traversal during the wavefront.

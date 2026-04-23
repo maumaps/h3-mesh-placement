@@ -217,6 +217,43 @@ class InstallPriorityTests(unittest.TestCase):
             msg=f"Route tower 32 should keep the Armenian visible predecessor once cluster assignment follows weighted distance, got row {route_thirty_two_row!r}",
         )
 
+    def test_build_cluster_plan_prefers_same_country_seed_cluster_over_shorter_cross_border_path(self) -> None:
+        """Country-local ownership should beat a slightly shorter cross-border seed path when both are reachable."""
+
+        towers_by_id = {
+            3: TowerRecord(3, "seed", 44.70, 41.70, "Tbilisi", True, country_code="ge", country_name="Georgia"),
+            8: TowerRecord(8, "seed", 44.50, 40.17, "Yerevan", True, country_code="am", country_name="Armenia"),
+            17: TowerRecord(17, "route", 44.72, 41.60, "route #17", False, country_code="ge", country_name="Georgia"),
+            23: TowerRecord(23, "route", 44.30, 40.50, "route #23", False, country_code="am", country_name="Armenia"),
+            30: TowerRecord(30, "route", 44.60, 41.00, "route #30", False, country_code="ge", country_name="Georgia"),
+            32: TowerRecord(32, "route", 44.20, 40.70, "route #32", False, country_code="am", country_name="Armenia"),
+        }
+        adjacency = build_adjacency(
+            [
+                (3, 17, 11823.0),
+                (17, 30, 43648.4),
+                (30, 32, 76372.3),
+                (8, 23, 95809.5),
+                (23, 32, 44819.6),
+            ]
+        )
+
+        plan_rows = build_cluster_plan(towers_by_id, adjacency)
+        route_thirty_two_row = next(
+            row for row in plan_rows if row.tower_id == 32
+        )
+
+        self.assertEqual(
+            route_thirty_two_row.cluster_label,
+            "Yerevan",
+            msg=f"Armenian tower 32 should stay in the Armenian rollout queue when an Armenian seed path exists, even if the Georgian seed path is slightly shorter, got row {route_thirty_two_row!r}",
+        )
+        self.assertEqual(
+            route_thirty_two_row.previous_connection_ids,
+            (23,),
+            msg=f"Armenian tower 32 should connect through the Armenian predecessor when same-country ownership applies, got row {route_thirty_two_row!r}",
+        )
+
     def test_build_cluster_plan_allows_cross_country_rollout_links(self) -> None:
         """Cross-border links should still stay eligible across separate country-local queues."""
 
