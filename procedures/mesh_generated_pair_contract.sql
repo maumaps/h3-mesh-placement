@@ -194,59 +194,47 @@ begin
             continue;
         end if;
 
-        -- Preserve the current live LOS component count: replacing a close
-        -- pair with one synthetic H3 must not split the graph that route
-        -- building already stitched together.
-        with recursive current_towers as (
-            select
-                tower_id,
-                h3
-            from mesh_towers
-        ),
-        current_visible_edges as (
-            select distinct
-                src.tower_id as source_id,
-                dst.tower_id as target_id
-            from current_towers src
-            join current_towers dst on dst.tower_id <> src.tower_id
-            join mesh_los_cache link
-              on link.src_h3 = least(src.h3, dst.h3)
-             and link.dst_h3 = greatest(src.h3, dst.h3)
-             and link.mast_height_src = mast_height
-             and link.mast_height_dst = mast_height
-             and link.frequency_hz = frequency
-             and link.clearance > 0
-             and link.distance_m <= max_distance
-        ),
-        current_walk(root_id, tower_id, path) as (
-            select
-                current_towers.tower_id as root_id,
-                current_towers.tower_id,
-                array[current_towers.tower_id]
-            from current_towers
-
-            union
-
-            select
-                current_walk.root_id,
-                current_visible_edges.target_id,
-                current_walk.path || current_visible_edges.target_id
-            from current_walk
-            join current_visible_edges on current_visible_edges.source_id = current_walk.tower_id
-            where not current_visible_edges.target_id = any(current_walk.path)
-        ),
-        current_components as (
-            select
-                tower_id,
-                min(root_id) as component_id
-            from current_walk
-            group by tower_id
-        )
-        select count(distinct component_id)
-        into current_component_count
-        from current_components;
-
         begin
+            with recursive visible_edges as (
+                select distinct
+                    src.tower_id as source_id,
+                    dst.tower_id as target_id
+                from mesh_towers src
+                join mesh_towers dst on dst.tower_id <> src.tower_id
+                join lateral (
+                    select 1
+                    from mesh_los_cache link
+                    where link.mast_height_src = mast_height
+                      and link.mast_height_dst = mast_height
+                      and link.frequency_hz = frequency
+                      and link.clearance > 0
+                      and link.distance_m <= max_distance
+                      and (
+                            (link.src_h3 = src.h3 and link.dst_h3 = dst.h3)
+                            or (link.src_h3 = dst.h3 and link.dst_h3 = src.h3)
+                        )
+                    limit 1
+                ) link on true
+            ),
+            walk(root_id, tower_id) as (
+                select tower_id, tower_id
+                from mesh_towers
+
+                union
+
+                select walk.root_id, visible_edges.target_id
+                from walk
+                join visible_edges on visible_edges.source_id = walk.tower_id
+            ),
+            components as (
+                select tower_id, min(root_id) as component_id
+                from walk
+                group by tower_id
+            )
+            select count(distinct component_id)
+            into current_component_count
+            from components;
+
             if to_regclass('mesh_tower_wiggle_queue') is not null then
                 delete from mesh_tower_wiggle_queue
                 where tower_id = pair.remove_tower_id;
@@ -263,54 +251,45 @@ begin
             set h3 = replacement.h3
             where tower_id = pair.keep_tower_id;
 
-            with recursive current_towers as (
-                select
-                    tower_id,
-                    h3
-                from mesh_towers
-            ),
-            current_visible_edges as (
+            with recursive visible_edges as (
                 select distinct
                     src.tower_id as source_id,
                     dst.tower_id as target_id
-                from current_towers src
-                join current_towers dst on dst.tower_id <> src.tower_id
-                join mesh_los_cache link
-                  on link.src_h3 = least(src.h3, dst.h3)
-                 and link.dst_h3 = greatest(src.h3, dst.h3)
-                 and link.mast_height_src = mast_height
-                 and link.mast_height_dst = mast_height
-                 and link.frequency_hz = frequency
-                 and link.clearance > 0
-                 and link.distance_m <= max_distance
+                from mesh_towers src
+                join mesh_towers dst on dst.tower_id <> src.tower_id
+                join lateral (
+                    select 1
+                    from mesh_los_cache link
+                    where link.mast_height_src = mast_height
+                      and link.mast_height_dst = mast_height
+                      and link.frequency_hz = frequency
+                      and link.clearance > 0
+                      and link.distance_m <= max_distance
+                      and (
+                            (link.src_h3 = src.h3 and link.dst_h3 = dst.h3)
+                            or (link.src_h3 = dst.h3 and link.dst_h3 = src.h3)
+                        )
+                    limit 1
+                ) link on true
             ),
-            current_walk(root_id, tower_id, path) as (
-                select
-                    current_towers.tower_id as root_id,
-                    current_towers.tower_id,
-                    array[current_towers.tower_id]
-                from current_towers
+            walk(root_id, tower_id) as (
+                select tower_id, tower_id
+                from mesh_towers
 
                 union
 
-                select
-                    current_walk.root_id,
-                    current_visible_edges.target_id,
-                    current_walk.path || current_visible_edges.target_id
-                from current_walk
-                join current_visible_edges on current_visible_edges.source_id = current_walk.tower_id
-                where not current_visible_edges.target_id = any(current_walk.path)
+                select walk.root_id, visible_edges.target_id
+                from walk
+                join visible_edges on visible_edges.source_id = walk.tower_id
             ),
-            current_components as (
-                select
-                    tower_id,
-                    min(root_id) as component_id
-                from current_walk
+            components as (
+                select tower_id, min(root_id) as component_id
+                from walk
                 group by tower_id
             )
             select count(distinct component_id)
             into actual_component_count
-            from current_components;
+            from components;
 
             if actual_component_count > current_component_count then
                 raise exception 'mesh_generated_pair_contract_split: %/% would grow LOS components from % to %',
