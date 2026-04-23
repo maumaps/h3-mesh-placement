@@ -10,7 +10,7 @@ create or replace function mesh_tower_wiggle(reset_run boolean default false)
 as
 $$
 declare
-    max_distance constant double precision := 100000;
+    max_distance double precision := 100000;
     separation_default constant double precision := 0;
     generated_tower_merge_distance double precision := 10000;
     mast_height double precision := 28;
@@ -24,10 +24,20 @@ declare
     merge_target record;
     old_centroid public.geography;
     new_centroid public.geography;
+    current_component_count integer;
+    actual_component_count integer;
+    prune_rejected boolean := false;
 begin
     if to_regclass('mesh_pipeline_settings') is not null then
         -- Read the same RF dimensions used by cache fill and route cleanup so
         -- cached-neighbor preservation checks use the active LOS cache rows.
+        select coalesce((
+            select value::double precision
+            from mesh_pipeline_settings
+            where setting = 'max_los_distance_m'
+        ), 100000)
+        into max_distance;
+
         select greatest(coalesce((
             select value::integer
             from mesh_pipeline_settings
@@ -157,6 +167,7 @@ begin
          and mlc.mast_height_dst = mast_height
          and mlc.frequency_hz = frequency
          and mlc.clearance > 0
+         and mlc.distance_m <= max_distance
         where nb.tower_id <> anchor.tower_id
           and ST_DWithin(nb.centroid_geog, anchor.centroid_geog, max_distance)
     ),
@@ -229,6 +240,7 @@ begin
                           and mlc.mast_height_dst = mast_height
                           and mlc.frequency_hz = frequency
                           and mlc.clearance > 0
+                          and mlc.distance_m <= max_distance
                     )
             )
     ),
@@ -263,6 +275,7 @@ begin
          and candidate_pop_link.mast_height_dst = mast_height
          and candidate_pop_link.frequency_hz = frequency
          and candidate_pop_link.clearance > 0
+         and candidate_pop_link.distance_m <= max_distance
         left join lateral (
             select pop.h3 as pop_h3
             from mesh_towers other_tower
@@ -273,6 +286,7 @@ begin
              and other_pop_link.mast_height_dst = mast_height
              and other_pop_link.frequency_hz = frequency
              and other_pop_link.clearance > 0
+             and other_pop_link.distance_m <= max_distance
             where other_tower.tower_id <> anchor.tower_id
               and ST_DWithin(other_tower.centroid_geog, pop.centroid_geog, max_distance)
             limit 1
@@ -313,6 +327,46 @@ begin
         best.visible_population := anchor.priority_population;
     end if;
 
+    with recursive visible_edges as (
+        select distinct
+            src.tower_id as source_id,
+            dst.tower_id as target_id
+        from mesh_towers src
+        join mesh_towers dst on dst.tower_id <> src.tower_id
+        join lateral (
+            select 1
+            from mesh_los_cache link
+            where link.mast_height_src = mast_height
+              and link.mast_height_dst = mast_height
+              and link.frequency_hz = frequency
+              and link.clearance > 0
+              and link.distance_m <= max_distance
+              and (
+                    (link.src_h3 = src.h3 and link.dst_h3 = dst.h3)
+                    or (link.src_h3 = dst.h3 and link.dst_h3 = src.h3)
+                )
+            limit 1
+        ) link on true
+    ),
+    walk(root_id, tower_id) as (
+        select tower_id, tower_id
+        from mesh_towers
+
+        union
+
+        select walk.root_id, visible_edges.target_id
+        from walk
+        join visible_edges on visible_edges.source_id = walk.tower_id
+    ),
+    components as (
+        select tower_id, min(root_id) as component_id
+        from walk
+        group by tower_id
+    )
+    select count(distinct component_id)
+    into current_component_count
+    from components;
+
     -- If a generated routing tower can collapse into a nearby existing tower
     -- without losing its cached-LOS neighbors, it is redundant. Delete it
     -- instead of moving it into a local back-and-forth blob. The distance
@@ -344,6 +398,7 @@ begin
              and anchor_link.mast_height_dst = mast_height
              and anchor_link.frequency_hz = frequency
              and anchor_link.clearance > 0
+             and anchor_link.distance_m <= max_distance
             where nb.tower_id <> anchor.tower_id
               and nb.tower_id <> merge_target.tower_id
               and ST_DWithin(nb.centroid_geog, anchor.centroid_geog, max_distance)
@@ -356,29 +411,236 @@ begin
                       and merged_link.mast_height_dst = mast_height
                       and merged_link.frequency_hz = frequency
                       and merged_link.clearance > 0
+                      and merged_link.distance_m <= max_distance
                 )
         ) then
-        old_centroid := anchor.centroid_geog;
-        new_centroid := merge_target.centroid_geog;
+        begin
+            old_centroid := anchor.centroid_geog;
+            new_centroid := merge_target.centroid_geog;
 
-        delete from mesh_tower_wiggle_queue
+            delete from mesh_tower_wiggle_queue
+            where tower_id = anchor.tower_id;
+
+            delete from mesh_towers
+            where tower_id = anchor.tower_id;
+
+            with recursive visible_edges as (
+                select distinct
+                    src.tower_id as source_id,
+                    dst.tower_id as target_id
+                from mesh_towers src
+                join mesh_towers dst on dst.tower_id <> src.tower_id
+                join lateral (
+                    select 1
+                    from mesh_los_cache link
+                    where link.mast_height_src = mast_height
+                      and link.mast_height_dst = mast_height
+                      and link.frequency_hz = frequency
+                      and link.clearance > 0
+                      and link.distance_m <= max_distance
+                      and (
+                            (link.src_h3 = src.h3 and link.dst_h3 = dst.h3)
+                            or (link.src_h3 = dst.h3 and link.dst_h3 = src.h3)
+                        )
+                    limit 1
+                ) link on true
+            ),
+            walk(root_id, tower_id) as (
+                select tower_id, tower_id
+                from mesh_towers
+
+                union
+
+                select walk.root_id, visible_edges.target_id
+                from walk
+                join visible_edges on visible_edges.source_id = walk.tower_id
+            ),
+            components as (
+                select tower_id, min(root_id) as component_id
+                from walk
+                group by tower_id
+            )
+            select count(distinct component_id)
+            into actual_component_count
+            from components;
+
+            if actual_component_count > current_component_count then
+                raise exception 'mesh_tower_wiggle_split: pruning tower % would grow LOS components from % to %',
+                    anchor.tower_id,
+                    current_component_count,
+                    actual_component_count;
+            end if;
+
+            update mesh_surface_h3_r8 s
+            set has_tower = false,
+                clearance = null,
+                path_loss = null,
+                visible_population = null,
+                visible_uncovered_population = null
+            where s.h3 = anchor.h3
+              and not exists (
+                    select 1
+                    from mesh_towers mt
+                    where mt.h3 = s.h3
+                );
+
+            with affected_cells as materialized (
+                select h3, centroid_geog
+                from mesh_surface_h3_r8
+                where ST_DWithin(centroid_geog, old_centroid, max_distance)
+                   or ST_DWithin(centroid_geog, new_centroid, max_distance)
+            ),
+            recomputed_distances as (
+                select
+                    ac.h3,
+                    min(ST_Distance(ac.centroid_geog, t.centroid_geog)) as distance_m
+                from affected_cells ac
+                join mesh_towers t on true
+                group by ac.h3
+            )
+            update mesh_surface_h3_r8 s
+            set distance_to_closest_tower = rd.distance_m,
+                clearance = null,
+                path_loss = null,
+                visible_population = null,
+                visible_uncovered_population = case
+                    when s.has_tower then 0
+                    else null
+                end
+            from recomputed_distances rd
+            where s.h3 = rd.h3;
+
+            update mesh_tower_wiggle_queue q
+            set is_dirty = true
+            from mesh_towers nb
+            where nb.tower_id = q.tower_id
+              and nb.source = any(target_sources)
+              and ST_DWithin(nb.centroid_geog, old_centroid, max_distance);
+
+            raise notice 'Wiggle pruned redundant tower % at %, merged into tower % at %',
+                anchor.tower_id,
+                anchor.h3,
+                merge_target.tower_id,
+                merge_target.h3;
+
+            return 1;
+        exception
+            when raise_exception then
+                if sqlerrm like 'mesh_tower_wiggle_split:%' then
+                    prune_rejected := true;
+                    raise notice 'Wiggle skipped pruning tower % at % because it would split the live LOS graph',
+                        anchor.tower_id,
+                        anchor.h3;
+                else
+                    raise;
+                end if;
+        end;
+    end if;
+
+    if best.h3 = anchor.h3 then
+        update mesh_towers
+        set recalculation_count = coalesce(recalculation_count, 0) + 1
         where tower_id = anchor.tower_id;
 
-        delete from mesh_towers
+        update mesh_tower_wiggle_queue
+        set is_dirty = false
         where tower_id = anchor.tower_id;
 
-        update mesh_surface_h3_r8 s
+        processed := 1;
+
+        raise notice 'Wiggle kept tower % at % (score %)',
+            anchor.tower_id,
+            anchor.h3,
+            coalesce(best.visible_population, 0);
+
+        return processed;
+    end if;
+
+    begin
+        -- Persist the move only if the live LOS graph stays in the same number
+        -- of connected components after the tower changes H3.
+        update mesh_towers
+        set h3 = best.h3,
+            recalculation_count = coalesce(recalculation_count, 0) + 1
+        where tower_id = anchor.tower_id;
+
+        with recursive visible_edges as (
+            select distinct
+                src.tower_id as source_id,
+                dst.tower_id as target_id
+            from mesh_towers src
+            join mesh_towers dst on dst.tower_id <> src.tower_id
+            join lateral (
+                select 1
+                from mesh_los_cache link
+                where link.mast_height_src = mast_height
+                  and link.mast_height_dst = mast_height
+                  and link.frequency_hz = frequency
+                  and link.clearance > 0
+                  and link.distance_m <= max_distance
+                  and (
+                        (link.src_h3 = src.h3 and link.dst_h3 = dst.h3)
+                        or (link.src_h3 = dst.h3 and link.dst_h3 = src.h3)
+                    )
+                limit 1
+            ) link on true
+        ),
+        walk(root_id, tower_id) as (
+            select tower_id, tower_id
+            from mesh_towers
+
+            union
+
+            select walk.root_id, visible_edges.target_id
+            from walk
+            join visible_edges on visible_edges.source_id = walk.tower_id
+        ),
+        components as (
+            select tower_id, min(root_id) as component_id
+            from walk
+            group by tower_id
+        )
+        select count(distinct component_id)
+        into actual_component_count
+        from components;
+
+        if actual_component_count > current_component_count then
+            raise exception 'mesh_tower_wiggle_split: moving tower % would grow LOS components from % to %',
+                anchor.tower_id,
+                current_component_count,
+                actual_component_count;
+        end if;
+
+        update mesh_tower_wiggle_queue
+        set is_dirty = false
+        where tower_id = anchor.tower_id;
+
+        raise notice 'Wiggle moving tower % from % to % (visible pop % -> %)',
+            anchor.tower_id,
+            anchor.h3,
+            best.h3,
+            coalesce(anchor.priority_population, 0),
+            coalesce(best.visible_population, 0);
+
+        -- Drop tower flags from the old hex and promote the new one.
+        update mesh_surface_h3_r8
         set has_tower = false,
             clearance = null,
             path_loss = null,
-            visible_population = null,
             visible_uncovered_population = null
-        where s.h3 = anchor.h3
-          and not exists (
-                select 1
-                from mesh_towers mt
-                where mt.h3 = s.h3
-            );
+        where h3 = anchor.h3;
+
+        update mesh_surface_h3_r8
+        set has_tower = true,
+            clearance = null,
+            path_loss = null,
+            visible_uncovered_population = 0,
+            distance_to_closest_tower = 0
+        where h3 = best.h3;
+
+        -- Recompute nearest-tower distances for the region affected by the move.
+        select centroid_geog into old_centroid from mesh_surface_h3_r8 where h3 = anchor.h3;
+        select centroid_geog into new_centroid from mesh_surface_h3_r8 where h3 = best.h3;
 
         with affected_cells as materialized (
             select h3, centroid_geog
@@ -406,125 +668,52 @@ begin
         from recomputed_distances rd
         where s.h3 = rd.h3;
 
+        -- Defer heavy local RF and population refresh to the later route-refresh stage.
+
+        -- Mark cached-LOS neighbors for another pass now that visibility changed.
         update mesh_tower_wiggle_queue q
         set is_dirty = true
         from mesh_towers nb
+        join mesh_los_cache mlc
+          on mlc.src_h3 = least(nb.h3, best.h3)
+         and mlc.dst_h3 = greatest(nb.h3, best.h3)
+         and mlc.mast_height_src = mast_height
+         and mlc.mast_height_dst = mast_height
+         and mlc.frequency_hz = frequency
+         and mlc.clearance > 0
+         and mlc.distance_m <= max_distance
         where nb.tower_id = q.tower_id
+          and nb.tower_id <> anchor.tower_id
           and nb.source = any(target_sources)
-          and ST_DWithin(nb.centroid_geog, old_centroid, max_distance);
-
-        raise notice 'Wiggle pruned redundant tower % at %, merged into tower % at %',
-            anchor.tower_id,
-            anchor.h3,
-            merge_target.tower_id,
-            merge_target.h3;
-
-        return 1;
-    end if;
-
-    if best.h3 = anchor.h3 then
-        update mesh_towers
-        set recalculation_count = coalesce(recalculation_count, 0) + 1
-        where tower_id = anchor.tower_id;
-
-        update mesh_tower_wiggle_queue
-        set is_dirty = false
-        where tower_id = anchor.tower_id;
+          and ST_DWithin(nb.centroid_geog, new_centroid, max_distance);
 
         processed := 1;
 
-        raise notice 'Wiggle kept tower % at % (score %)',
-            anchor.tower_id,
-            anchor.h3,
-            coalesce(best.visible_population, 0);
+        raise notice 'Wiggle deferred local RF and visibility refresh after moving tower %', anchor.tower_id;
 
         return processed;
-    end if;
+    exception
+        when raise_exception then
+            if sqlerrm like 'mesh_tower_wiggle_split:%' then
+                best.h3 := anchor.h3;
+                best.visible_population := anchor.priority_population;
+                raise notice 'Wiggle kept tower % at % because moving it would split the live LOS graph',
+                    anchor.tower_id,
+                    anchor.h3;
+            else
+                raise;
+            end if;
+    end;
 
-    -- Persist the move and bump the recalculation counter.
     update mesh_towers
-    set h3 = best.h3,
-        recalculation_count = coalesce(recalculation_count, 0) + 1
+    set recalculation_count = coalesce(recalculation_count, 0) + 1
     where tower_id = anchor.tower_id;
 
     update mesh_tower_wiggle_queue
     set is_dirty = false
     where tower_id = anchor.tower_id;
 
-    raise notice 'Wiggle moving tower % from % to % (visible pop % -> %)',
-        anchor.tower_id,
-        anchor.h3,
-        best.h3,
-        coalesce(anchor.priority_population, 0),
-        coalesce(best.visible_population, 0);
-
-    -- Drop tower flags from the old hex and promote the new one.
-    update mesh_surface_h3_r8
-    set has_tower = false,
-        clearance = null,
-        path_loss = null,
-        visible_uncovered_population = null
-    where h3 = anchor.h3;
-
-    update mesh_surface_h3_r8
-    set has_tower = true,
-        clearance = null,
-        path_loss = null,
-        visible_uncovered_population = 0,
-        distance_to_closest_tower = 0
-    where h3 = best.h3;
-
-    -- Recompute nearest-tower distances for the region affected by the move.
-    select centroid_geog into old_centroid from mesh_surface_h3_r8 where h3 = anchor.h3;
-    select centroid_geog into new_centroid from mesh_surface_h3_r8 where h3 = best.h3;
-
-    with affected_cells as materialized (
-        select h3, centroid_geog
-        from mesh_surface_h3_r8
-        where ST_DWithin(centroid_geog, old_centroid, max_distance)
-           or ST_DWithin(centroid_geog, new_centroid, max_distance)
-    ),
-    recomputed_distances as (
-        select
-            ac.h3,
-            min(ST_Distance(ac.centroid_geog, t.centroid_geog)) as distance_m
-        from affected_cells ac
-        join mesh_towers t on true
-        group by ac.h3
-    )
-    update mesh_surface_h3_r8 s
-    set distance_to_closest_tower = rd.distance_m,
-        clearance = null,
-        path_loss = null,
-        visible_population = null,
-        visible_uncovered_population = case
-            when s.has_tower then 0
-            else null
-        end
-    from recomputed_distances rd
-    where s.h3 = rd.h3;
-
-    -- Defer heavy local RF and population refresh to the later route-refresh stage.
-
-    -- Mark cached-LOS neighbors for another pass now that visibility changed.
-    update mesh_tower_wiggle_queue q
-    set is_dirty = true
-    from mesh_towers nb
-    join mesh_los_cache mlc
-      on mlc.src_h3 = least(nb.h3, best.h3)
-     and mlc.dst_h3 = greatest(nb.h3, best.h3)
-     and mlc.mast_height_src = mast_height
-     and mlc.mast_height_dst = mast_height
-     and mlc.frequency_hz = frequency
-     and mlc.clearance > 0
-    where nb.tower_id = q.tower_id
-      and nb.tower_id <> anchor.tower_id
-      and nb.source = any(target_sources)
-      and ST_DWithin(nb.centroid_geog, new_centroid, max_distance);
-
     processed := 1;
-
-    raise notice 'Wiggle deferred local RF and visibility refresh after moving tower %', anchor.tower_id;
 
     return processed;
 end;
