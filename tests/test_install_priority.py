@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 
 from scripts.install_priority_connectors import select_inter_cluster_connectors
+from scripts.install_priority_cluster_helpers import pending_connector_ids
 from scripts.install_priority_lib import (
     EndpointObservation,
     TowerRecord,
@@ -319,38 +320,51 @@ class InstallPriorityTests(unittest.TestCase):
             msg=f"Gyumri queue should still start toward the best visible connector when the best remaining join is cross-country, got next rows {next_rows!r} from rows {plan_rows!r}",
         )
 
-    def test_build_cluster_plan_prefers_same_country_join_before_cross_country_join(self) -> None:
-        """A same-country corridor should outrank a cheaper cross-country detour."""
+    def test_pending_connector_ids_prefers_lowest_cost_join_even_cross_country(self) -> None:
+        """Connector targeting should not bias the rollout toward same-country peers."""
 
         towers_by_id = {
             1: TowerRecord(1, "seed", 41.60, 41.70, "Batumi", True, country_code="ge", country_name="Georgia"),
             2: TowerRecord(2, "route", 41.61, 41.71, "route #2", False, country_code="ge", country_name="Georgia"),
             10: TowerRecord(10, "seed", 42.10, 42.20, "Tbilisi", True, country_code="ge", country_name="Georgia"),
             11: TowerRecord(11, "route", 42.11, 42.21, "route #11", False, country_code="ge", country_name="Georgia"),
+            12: TowerRecord(12, "route", 42.12, 42.22, "route #12", False, country_code="ge", country_name="Georgia"),
             20: TowerRecord(20, "seed", 43.80, 40.79, "Gyumri", True, country_code="am", country_name="Armenia"),
             21: TowerRecord(21, "route", 43.81, 40.80, "route #21", False, country_code="am", country_name="Armenia"),
         }
-        adjacency = build_adjacency(
+        full_adjacency = build_adjacency(
             [
-                (1, 2, 1000.0),
                 (10, 11, 1000.0),
+                (10, 12, 1000.0),
+                (11, 2, 8000.0),
+                (12, 21, 1000.0),
+                (1, 2, 1000.0),
                 (20, 21, 1000.0),
-                (2, 11, 8000.0),
-                (11, 21, 1000.0),
             ]
         )
 
-        plan_rows = build_cluster_plan(towers_by_id, adjacency)
-        next_rows = {
-            row.cluster_label: row.tower_id
-            for row in plan_rows
-            if row.is_next_for_cluster
+        cluster_by_tower_id = {
+            1: "seed:1",
+            2: "seed:1",
+            10: "seed:10",
+            11: "seed:10",
+            12: "seed:10",
+            20: "seed:20",
+            21: "seed:20",
         }
+        target_boundary_ids = pending_connector_ids(
+            active_ids={10},
+            cluster_by_tower_id=cluster_by_tower_id,
+            cluster_key="seed:10",
+            full_adjacency=full_adjacency,
+            remaining_ids={11, 12},
+            towers_by_id=towers_by_id,
+        )
 
         self.assertEqual(
-            next_rows["Tbilisi"],
-            11,
-            msg=f"Tbilisi should start toward the Batumi-side Georgian corridor before chasing the cheaper Armenian detour, got next rows {next_rows!r} from rows {plan_rows!r}",
+            target_boundary_ids,
+            {12},
+            msg=f"Connector targeting should choose the cheapest join boundary even when it crosses a country boundary, got {target_boundary_ids!r}",
         )
 
     def test_build_cluster_plan_prefers_lowest_cost_cluster_join_over_lower_id_boundary(self) -> None:

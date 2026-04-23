@@ -15,13 +15,13 @@ from scripts.install_priority_graph_support import (
 
 
 def compose_cluster_key(country_code: str, cluster_key: str) -> str:
-    """Keep historical call sites working while rollout queues stay country-local."""
+    """Keep historical call sites working while rollout queues stay global."""
 
     return cluster_key
 
 
 def compose_cluster_label(country_prefix: str, cluster_label: str) -> str:
-    """Keep historical call sites working while rollout queues stay country-local."""
+    """Keep historical call sites working while rollout queues stay global."""
 
     return cluster_label
 
@@ -43,7 +43,7 @@ def country_label(
     tower_ids: set[int],
     towers_by_id: Mapping[int, Any],
 ) -> str:
-    """Pick one deterministic human country label for a country-local queue."""
+    """Pick one deterministic human country label for diagnostics only."""
 
     for tower_id in sorted(tower_ids):
         tower = towers_by_id[tower_id]
@@ -112,15 +112,6 @@ def pending_connector_ids(
     for tower_id, tower_cluster_key in cluster_by_tower_id.items():
         cluster_members_by_key[tower_cluster_key].add(tower_id)
 
-    cluster_country_by_key = {
-        current_cluster_key: _cluster_country_code(
-            tower_ids=tower_ids,
-            towers_by_id=towers_by_id,
-        )
-        for current_cluster_key, tower_ids in cluster_members_by_key.items()
-    }
-    own_country_code = cluster_country_by_key.get(cluster_key, "")
-
     own_cluster_ids = cluster_members_by_key.get(cluster_key, set())
     own_seed_ids = {
         tower_id
@@ -169,12 +160,6 @@ def pending_connector_ids(
                 continue
 
             score = (
-                0
-                if (
-                    own_country_code
-                    and cluster_country_by_key.get(peer_cluster_key, "") == own_country_code
-                )
-                else 1,
                 connector_edge_priority(
                     towers_by_id[tower_id].source,
                     towers_by_id[neighbor_id].source,
