@@ -7,7 +7,10 @@ with allowed_initial_nodes as (
     select
         mesh_initial_nodes.geom,
         mesh_initial_nodes.name,
-        mesh_initial_nodes.source
+        case
+            when coalesce(mesh_initial_nodes.source, 'curated') = 'mqtt' then 'mqtt'
+            else 'seed'
+        end as source
     from mesh_initial_nodes
     cross join georgia_boundary
     where coalesce(mesh_initial_nodes.source, 'curated') <> 'mqtt'
@@ -16,33 +19,36 @@ with allowed_initial_nodes as (
             georgia_boundary.geom::geography,
             100000
         )
+), grouped_initial_nodes as (
+    -- Prefer curated/seed names whenever a cell contains both seed and MQTT points.
+    select
+        h3_latlng_to_cell(geom, 8) as h3,
+        bool_or(source = 'seed') as has_seed,
+        string_agg(
+            coalesce(name, 'seed'),
+            ', '
+            order by coalesce(name, 'seed')
+        ) filter (
+            where source = 'seed'
+        ) as seed_names,
+        string_agg(
+            coalesce(name, 'seed'),
+            ', '
+            order by coalesce(name, 'seed')
+        ) as all_names,
+        ST_Collect(geom) as geom
+    from allowed_initial_nodes
+    group by 1
 )
 select
-    h3_latlng_to_cell(geom, 8) as h3,
+    h3,
+    coalesce(seed_names, all_names) as name,
     case
-        when bool_or(coalesce(source, 'curated') <> 'mqtt') then
-            string_agg(
-                coalesce(name, 'seed'),
-                ', '
-                order by coalesce(name, 'seed')
-            ) filter (
-                where coalesce(source, 'curated') <> 'mqtt'
-            )
-        else
-            string_agg(
-                coalesce(name, 'seed'),
-                ', '
-                order by coalesce(name, 'seed')
-            )
-    end as name,
-    case
-        when bool_or(coalesce(source, 'curated') <> 'mqtt') then 'seed'
-        when bool_or(source = 'mqtt') then 'mqtt'
-        else 'seed'
+        when has_seed then 'seed'
+        else 'mqtt'
     end as source,
-    ST_Collect(geom) as geom
-from allowed_initial_nodes
-group by 1;
+    geom
+from grouped_initial_nodes;
 alter table mesh_initial_nodes_h3_r8 add primary key (h3);
 
 delete from mesh_towers t
