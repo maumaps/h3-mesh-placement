@@ -191,6 +191,7 @@ Also filters pairs to clusters that share a precomputed connected component in `
 Each invocation also caps how many failed cluster-pair attempts it will burn through before returning, so the iterative pipeline keeps moving even when the current route graph is still sparse.
 Inside one attempt, routing is anchored on the nearest tower-node pair between the two clusters instead of every tower in both clusters, which keeps each `pgr_dijkstra` call tractable.
 After route towers are inserted, local surface visibility/reception refresh is deferred to the later route-refresh stage instead of being recomputed synchronously inside bridge.
+The stage then runs `scripts/assert_mesh_towers_single_los_component.sql`, which checks live `mesh_towers` against cached positive-clearance LOS links and fails if the route graph has more than one connected component.
 
 ### Cluster slim (`mesh_route_cluster_slim`)
 **Where:** `procedures/mesh_route_cluster_slim.sql`, `tables/mesh_route_cluster_slim_failures.sql`.
@@ -198,6 +199,7 @@ After route towers are inserted, local surface visibility/reception refresh is d
 **Why:** The 7-hop budget is a hard design constraint, so the graph must be “tightened” before maximizing population.
 **Optimization:** Processes a bounded candidate batch per iteration and reuses existing towers on a corridor.
 Like bridge, it now defers local surface and visibility refresh to the later route-refresh stage instead of recomputing them synchronously inside each cluster-slim iteration.
+After each cluster-slim run, the same single-component assertion verifies that tightening did not strand any live tower.
 
 
 ### Route segment reroute (`mesh_route_segment_reroute`)
@@ -210,6 +212,7 @@ This covers cases that single-node `mesh_tower_wiggle` cannot fix because each e
 
 **Data safety:** The pass reads only `mesh_los_cache` for RF feasibility.
 It updates `mesh_towers` and invalidates local `mesh_surface_h3_r8` metrics around old and new relay cells, then the pipeline refreshes `mesh_visibility_edges`.
+Because this stage can move live route towers, it runs the single-component assertion before the route marker is touched.
 
 ### LOS cache backup (`backup_mesh_los_cache`)
 **Where:** `scripts/backup_mesh_los_cache.sh`, `scripts/restore_mesh_los_cache.sh`.

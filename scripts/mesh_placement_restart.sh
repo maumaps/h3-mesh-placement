@@ -97,22 +97,28 @@ psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_route_bootstrap.sql
 
 echo ">> Applying configured route bridge stage"
 scripts/mesh_route_bridge_configured.sh
+psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 
 echo ">> Applying configured cluster-slim stage"
 PGOPTIONS="${PGOPTIONS:-} -c statement_timeout=0" psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_route_cluster_slim.sql
 scripts/mesh_route_cluster_slim_configured.sh
+psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 
 echo ">> Contracting soft population anchors"
 psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_population_anchor_contract.sql
+psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 
 echo ">> Contracting generated tower pairs"
 psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_generated_pair_contract.sql
+psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 
 echo ">> Rerouting local route relay segments"
 psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_route_segment_reroute.sql
+psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 
 echo ">> Refreshing route visibility diagnostics"
 psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_visibility_edges_refresh.sql
+psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 
 echo ">> Applying configured greedy stage"
 scripts/mesh_run_greedy_configured.sh
@@ -120,6 +126,7 @@ scripts/mesh_run_greedy_configured.sh
 echo ">> Applying configured tower wiggle stage"
 psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_tower_wiggle.sql
 scripts/mesh_tower_wiggle_configured.sh
+psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 
 trap - EXIT
 psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "drop table if exists ${tower_backup}; drop table if exists ${surface_backup};" >/dev/null

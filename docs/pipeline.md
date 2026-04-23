@@ -49,6 +49,8 @@ The key stage order is:
 - Seed `mesh_los_cache` from those bootstrap pairs first (`mesh_route_bootstrap`).
 - Cache LOS metrics and build routing graph (`fill_mesh_los_cache`).
 - Connect clusters (`mesh_route_bridge`) and tighten hop counts (`mesh_route_cluster_slim`), preferring same-country route work before cross-country fallback links, then contract soft population anchors, close generated route pairs whose cached LOS-neighbor roles are preserved, and reroute local two-relay route segments when a better cached-LOS relay pair exists.
+- After `mesh_route_bridge` and every later route-mutating stage, run `scripts/assert_mesh_towers_single_los_component.sql` against live `mesh_towers` and cached positive-clearance LOS links.
+  The route pipeline must keep all live towers in one LOS-connected component; any disconnected tower fails the stage before the next marker is touched.
 - Apply the configured greedy placement loop (`mesh_run_greedy_prepare` + iterative `mesh_run_greedy` + `mesh_run_greedy_finalize`) via `mesh_run_greedy_full`; the checked-in config currently disables this stage and removes stale `source = 'greedy'` towers on restart.
 - Apply the configured local routed-tower refinement (`mesh_tower_wiggle`) after routing and greedy cleanup; the checked-in config currently enables it via `enable_wiggle=true`.
 

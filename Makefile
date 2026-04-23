@@ -440,7 +440,7 @@ db/procedure/mesh_population: procedures/mesh_population.sql db/procedure/mesh_c
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_population.sql
 	touch db/procedure/mesh_population
 
-db/procedure/mesh_placement_restart: scripts/mesh_placement_restart.sh procedures/mesh_coarse_grid.sql procedures/mesh_population.sql tables/mesh_route_bootstrap_pairs.sql scripts/mesh_route_bootstrap.sql scripts/mesh_route_bridge_configured.sh procedures/mesh_route_cluster_slim.sql scripts/mesh_route_cluster_slim_configured.sh procedures/mesh_population_anchor_contract.sql procedures/mesh_generated_pair_contract.sql procedures/mesh_route_segment_reroute.sql scripts/mesh_visibility_edges_refresh.sql scripts/mesh_run_greedy_configured.sh procedures/mesh_tower_wiggle.sql scripts/mesh_tower_wiggle_configured.sh | db/procedure ## Safely replay configured placement stages without rebuilding cached tables
+db/procedure/mesh_placement_restart: scripts/mesh_placement_restart.sh procedures/mesh_coarse_grid.sql procedures/mesh_population.sql tables/mesh_route_bootstrap_pairs.sql scripts/mesh_route_bootstrap.sql scripts/mesh_route_bridge_configured.sh procedures/mesh_route_cluster_slim.sql scripts/mesh_route_cluster_slim_configured.sh procedures/mesh_population_anchor_contract.sql procedures/mesh_generated_pair_contract.sql procedures/mesh_route_segment_reroute.sql scripts/mesh_visibility_edges_refresh.sql scripts/mesh_run_greedy_configured.sh procedures/mesh_tower_wiggle.sql scripts/mesh_tower_wiggle_configured.sh scripts/assert_mesh_towers_single_los_component.sql | db/procedure ## Safely replay configured placement stages without rebuilding cached tables
 	scripts/mesh_placement_restart.sh
 	touch db/procedure/mesh_population
 	touch db/table/mesh_route_bootstrap_pairs
@@ -509,18 +509,21 @@ db/procedure/fill_mesh_los_cache_backfill: scripts/fill_mesh_los_cache_prepare.s
 db/procedure/fill_mesh_los_cache_resume: scripts/fill_mesh_los_cache_batch.sql scripts/fill_mesh_los_cache_finalize.sql db/procedure/fill_mesh_los_cache_backfill | db/procedure ## Backward-compatible alias for manual LOS cache backfill
 	touch db/procedure/fill_mesh_los_cache_resume
 
-db/procedure/mesh_route_bridge: procedures/mesh_route_bridge.sql scripts/mesh_route_bridge_configured.sh db/procedure/fill_mesh_los_cache_ready db/function/mesh_surface_refresh_reception_metrics db/function/mesh_surface_refresh_visible_tower_counts db/table/mesh_pipeline_settings | db/procedure ## Apply configured route-bridge tower stage
+db/procedure/mesh_route_bridge: procedures/mesh_route_bridge.sql scripts/mesh_route_bridge_configured.sh scripts/assert_mesh_towers_single_los_component.sql db/procedure/fill_mesh_los_cache_ready db/function/mesh_surface_refresh_reception_metrics db/function/mesh_surface_refresh_visible_tower_counts db/table/mesh_pipeline_settings | db/procedure ## Apply configured route-bridge tower stage
 	scripts/mesh_route_bridge_configured.sh
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 	touch db/procedure/mesh_route_bridge
 
-db/procedure/mesh_tower_wiggle: procedures/mesh_tower_wiggle.sql scripts/mesh_tower_wiggle_configured.sh db/procedure/mesh_route db/procedure/mesh_route_cluster_slim db/procedure/mesh_visibility_edges_refresh db/function/mesh_surface_fill_visible_population db/function/mesh_surface_refresh_reception_metrics db/function/mesh_surface_refresh_visible_tower_counts db/table/mesh_surface_h3_r8 db/table/mesh_towers db/table/mesh_visibility_edges db/table/mesh_pipeline_settings | db/procedure ## Apply configured tower-wiggle refinement stage
+db/procedure/mesh_tower_wiggle: procedures/mesh_tower_wiggle.sql scripts/mesh_tower_wiggle_configured.sh scripts/assert_mesh_towers_single_los_component.sql db/procedure/mesh_route db/procedure/mesh_route_cluster_slim db/procedure/mesh_visibility_edges_refresh db/function/mesh_surface_fill_visible_population db/function/mesh_surface_refresh_reception_metrics db/function/mesh_surface_refresh_visible_tower_counts db/table/mesh_surface_h3_r8 db/table/mesh_towers db/table/mesh_visibility_edges db/table/mesh_pipeline_settings | db/procedure ## Apply configured tower-wiggle refinement stage
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_tower_wiggle.sql
 	scripts/mesh_tower_wiggle_configured.sh
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 	touch db/procedure/mesh_tower_wiggle
 
-db/procedure/mesh_tower_wiggle_current: procedures/mesh_tower_wiggle.sql scripts/mesh_tower_wiggle_configured.sh db/table/mesh_pipeline_settings | db/procedure ## Replay tower-wiggle on current towers without rebuilding route inputs
+db/procedure/mesh_tower_wiggle_current: procedures/mesh_tower_wiggle.sql scripts/mesh_tower_wiggle_configured.sh scripts/assert_mesh_towers_single_los_component.sql db/table/mesh_pipeline_settings | db/procedure ## Replay tower-wiggle on current towers without rebuilding route inputs
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_tower_wiggle.sql
 	scripts/mesh_tower_wiggle_configured.sh
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 	touch db/procedure/mesh_tower_wiggle
 	touch db/procedure/mesh_tower_wiggle_current
 
@@ -541,50 +544,60 @@ db/table/mesh_route_cluster_slim_failures: tables/mesh_route_cluster_slim_failur
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/mesh_route_cluster_slim_failures.sql
 	touch db/table/mesh_route_cluster_slim_failures
 
-db/procedure/mesh_route_cluster_slim: procedures/mesh_route_cluster_slim.sql scripts/mesh_route_cluster_slim_configured.sh db/table/mesh_route_cluster_slim_failures db/procedure/mesh_route_bridge db/procedure/fill_mesh_los_cache_ready db/function/mesh_route_corridor_between_towers db/function/mesh_surface_refresh_reception_metrics db/function/mesh_surface_refresh_visible_tower_counts db/procedure/mesh_visibility_edges_refresh db/table/mesh_pipeline_settings | db/procedure ## Apply configured cluster-slim tower stage
+db/procedure/mesh_route_cluster_slim: procedures/mesh_route_cluster_slim.sql scripts/mesh_route_cluster_slim_configured.sh scripts/assert_mesh_towers_single_los_component.sql db/table/mesh_route_cluster_slim_failures db/procedure/mesh_route_bridge db/procedure/fill_mesh_los_cache_ready db/function/mesh_route_corridor_between_towers db/function/mesh_surface_refresh_reception_metrics db/function/mesh_surface_refresh_visible_tower_counts db/procedure/mesh_visibility_edges_refresh db/table/mesh_pipeline_settings | db/procedure ## Apply configured cluster-slim tower stage
 	bash -lc 'set -euo pipefail; PGOPTIONS="$${PGOPTIONS:-} -c statement_timeout=0" psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_route_cluster_slim.sql'
 	scripts/mesh_route_cluster_slim_configured.sh
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 	touch db/procedure/mesh_route_cluster_slim
 
-db/procedure/mesh_population_anchor_contract: procedures/mesh_population_anchor_contract.sql db/procedure/mesh_route_cluster_slim db/table/mesh_pipeline_settings | db/procedure ## Contract soft population anchors when generated route towers preserve cached LOS neighbors
+db/procedure/mesh_population_anchor_contract: procedures/mesh_population_anchor_contract.sql scripts/assert_mesh_towers_single_los_component.sql db/procedure/mesh_route_cluster_slim db/table/mesh_pipeline_settings | db/procedure ## Contract soft population anchors when generated route towers preserve cached LOS neighbors
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_population_anchor_contract.sql
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 	touch db/procedure/mesh_population_anchor_contract
 
-db/procedure/mesh_population_anchor_contract_current: procedures/mesh_population_anchor_contract.sql | db/procedure ## Contract soft population anchors on current towers without replaying route stages
+db/procedure/mesh_population_anchor_contract_current: procedures/mesh_population_anchor_contract.sql scripts/assert_mesh_towers_single_los_component.sql | db/procedure ## Contract soft population anchors on current towers without replaying route stages
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_population_anchor_contract.sql
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 	touch db/procedure/mesh_population_anchor_contract
 	touch db/procedure/mesh_population_anchor_contract_current
 
-db/procedure/mesh_generated_pair_contract: procedures/mesh_generated_pair_contract.sql db/procedure/mesh_population_anchor_contract db/table/mesh_pipeline_settings | db/procedure ## Contract close generated tower pairs when one H3 preserves their combined cached LOS role
+db/procedure/mesh_generated_pair_contract: procedures/mesh_generated_pair_contract.sql scripts/assert_mesh_towers_single_los_component.sql db/procedure/mesh_population_anchor_contract db/table/mesh_pipeline_settings | db/procedure ## Contract close generated tower pairs when one H3 preserves their combined cached LOS role
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_generated_pair_contract.sql
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 	touch db/procedure/mesh_generated_pair_contract
 
 
-db/procedure/mesh_generated_pair_contract_current: procedures/mesh_generated_pair_contract.sql | db/procedure ## Contract generated tower pairs on current towers without replaying route stages
+db/procedure/mesh_generated_pair_contract_current: procedures/mesh_generated_pair_contract.sql scripts/assert_mesh_towers_single_los_component.sql | db/procedure ## Contract generated tower pairs on current towers without replaying route stages
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_generated_pair_contract.sql
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 	touch db/procedure/mesh_generated_pair_contract
 	touch db/procedure/mesh_generated_pair_contract_current
 
-db/procedure/mesh_route_segment_reroute: procedures/mesh_route_segment_reroute.sql db/procedure/mesh_generated_pair_contract db/table/mesh_pipeline_settings | db/procedure ## Reroute local two-relay route chains to better cached-LOS relay pairs
+db/procedure/mesh_route_segment_reroute: procedures/mesh_route_segment_reroute.sql scripts/assert_mesh_towers_single_los_component.sql db/procedure/mesh_generated_pair_contract db/table/mesh_pipeline_settings | db/procedure ## Reroute local two-relay route chains to better cached-LOS relay pairs
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_route_segment_reroute.sql
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 	touch db/procedure/mesh_route_segment_reroute
 
 
-db/procedure/mesh_route_segment_reroute_current: procedures/mesh_route_segment_reroute.sql db/table/mesh_pipeline_settings | db/procedure ## Reroute local two-relay route chains on current towers without replaying route stages
+db/procedure/mesh_route_segment_reroute_current: procedures/mesh_route_segment_reroute.sql scripts/assert_mesh_towers_single_los_component.sql db/table/mesh_pipeline_settings | db/procedure ## Reroute local two-relay route chains on current towers without replaying route stages
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_route_segment_reroute.sql
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 	touch db/procedure/mesh_route_segment_reroute
 	touch db/procedure/mesh_route_segment_reroute_current
 
 
-db/procedure/mesh_route_refresh_visibility: scripts/mesh_visibility_edges_refresh.sql db/table/mesh_visibility_edges db/procedure/mesh_route_segment_reroute db/procedure/mesh_visibility_edges_refresh | db/procedure ## Rebuild core visibility diagnostics after routing stages
+db/procedure/mesh_route_refresh_visibility: scripts/mesh_visibility_edges_refresh.sql scripts/assert_mesh_towers_single_los_component.sql db/table/mesh_visibility_edges db/procedure/mesh_route_segment_reroute db/procedure/mesh_visibility_edges_refresh | db/procedure ## Rebuild core visibility diagnostics after routing stages
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_visibility_edges_refresh.sql
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 	touch db/procedure/mesh_route_refresh_visibility
 
-db/procedure/mesh_route_refresh_visibility_current: scripts/mesh_visibility_edges_refresh.sql | db/procedure ## Refresh current visibility diagnostics without replaying route stages
+db/procedure/mesh_route_refresh_visibility_current: scripts/mesh_visibility_edges_refresh.sql scripts/assert_mesh_towers_single_los_component.sql | db/procedure ## Refresh current visibility diagnostics without replaying route stages
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_visibility_edges_refresh.sql
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 	touch db/procedure/mesh_route_refresh_visibility_current
 
-db/procedure/mesh_route: db/procedure/mesh_route_refresh_visibility | db/procedure ## Build PG routing bridges between tower clusters
+db/procedure/mesh_route: scripts/assert_mesh_towers_single_los_component.sql db/procedure/mesh_route_refresh_visibility | db/procedure ## Build PG routing bridges between tower clusters
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 	touch db/procedure/mesh_route
 
 db/procedure/mesh_run_greedy: scripts/mesh_run_greedy_configured.sh procedures/mesh_run_greedy_prepare.sql procedures/mesh_run_greedy.sql procedures/mesh_run_greedy_finalize.sql scripts/mesh_visibility_edges_refresh.sql db/procedure/mesh_route db/table/mesh_visibility_edges db/table/mesh_surface_h3_r8 db/table/mesh_greedy_iterations db/function/mesh_surface_refresh_reception_metrics db/function/mesh_surface_refresh_visible_tower_counts db/function/mesh_surface_fill_visible_population db/table/mesh_initial_nodes_h3_r8 db/table/mesh_pipeline_settings | db/procedure ## Apply configured default greedy placement policy

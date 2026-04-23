@@ -338,12 +338,12 @@ class PipelineRegressionTest(unittest.TestCase):
             "Downstream routing stages should depend on a stable cache-ready marker instead of pulling the whole cache prepare/batch/finalize chain back into route recalculation.",
         )
         self.assertIn(
-            "db/procedure/mesh_route_bridge: procedures/mesh_route_bridge.sql scripts/mesh_route_bridge_configured.sh db/procedure/fill_mesh_los_cache_ready",
+            "db/procedure/mesh_route_bridge: procedures/mesh_route_bridge.sql scripts/mesh_route_bridge_configured.sh scripts/assert_mesh_towers_single_los_component.sql db/procedure/fill_mesh_los_cache_ready",
             makefile_text,
             "mesh_route_bridge should consume the materialized route graph marker without forcing another LOS cache batch when towers are recalculated from a completed cache.",
         )
         self.assertIn(
-            "db/procedure/mesh_route_cluster_slim: procedures/mesh_route_cluster_slim.sql scripts/mesh_route_cluster_slim_configured.sh db/table/mesh_route_cluster_slim_failures db/procedure/mesh_route_bridge db/procedure/fill_mesh_los_cache_ready",
+            "db/procedure/mesh_route_cluster_slim: procedures/mesh_route_cluster_slim.sql scripts/mesh_route_cluster_slim_configured.sh scripts/assert_mesh_towers_single_los_component.sql db/table/mesh_route_cluster_slim_failures db/procedure/mesh_route_bridge db/procedure/fill_mesh_los_cache_ready",
             makefile_text,
             "mesh_route_cluster_slim should share the same cache-ready marker so downstream tower recalculation does not restart LOS cache preparation.",
         )
@@ -783,12 +783,12 @@ class PipelineRegressionTest(unittest.TestCase):
             "mesh_population test should stay off the destructive placement restart pipeline.",
         )
         self.assertIn(
-            "db/procedure/mesh_route_refresh_visibility_current: scripts/mesh_visibility_edges_refresh.sql | db/procedure",
+            "db/procedure/mesh_route_refresh_visibility_current: scripts/mesh_visibility_edges_refresh.sql scripts/assert_mesh_towers_single_los_component.sql | db/procedure",
             makefile_text,
             "Makefile should provide a current visibility refresh target after wiggle that does not replay route or rebuild surface tables.",
         )
         self.assertIn(
-            "db/procedure/mesh_population_anchor_contract_current: procedures/mesh_population_anchor_contract.sql | db/procedure",
+            "db/procedure/mesh_population_anchor_contract_current: procedures/mesh_population_anchor_contract.sql scripts/assert_mesh_towers_single_los_component.sql | db/procedure",
             makefile_text,
             "Makefile should provide a current population-anchor contraction target that does not replay route stages.",
         )
@@ -798,7 +798,7 @@ class PipelineRegressionTest(unittest.TestCase):
             "mesh_generated_pair_contract test should run setup, production contraction, and assertions in one psql session so temp fixtures survive.",
         )
         self.assertIn(
-            "db/procedure/mesh_generated_pair_contract_current: procedures/mesh_generated_pair_contract.sql | db/procedure",
+            "db/procedure/mesh_generated_pair_contract_current: procedures/mesh_generated_pair_contract.sql scripts/assert_mesh_towers_single_los_component.sql | db/procedure",
             makefile_text,
             "Makefile should provide a current generated-pair contraction target that does not replay route stages.",
         )
@@ -1494,6 +1494,65 @@ class PipelineRegressionTest(unittest.TestCase):
             [],
             offenders,
             f"mesh_los_cache is multi-day state and must not appear in drop/truncate statements; offending files: {offenders!r}",
+        )
+
+    def test_route_mutating_targets_assert_single_los_component(self) -> None:
+        """Every post-route mutating Make target should enforce the live LOS graph invariant."""
+        makefile_text = (REPO_ROOT / "Makefile").read_text()
+        invariant_script = "scripts/assert_mesh_towers_single_los_component.sql"
+        targets = [
+            "db/procedure/mesh_route_bridge",
+            "db/procedure/mesh_route_cluster_slim",
+            "db/procedure/mesh_population_anchor_contract",
+            "db/procedure/mesh_generated_pair_contract",
+            "db/procedure/mesh_route_segment_reroute",
+            "db/procedure/mesh_route_refresh_visibility",
+            "db/procedure/mesh_route",
+            "db/procedure/mesh_tower_wiggle",
+        ]
+
+        for target in targets:
+            block_match = re.search(
+                rf"^{re.escape(target)}:.*?(?=^\S|\Z)",
+                makefile_text,
+                flags=re.M | re.S,
+            )
+
+            self.assertIsNotNone(
+                block_match,
+                f"Expected Make target {target} to exist so the LOS component invariant can be enforced.",
+            )
+            self.assertIn(
+                invariant_script,
+                block_match.group(0),
+                f"Make target {target} must run {invariant_script} after it can mutate live tower connectivity.",
+            )
+
+    def test_single_component_assertion_uses_cached_live_tower_los(self) -> None:
+        """The invariant should run from live towers and cached positive-clearance links."""
+        assertion_sql = (
+            REPO_ROOT / "scripts" / "assert_mesh_towers_single_los_component.sql"
+        ).read_text()
+
+        self.assertIn(
+            "from mesh_los_cache link",
+            assertion_sql,
+            "The tower component invariant must read mesh_los_cache directly so it can run before mesh_visibility_edges refresh.",
+        )
+        self.assertIn(
+            "link.clearance > 0",
+            assertion_sql,
+            "The tower component invariant must only count positive-clearance LOS links as graph edges.",
+        )
+        self.assertIn(
+            "from mesh_towers",
+            assertion_sql,
+            "The tower component invariant must verify every live row in mesh_towers, not only diagnostic visibility rows.",
+        )
+        self.assertIn(
+            "raise exception",
+            assertion_sql.lower(),
+            "The tower component invariant must fail the pipeline immediately when connectivity is broken.",
         )
 
 
