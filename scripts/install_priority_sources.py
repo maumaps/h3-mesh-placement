@@ -28,6 +28,12 @@ def fetch_table_columns(cursor, table_name: str) -> set[str]:
 def choose_visible_edge_table(cursor, tower_count: int) -> str:
     """Prefer the active visibility table only when it covers the live tower set."""
 
+    # The active table is an optional optimization from some route exports; fall
+    # back to the canonical visibility table on fresh pipeline databases.
+    cursor.execute("select to_regclass('public.mesh_visibility_edges_active');")
+    if cursor.fetchone()[0] is None:
+        return "mesh_visibility_edges"
+
     # Compare active-edge coverage against the full materialized visibility table.
     query = """
         with active_nodes as (

@@ -1273,6 +1273,21 @@ class PipelineRegressionTest(unittest.TestCase):
             "Makefile should expose an explicit refresh target for copying the latest installer export into the committed bootstrap snapshot.",
         )
 
+    def test_install_priority_export_tolerates_missing_active_visibility_table(self) -> None:
+        """Installer export should fall back to canonical visibility edges on fresh route outputs."""
+        sources_text = (REPO_ROOT / "scripts" / "install_priority_sources.py").read_text()
+
+        self.assertIn(
+            "select to_regclass('public.mesh_visibility_edges_active');",
+            sources_text,
+            "choose_visible_edge_table should check whether optional mesh_visibility_edges_active exists before querying it.",
+        )
+        self.assertIn(
+            'return "mesh_visibility_edges"',
+            sources_text,
+            "choose_visible_edge_table should fall back to mesh_visibility_edges when the optional active table is absent.",
+        )
+
 
     def test_forced_make_test_dry_run_is_non_destructive(self) -> None:
         """`make -B test` should run tests, not rebuild data or mutate route placement."""
