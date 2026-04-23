@@ -220,7 +220,8 @@ def fetch_seed_points(cursor) -> list[tuple[str, float, float]]:
                 name,
                 ST_X(ST_PointOnSurface(geom)) as lon,
                 ST_Y(ST_PointOnSurface(geom)) as lat
-            from mesh_initial_nodes_h3_r8;
+            from mesh_initial_nodes_h3_r8
+            where coalesce(source, 'seed') = 'seed';
         """
     elif "h3" in seed_columns:
         query = """
@@ -228,7 +229,8 @@ def fetch_seed_points(cursor) -> list[tuple[str, float, float]]:
                 name,
                 ST_X(h3::geometry) as lon,
                 ST_Y(h3::geometry) as lat
-            from mesh_initial_nodes_h3_r8;
+            from mesh_initial_nodes_h3_r8
+            where coalesce(source, 'seed') = 'seed';
         """
     else:
         raise RuntimeError(

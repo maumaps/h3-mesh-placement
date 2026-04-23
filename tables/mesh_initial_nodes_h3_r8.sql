@@ -52,15 +52,17 @@ from grouped_initial_nodes;
 alter table mesh_initial_nodes_h3_r8 add primary key (h3);
 
 delete from mesh_towers t
-where t.source in ('seed', 'mqtt')
+where t.source = 'seed'
   and not exists (
         select 1
         from mesh_initial_nodes_h3_r8 seeds
         where seeds.h3 = t.h3
+          and seeds.source = 'seed'
     );
 
 insert into mesh_towers (h3, source)
 select h3, source
 from mesh_initial_nodes_h3_r8
+where source = 'seed'
 on conflict (h3) do update
 set source = excluded.source;

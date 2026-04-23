@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from scripts.install_priority_connectors import select_inter_cluster_connectors
 from scripts.install_priority_cluster_helpers import pending_connector_ids
@@ -13,10 +14,44 @@ from scripts.install_priority_lib import (
     build_cluster_plan,
     reconstruct_tower_points,
 )
+from scripts.install_priority_sources import fetch_seed_points
 
 
 class InstallPriorityTests(unittest.TestCase):
     """Verify graph planning and rendering for the handout export."""
+
+    def test_fetch_seed_points_filters_out_mqtt_rows(self) -> None:
+        """Seed-name matching should ignore MQTT-only rows from mesh_initial_nodes_h3_r8."""
+
+        class FakeCursor:
+            def __init__(self) -> None:
+                self.query = ""
+
+            def execute(self, query, params=None) -> None:
+                del params
+                self.query = str(query)
+
+            def fetchall(self):
+                return [("Komzpa", 41.590688, 41.621202)]
+
+        fake_cursor = FakeCursor()
+
+        with patch(
+            "scripts.install_priority_sources.fetch_table_columns",
+            return_value={"h3", "source"},
+        ):
+            seed_points = fetch_seed_points(fake_cursor)
+
+        self.assertEqual(
+            seed_points,
+            [("Komzpa", 41.590688, 41.621202)],
+            msg=f"Seed-point fetch should preserve returned rows while filtering MQTT in SQL, got {seed_points!r}",
+        )
+        self.assertIn(
+            "where coalesce(source, 'seed') = 'seed'",
+            fake_cursor.query.lower(),
+            msg=f"Seed-point fetch should query only seed rows from mesh_initial_nodes_h3_r8, got SQL {fake_cursor.query!r}",
+        )
 
     def test_reconstruct_tower_points_collapses_consistent_endpoints(self) -> None:
         """Consistent edge endpoints should reconstruct one stable tower point."""
