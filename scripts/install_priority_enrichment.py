@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 from scripts.install_priority_graph import PlanRow, TowerRecord
+from scripts.install_priority_points import _local_distance_m
 from scripts.install_priority_render import (
     build_display_name,
     format_connection_labels,
@@ -354,6 +355,7 @@ def fetch_reachable_seed_mqtt_overview(
         }
         for h3, name, source, lon, lat, country_code, country_name in point_rows
     ]
+    points = _prefer_seed_points_over_nearby_mqtt(points)
 
     if not points:
         return [], []
@@ -385,6 +387,45 @@ def fetch_reachable_seed_mqtt_overview(
     ]
 
     return points, links
+
+
+def _prefer_seed_points_over_nearby_mqtt(
+    points: list[dict[str, object]],
+    tolerance_m: float = 1000.0,
+) -> list[dict[str, object]]:
+    """Drop nearby MQTT overview points when a seed already covers the same place."""
+
+    seed_points = [
+        point
+        for point in points
+        if str(point.get("source")) == "seed"
+    ]
+
+    if not seed_points:
+        return points
+
+    filtered_points: list[dict[str, object]] = []
+
+    for point in points:
+        if str(point.get("source")) != "mqtt":
+            filtered_points.append(point)
+            continue
+
+        point_lon = float(point["lon"])
+        point_lat = float(point["lat"])
+        has_nearby_seed = any(
+            _local_distance_m(
+                point_lon,
+                point_lat,
+                float(seed_point["lon"]),
+                float(seed_point["lat"]),
+            ) <= tolerance_m
+            for seed_point in seed_points
+        )
+        if not has_nearby_seed:
+            filtered_points.append(point)
+
+    return filtered_points
 
 
 def _pick_unique_named_feature(

@@ -12,6 +12,7 @@ from scripts.install_priority_cluster_bounds import (
     fetch_cluster_bound_features,
 )
 from scripts.install_priority_enrichment import enrich_tower_records
+from scripts.install_priority_enrichment import _prefer_seed_points_over_nearby_mqtt
 from scripts.install_priority_lib import (
     CSV_COLUMNS,
     PlanRow,
@@ -24,6 +25,47 @@ from scripts.install_priority_lib import (
 
 class InstallPriorityRenderTests(unittest.TestCase):
     """Verify display labels, output rows, and HTML rendering."""
+
+    def test_nearby_seed_point_hides_duplicate_mqtt_overview_marker(self) -> None:
+        """A seed should win over a nearby MQTT point in the overview overlay."""
+
+        filtered_points = _prefer_seed_points_over_nearby_mqtt(
+            [
+                {
+                    "h3": "seed-h3",
+                    "name": "Komzpa",
+                    "source": "seed",
+                    "lon": 41.590688,
+                    "lat": 41.621202,
+                    "country_code": "ge",
+                    "country_name": "Georgia",
+                },
+                {
+                    "h3": "mqtt-h3",
+                    "name": "Tbilisi gateway",
+                    "source": "mqtt",
+                    "lon": 41.595100,
+                    "lat": 41.620100,
+                    "country_code": "ge",
+                    "country_name": "Georgia",
+                },
+                {
+                    "h3": "far-mqtt-h3",
+                    "name": "Far MQTT",
+                    "source": "mqtt",
+                    "lon": 41.700000,
+                    "lat": 41.700000,
+                    "country_code": "ge",
+                    "country_name": "Georgia",
+                },
+            ]
+        )
+
+        self.assertEqual(
+            [point["name"] for point in filtered_points],
+            ["Komzpa", "Far MQTT"],
+            msg=f"Nearby MQTT overview points should disappear when a seed already covers that place, got {filtered_points!r}",
+        )
 
     def test_cluster_bound_query_uses_geodesic_buffer_mask_for_voronoi_clip(self) -> None:
         """Voronoi bounds should be clipped by a meter-based geography buffer, not degree padding."""
