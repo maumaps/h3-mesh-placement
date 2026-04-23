@@ -46,10 +46,9 @@ if (!payloadEl || !window.maplibregl) {
   const popupHtml = (properties) => `
     <div class="node-title">${properties.display_name}</div>
     <div class="node-subtitle">${properties.display_type}</div>
-    <div style="margin-top:8px"><strong>Order:</strong> ${properties.map_order_label || 'blocked'}</div>
+    <div style="margin-top:8px"><strong>Order:</strong> ${properties.map_order_label || 'unranked'}</div>
     <div style="margin-top:8px"><strong>Reach:</strong> ${properties.impact_people_est}</div>
     <div><strong>Location:</strong> ${properties.location_en}</div>
-    ${properties.blocked_reason ? `<div style="margin-top:8px"><strong>Blocked:</strong> ${properties.blocked_reason}</div>` : ''}
     ${properties.inter_cluster_connections ? `<div style="margin-top:8px"><strong>Cluster connector:</strong> ${properties.inter_cluster_connections}</div>` : ''}
     <div style="margin-top:8px">
       <a href="${properties.google_maps_url}" target="_blank" rel="noreferrer">Google</a>
@@ -203,7 +202,6 @@ if (!payloadEl || !window.maplibregl) {
           'case',
           ['==', ['get', 'installed'], true], '#27548a',
           ['==', ['get', 'is_next_for_cluster'], true], '#d97706',
-          ['==', ['get', 'rollout_status'], 'blocked'], '#b45309',
           '#4b8b3b',
         ],
         'circle-stroke-color': [

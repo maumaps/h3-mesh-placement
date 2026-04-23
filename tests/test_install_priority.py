@@ -226,19 +226,29 @@ class InstallPriorityTests(unittest.TestCase):
         )
 
         plan_rows = build_cluster_plan(towers_by_id, adjacency)
-        blocked_row = next(
+        detached_row = next(
             row for row in plan_rows if row.tower_id == 3
         )
 
         self.assertEqual(
-            blocked_row.cluster_label,
+            detached_row.cluster_label,
             "Yerevan",
-            msg=f"Cross-border-only reachable tower should stay with the nearest installed seed in its own country, got row {blocked_row!r}",
+            msg=f"Cross-border-only reachable tower should stay with the nearest installed seed in its own country, got row {detached_row!r}",
         )
         self.assertEqual(
-            blocked_row.rollout_status,
+            detached_row.rollout_status,
+            "next",
+            msg=f"Detached same-country tower should still be exported as an installable next step, got row {detached_row!r}",
+        )
+        self.assertEqual(
+            detached_row.cluster_install_rank,
+            1,
+            msg=f"Detached same-country tower should receive a normal queue rank, got row {detached_row!r}",
+        )
+        self.assertNotIn(
             "blocked",
-            msg=f"Cross-border-only reachable tower should remain blocked until its own country gets a visible path, got row {blocked_row!r}",
+            {row.rollout_status for row in plan_rows},
+            msg=f"Installer plan should not expose blocked rollout nodes, got rows {plan_rows!r}",
         )
 
     def test_build_cluster_plan_prioritizes_cluster_connection_before_reach(self) -> None:

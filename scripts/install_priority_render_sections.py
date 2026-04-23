@@ -220,10 +220,10 @@ def _map_links_html(row: Mapping[str, object], node_label: str) -> str:
 
 
 def _rank_text(row: Mapping[str, object]) -> str:
-    """Format the cluster-local rank, preserving blocked rows."""
+    """Format the cluster-local rank."""
 
     if row["cluster_install_rank"] in (None, ""):
-        return "blocked"
+        return ""
 
     return str(row["cluster_install_rank"])
 

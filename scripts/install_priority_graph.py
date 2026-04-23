@@ -321,11 +321,14 @@ def _plan_seed_cluster(
 
         if not frontier_ids:
             plan_rows.extend(
-                _plan_blocked_cluster(
+                _plan_detached_cluster(
                     towers_by_id=towers_by_id,
                     cluster_key=cluster_key,
                     cluster_label=cluster_label,
+                    adjacency=adjacency,
                     tower_ids=tuple(sorted(remaining_ids)),
+                    start_rank=rank,
+                    first_candidate=first_candidate,
                 )
             )
             break
@@ -444,38 +447,117 @@ def _plan_seed_cluster(
     return plan_rows
 
 
-def _plan_blocked_cluster(
+def _plan_detached_cluster(
     towers_by_id: Mapping[int, TowerRecord],
     cluster_key: str,
     cluster_label: str,
+    adjacency: Mapping[int, Mapping[int, float]],
     tower_ids: Sequence[int],
+    start_rank: int,
+    first_candidate: bool,
 ) -> list[PlanRow]:
-    """Mark towers that cannot be reached from any installed backbone."""
+    """Continue a rollout queue for towers without a current backbone path."""
 
-    blocked_rows: list[PlanRow] = []
+    plan_rows: list[PlanRow] = []
+    remaining_ids = set(tower_ids)
+    active_detached_ids: set[int] = set()
+    rank = start_rank
 
-    for tower_id in sorted(tower_ids, key=lambda item: towers_by_id[item].label.lower()):
+    while remaining_ids:
+        # Detached components still need a deterministic field order.
+        # Once the first detached tower is installed, its visible neighbors become
+        # the local frontier for the rest of this queue.
+        frontier_ids = {
+            tower_id
+            for tower_id in remaining_ids
+            if any(neighbor_id in active_detached_ids for neighbor_id in adjacency.get(tower_id, {}))
+        }
+        candidate_ids = frontier_ids or remaining_ids
+        best_choice: tuple[tuple[int, int, int, int, int], int, tuple[int, ...], tuple[int, ...]] | None = None
+
+        for tower_id in sorted(candidate_ids):
+            previous_connection_ids = tuple(
+                sorted(
+                    neighbor_id
+                    for neighbor_id in adjacency.get(tower_id, {})
+                    if neighbor_id in active_detached_ids
+                )
+            )
+            unlocked_component_ids = component_members(
+                start_id=tower_id,
+                allowed_ids=remaining_ids,
+                adjacency=adjacency,
+            )
+            impact_people_est = estimate_component_people(
+                component_ids=unlocked_component_ids,
+                active_ids=set(),
+                towers_by_id=towers_by_id,
+            )
+            next_connection_ids = tuple(
+                sorted(
+                    other_id
+                    for other_id in remaining_ids
+                    if other_id != tower_id
+                    and any(neighbor_id == tower_id for neighbor_id in adjacency.get(other_id, {}))
+                    and not any(
+                        neighbor_id in active_detached_ids
+                        for neighbor_id in adjacency.get(other_id, {})
+                    )
+                )
+            )
+            choice_score = (
+                len(previous_connection_ids),
+                impact_people_est,
+                len(unlocked_component_ids),
+                SOURCE_PRIORITY.get(towers_by_id[tower_id].source, 0),
+                -tower_id,
+            )
+
+            if best_choice is None or choice_score > best_choice[0]:
+                best_choice = (
+                    choice_score,
+                    tower_id,
+                    previous_connection_ids,
+                    next_connection_ids,
+                )
+
+        assert best_choice is not None, "Detached rollout selection unexpectedly produced no candidate."
+        _, tower_id, previous_connection_ids, next_connection_ids = best_choice
         tower = towers_by_id[tower_id]
-        blocked_rows.append(
+        unlocked_component_ids = component_members(
+            start_id=tower_id,
+            allowed_ids=remaining_ids,
+            adjacency=adjacency,
+        )
+        impact_people_est = estimate_component_people(
+            component_ids=unlocked_component_ids,
+            active_ids=set(),
+            towers_by_id=towers_by_id,
+        )
+        plan_rows.append(
             PlanRow(
                 cluster_key=cluster_key,
                 cluster_label=cluster_label,
-                cluster_install_rank=None,
-                is_next_for_cluster=False,
-                rollout_status="blocked",
+                cluster_install_rank=rank,
+                is_next_for_cluster=first_candidate,
+                rollout_status="next" if first_candidate else "planned",
                 installed=False,
                 tower_id=tower.tower_id,
                 label=tower.label,
                 source=tower.source,
-                impact_score=0,
-                impact_tower_count=0,
-                next_unlock_count=0,
-                backlink_count=0,
-                previous_connection_ids=(),
-                next_connection_ids=(),
+                impact_score=impact_people_est,
+                impact_tower_count=len(unlocked_component_ids),
+                next_unlock_count=len(next_connection_ids),
+                backlink_count=len(previous_connection_ids),
+                previous_connection_ids=previous_connection_ids,
+                next_connection_ids=next_connection_ids,
                 lon=tower.lon,
                 lat=tower.lat,
             )
         )
+        active_detached_ids.add(tower_id)
+        remaining_ids.remove(tower_id)
+        rank += 1
+        first_candidate = False
 
-    return blocked_rows
+    return plan_rows
