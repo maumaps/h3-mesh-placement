@@ -150,7 +150,7 @@ data/in/install_priority_bootstrap_refresh: data/out/install_priority.csv | data
 	cp data/out/install_priority.csv data/in/install_priority_bootstrap.csv
 	touch data/in/install_priority_bootstrap_refresh
 
-db/raw/initial_nodes: data/in/existing_mesh_nodes.geojson db/table/mesh_towers | db/raw ## Import canonical seed tower locations
+db/raw/initial_nodes: data/in/existing_mesh_nodes.geojson | db/raw ## Import canonical seed tower locations
 	ogr2ogr -f PostgreSQL "PG:dbname=$${PGDATABASE:-$${USER}} user=$${PGUSER:-$${USER}} host=$${PGHOST:-/var/run/postgresql} port=$${PGPORT:-5432}" data/in/existing_mesh_nodes.geojson -nln mesh_initial_nodes -nlt POINT -lco GEOMETRY_NAME=geom -overwrite -a_srs EPSG:4326
 	@if psql --no-psqlrc --set=ON_ERROR_STOP=1 -Atc "select to_regclass('mesh_initial_nodes')" | grep -q mesh_initial_nodes; then \
 		touch db/raw/initial_nodes; \

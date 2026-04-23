@@ -229,6 +229,16 @@ class PipelineRegressionTest(unittest.TestCase):
             makefile_text,
             "db/raw/initial_nodes should reimport the refreshed canonical seed GeoJSON with -overwrite so refreshed Liam Cottle or curated seeds are not skipped.",
         )
+        self.assertIn(
+            "db/raw/initial_nodes: data/in/existing_mesh_nodes.geojson | db/raw ## Import canonical seed tower locations",
+            makefile_text,
+            "db/raw/initial_nodes should import canonical seeds without depending on db/table/mesh_towers, otherwise a simple seed refresh can drop live towers before ogr2ogr runs.",
+        )
+        self.assertNotIn(
+            "db/raw/initial_nodes: data/in/existing_mesh_nodes.geojson db/table/mesh_towers | db/raw",
+            makefile_text,
+            "db/raw/initial_nodes must not depend on db/table/mesh_towers because that target recreates mesh_towers and is unsafe during a seed-only refresh.",
+        )
         self.assertNotIn(
             "mesh_initial_nodes already exists, skipping import",
             makefile_text,
