@@ -6,7 +6,7 @@ create temporary table mesh_route_manual_redundancy_input (
     h3_text text not null,
     source text not null,
     reason text not null
-) on commit drop;
+) on commit preserve rows;
 
 insert into mesh_route_manual_redundancy_input (h3_text, source, reason)
 values
