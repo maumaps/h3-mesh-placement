@@ -516,12 +516,18 @@ begin
             from recomputed_distances rd
             where s.h3 = rd.h3;
 
+            with dirty_neighbors as materialized (
+                select q.tower_id
+                from mesh_tower_wiggle_queue q
+                join mesh_towers nb on nb.tower_id = q.tower_id
+                where nb.source = any(target_sources)
+                  and ST_DWithin(nb.centroid_geog, old_centroid, max_distance)
+                for update of q skip locked
+            )
             update mesh_tower_wiggle_queue q
             set is_dirty = true
-            from mesh_towers nb
-            where nb.tower_id = q.tower_id
-              and nb.source = any(target_sources)
-              and ST_DWithin(nb.centroid_geog, old_centroid, max_distance);
+            from dirty_neighbors
+            where dirty_neighbors.tower_id = q.tower_id;
 
             raise notice 'Wiggle pruned redundant tower % at %, merged into tower % at %',
                 anchor.tower_id,
@@ -677,21 +683,27 @@ begin
         -- Defer heavy local RF and population refresh to the later route-refresh stage.
 
         -- Mark cached-LOS neighbors for another pass now that visibility changed.
+        with dirty_neighbors as materialized (
+            select q.tower_id
+            from mesh_tower_wiggle_queue q
+            join mesh_towers nb on nb.tower_id = q.tower_id
+            join mesh_los_cache mlc
+              on mlc.src_h3 = least(nb.h3, best.h3)
+             and mlc.dst_h3 = greatest(nb.h3, best.h3)
+             and mlc.mast_height_src = mast_height
+             and mlc.mast_height_dst = mast_height
+             and mlc.frequency_hz = frequency
+             and mlc.clearance > 0
+             and mlc.distance_m <= max_distance
+            where nb.tower_id <> anchor.tower_id
+              and nb.source = any(target_sources)
+              and ST_DWithin(nb.centroid_geog, new_centroid, max_distance)
+            for update of q skip locked
+        )
         update mesh_tower_wiggle_queue q
         set is_dirty = true
-        from mesh_towers nb
-        join mesh_los_cache mlc
-          on mlc.src_h3 = least(nb.h3, best.h3)
-         and mlc.dst_h3 = greatest(nb.h3, best.h3)
-         and mlc.mast_height_src = mast_height
-         and mlc.mast_height_dst = mast_height
-         and mlc.frequency_hz = frequency
-         and mlc.clearance > 0
-         and mlc.distance_m <= max_distance
-        where nb.tower_id = q.tower_id
-          and nb.tower_id <> anchor.tower_id
-          and nb.source = any(target_sources)
-          and ST_DWithin(nb.centroid_geog, new_centroid, max_distance);
+        from dirty_neighbors
+        where dirty_neighbors.tower_id = q.tower_id;
 
         processed := 1;
 
