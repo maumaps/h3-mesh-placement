@@ -130,6 +130,11 @@ class PipelineRegressionTest(unittest.TestCase):
             "Makefile should expose a safe current-wiggle target that does not rebuild route inputs when only local refinement is requested.",
         )
         self.assertIn(
+            "db/procedure/mesh_run_greedy_current: scripts/mesh_run_greedy_configured.sh procedures/mesh_run_greedy_prepare.sql procedures/mesh_run_greedy.sql procedures/mesh_run_greedy_finalize.sql | db/procedure",
+            makefile_text,
+            "Makefile should expose a safe current-greedy target that does not pull imports, LOS cache, or route replay into a resume after cluster-slim.",
+        )
+        self.assertIn(
             "delete from mesh_towers where source in ('greedy', 'bridge')",
             greedy_script_text,
             "Disabling greedy placement should clean stale greedy/bridge towers during a restart.",

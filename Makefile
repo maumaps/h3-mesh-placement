@@ -630,6 +630,11 @@ db/procedure/mesh_run_greedy: scripts/mesh_run_greedy_configured.sh procedures/m
 	scripts/mesh_run_greedy_configured.sh
 	touch db/procedure/mesh_run_greedy
 
+db/procedure/mesh_run_greedy_current: scripts/mesh_run_greedy_configured.sh procedures/mesh_run_greedy_prepare.sql procedures/mesh_run_greedy.sql procedures/mesh_run_greedy_finalize.sql | db/procedure ## Apply configured greedy stage on current refreshed route graph
+	scripts/mesh_run_greedy_configured.sh
+	touch db/procedure/mesh_run_greedy
+	touch db/procedure/mesh_run_greedy_current
+
 db/procedure/mesh_run_greedy_full: scripts/mesh_run_greedy_configured.sh procedures/mesh_run_greedy_prepare.sql procedures/mesh_run_greedy.sql procedures/mesh_run_greedy_finalize.sql scripts/mesh_visibility_edges_refresh.sql db/procedure/mesh_route db/table/mesh_visibility_edges db/table/mesh_surface_h3_r8 db/table/mesh_greedy_iterations db/function/mesh_surface_refresh_reception_metrics db/function/mesh_surface_refresh_visible_tower_counts db/function/mesh_surface_fill_visible_population db/table/mesh_initial_nodes_h3_r8 db/table/mesh_pipeline_settings | db/procedure ## Execute configured greedy placement loop explicitly
 	scripts/mesh_run_greedy_configured.sh
 	touch db/procedure/mesh_run_greedy_full
