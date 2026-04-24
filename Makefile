@@ -636,6 +636,12 @@ data/out/install_priority_edges_checked: scripts/assert_install_priority_edges.p
 	python scripts/assert_install_priority_edges.py --csv-input data/out/install_priority.csv
 	touch data/out/install_priority_edges_checked
 
+data/out/install_priority_reviewed: data/out/install_priority.html data/out/install_priority_edges_checked db/procedure/mesh_visibility_no_bridges data/out/mesh_visibility_bridges.tsv | data/out ## Verify installer-priority handout is ready for field review
+	test -f data/out/install_priority.html
+	test -f data/out/install_priority.csv
+	test -f data/out/mesh_visibility_bridges.tsv
+	touch data/out/install_priority_reviewed
+
 data/out/visuals/mesh_surface.png: scripts/render_mapnik.py mapnik/styles/mesh_style.xml db/procedure/mesh_route_bridge | data/out/visuals ## Render static mesh surface map
 	python scripts/render_mapnik.py --output data/out/visuals/mesh_surface.png
 

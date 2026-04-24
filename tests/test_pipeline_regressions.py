@@ -865,6 +865,11 @@ class PipelineRegressionTest(unittest.TestCase):
             "Installer handout checks should provide a post-export target that verifies CSV predecessor links against current visibility edges.",
         )
         self.assertIn(
+            "data/out/install_priority_reviewed: data/out/install_priority.html data/out/install_priority_edges_checked db/procedure/mesh_visibility_no_bridges data/out/mesh_visibility_bridges.tsv | data/out",
+            makefile_text,
+            "Installer handout checks should provide one field-review gate covering export files, predecessor links, graph redundancy, and diagnostics.",
+        )
+        self.assertIn(
             "scripts/assert_install_priority_edges.py",
             makefile_text,
             "Installer-priority Python tests should rerun when the post-export edge assertion changes.",
