@@ -391,6 +391,14 @@ def _plan_seed_cluster(
         ),
     ):
         tower = towers_by_id[seed_id]
+        previous_connection_ids = tuple(
+            sorted(
+                neighbor_id
+                for neighbor_id in adjacency.get(seed_id, {})
+                if neighbor_id in installed_ids
+                and neighbor_id != seed_id
+            )
+        )
         plan_rows.append(
             PlanRow(
                 cluster_key=cluster_key,
@@ -405,8 +413,8 @@ def _plan_seed_cluster(
                 impact_score=0,
                 impact_tower_count=0,
                 next_unlock_count=0,
-                backlink_count=0,
-                previous_connection_ids=(),
+                backlink_count=len(previous_connection_ids),
+                previous_connection_ids=previous_connection_ids,
                 next_connection_ids=(),
                 lon=tower.lon,
                 lat=tower.lat,

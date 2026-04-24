@@ -163,6 +163,21 @@ class InstallPriorityTests(unittest.TestCase):
             {"Batumi", "mqtt #2"},
             msg=f"MQTT should still appear as installed infrastructure inside the seed-named cluster, got rows {plan_rows!r}",
         )
+        installed_links_by_label = {
+            row.label: row.previous_connection_ids
+            for row in plan_rows
+            if row.rollout_status == "installed"
+        }
+        self.assertEqual(
+            installed_links_by_label["Batumi"],
+            (2,),
+            msg=f"Installed seed rows should expose direct installed MQTT links for map rendering, got rows {plan_rows!r}",
+        )
+        self.assertEqual(
+            installed_links_by_label["mqtt #2"],
+            (1,),
+            msg=f"Installed MQTT rows should expose direct installed seed links for map rendering, got rows {plan_rows!r}",
+        )
 
     def test_build_cluster_plan_attaches_disconnected_mqtt_to_seed_cluster(self) -> None:
         """MQTT-only installed components should not become user-facing rollout clusters."""

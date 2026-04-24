@@ -250,6 +250,37 @@ if (!payloadEl || !window.maplibregl) {
       });
     });
   });
+  const installedBackboneFeatures = [];
+  const installedBackbonePairs = new Set();
+
+  payload.rows.forEach((row) => {
+    if (!row.installed) return;
+
+    (row.previous_connection_ids || []).forEach((previousId) => {
+      const previousRow = rowsByTowerId.get(previousId);
+      if (!previousRow || !previousRow.installed || previousRow.cluster_key !== row.cluster_key) return;
+
+      const pairKey = [row.tower_id, previousId].sort((left, right) => left - right).join(':');
+      if (installedBackbonePairs.has(pairKey)) return;
+      installedBackbonePairs.add(pairKey);
+      installedBackboneFeatures.push({
+        type: 'Feature',
+        geometry: {
+          type: 'LineString',
+          coordinates: [
+            [previousRow.lon, previousRow.lat],
+            [row.lon, row.lat],
+          ],
+        },
+        properties: {
+          cluster_key: row.cluster_key,
+          from_tower_id: row.tower_id,
+          to_tower_id: previousId,
+          link_kind: 'installed_backbone',
+        },
+      });
+    });
+  });
   const clusterBoundFeatures = payload.cluster_bounds || [];
   const seedMqttFeatures = (payload.mqtt_points || []).map((point) => ({
     type: 'Feature',
@@ -388,6 +419,37 @@ if (!payloadEl || !window.maplibregl) {
         'line-width': 1.5,
         'line-color': '#6f7f90',
         'line-opacity': 0.5,
+      },
+    });
+  };
+  const addInstalledBackboneLayers = (map, sourceName, featureCollection, mapMode) => {
+    map.addSource(sourceName, { type: 'geojson', data: featureCollection });
+    map.addLayer({
+      id: `${sourceName}-halo`,
+      type: 'line',
+      source: sourceName,
+      layout: {
+        'line-cap': 'round',
+        'line-join': 'round',
+      },
+      paint: {
+        'line-width': mapMode === 'cluster' ? 6.5 : 5,
+        'line-color': '#ffffff',
+        'line-opacity': 0.82,
+      },
+    });
+    map.addLayer({
+      id: `${sourceName}-links`,
+      type: 'line',
+      source: sourceName,
+      layout: {
+        'line-cap': 'round',
+        'line-join': 'round',
+      },
+      paint: {
+        'line-width': mapMode === 'cluster' ? 3.5 : 2.6,
+        'line-color': '#27548a',
+        'line-opacity': mapMode === 'cluster' ? 0.9 : 0.72,
       },
     });
   };
@@ -557,6 +619,10 @@ if (!payloadEl || !window.maplibregl) {
         includedTowerIds.has(feature.properties.from_tower_id)
         && includedTowerIds.has(feature.properties.to_tower_id)
       ));
+    const overviewInstalledBackboneFeatures = installedBackboneFeatures.filter((feature) => (
+      includedTowerIds.has(feature.properties.from_tower_id)
+      && includedTowerIds.has(feature.properties.to_tower_id)
+    ));
 
     return {
       collection: {
@@ -570,6 +636,10 @@ if (!payloadEl || !window.maplibregl) {
       context: {
         type: 'FeatureCollection',
         features: overviewContextFeatures,
+      },
+      installedBackbone: {
+        type: 'FeatureCollection',
+        features: overviewInstalledBackboneFeatures,
       },
       seedMqttLinks: viewMode === 'coverage'
         ? overviewSeedMqttLinks
@@ -642,6 +712,19 @@ if (!payloadEl || !window.maplibregl) {
               feature.properties.from_cluster_key === cluster.cluster_key
               || feature.properties.to_cluster_key === cluster.cluster_key
             )
+            && (
+              maxRank === null
+              || (
+                includedTowerIds.has(feature.properties.from_tower_id)
+                && includedTowerIds.has(feature.properties.to_tower_id)
+              )
+            )
+          )),
+        },
+        clusterInstalledBackbone: {
+          type: 'FeatureCollection',
+          features: installedBackboneFeatures.filter((feature) => (
+            feature.properties.cluster_key === cluster.cluster_key
             && (
               maxRank === null
               || (
@@ -727,6 +810,7 @@ if (!payloadEl || !window.maplibregl) {
     const routeSource = overviewMap.getSource('overview-route-segments');
     const contextSource = overviewMap.getSource('overview-context-segments');
     const seedMqttLinkSource = overviewMap.getSource('overview-seed-mqtt-links');
+    const installedBackboneSource = overviewMap.getSource('overview-installed-backbone');
 
     if (!nodeSource || !routeSource || !contextSource) return;
 
@@ -734,6 +818,7 @@ if (!payloadEl || !window.maplibregl) {
     if (routeSource) routeSource.setData(collections.routes);
     if (contextSource) contextSource.setData(collections.context);
     if (seedMqttLinkSource) seedMqttLinkSource.setData(collections.seedMqttLinks);
+    if (installedBackboneSource) installedBackboneSource.setData(collections.installedBackbone);
 
     clearOverviewOrderMarkers();
     overviewOrderMarkers = addOrderMarkers(overviewMap, collections.collection, 'overview');
@@ -766,7 +851,7 @@ if (!payloadEl || !window.maplibregl) {
     const collections = clusterCollectionsByMapId.get(cluster.map_id);
     if (!collections) return null;
 
-    const { clusterFeatures, clusterCollection, clusterRoutes, clusterContext, clusterBounds } = collections;
+    const { clusterFeatures, clusterCollection, clusterRoutes, clusterContext, clusterInstalledBackbone, clusterBounds } = collections;
     const clusterMap = new maplibregl.Map({
       ...mapOptions(cluster.map_id, clusterFeatures[0] ? clusterFeatures[0].geometry.coordinates : [43.5, 41.8], 8),
       interactive: true,
@@ -780,6 +865,7 @@ if (!payloadEl || !window.maplibregl) {
     runOnStyleReady(clusterMap, () => {
       safeOverlayStep(`${cluster.map_id} bounds`, () => addClusterBoundLayers(clusterMap, `${cluster.map_id}-cluster-bounds`, clusterBounds, 'cluster'));
       safeOverlayStep(`${cluster.map_id} connectors`, () => addContextLayers(clusterMap, `${cluster.map_id}-context-segments`, clusterContext, 'cluster'));
+      safeOverlayStep(`${cluster.map_id} installed links`, () => addInstalledBackboneLayers(clusterMap, `${cluster.map_id}-installed-backbone`, clusterInstalledBackbone, 'cluster'));
       safeOverlayStep(`${cluster.map_id} nodes`, () => addNodeLayers(clusterMap, `${cluster.map_id}-nodes`, clusterCollection, 'cluster'));
       safeOverlayStep(`${cluster.map_id} routes`, () => addRouteLayers(clusterMap, `${cluster.map_id}-route-segments`, clusterRoutes, 'cluster'));
       safeOverlayStep(`${cluster.map_id} order markers`, () => addOrderMarkers(clusterMap, clusterCollection, 'cluster'));
@@ -937,6 +1023,7 @@ if (!payloadEl || !window.maplibregl) {
     const initialOverviewCollections = buildOverviewCollections('connect');
     safeOverlayStep('overview bounds', () => addClusterBoundLayers(overviewMap, 'overview-cluster-bounds', overviewBounds, 'overview'));
     safeOverlayStep('overview connectors', () => addContextLayers(overviewMap, 'overview-context-segments', initialOverviewCollections.context, 'overview'));
+    safeOverlayStep('overview installed links', () => addInstalledBackboneLayers(overviewMap, 'overview-installed-backbone', initialOverviewCollections.installedBackbone, 'overview'));
     safeOverlayStep('overview seed/mqtt links', () => addSeedMqttLinkLayers(overviewMap, 'overview-seed-mqtt-links', initialOverviewCollections.seedMqttLinks));
     safeOverlayStep('overview nodes', () => addNodeLayers(overviewMap, 'overview-nodes', initialOverviewCollections.collection, 'overview'));
     safeOverlayStep('overview routes', () => addRouteLayers(overviewMap, 'overview-route-segments', initialOverviewCollections.routes, 'overview'));

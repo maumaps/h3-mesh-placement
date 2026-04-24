@@ -1171,6 +1171,21 @@ class InstallPriorityRenderTests(unittest.TestCase):
             msg="HTML handout should render route segments so installers can follow the rollout path on the map.",
         )
         self.assertIn(
+            "installedBackboneFeatures",
+            html_text,
+            msg="HTML handout should build line features between already-installed seed/MQTT backbone nodes.",
+        )
+        self.assertIn(
+            "addInstalledBackboneLayers",
+            html_text,
+            msg="HTML handout should render installed backbone links even when no new install-order predecessor rows exist.",
+        )
+        self.assertIn(
+            "overview-installed-backbone",
+            html_text,
+            msg="Overview map should include installed seed/MQTT backbone links.",
+        )
+        self.assertIn(
             "addContextLayers",
             html_text,
             msg="HTML handout should render dashed context connectors so neighboring rollout clusters are easier to understand.",
