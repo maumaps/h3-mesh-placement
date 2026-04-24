@@ -106,6 +106,19 @@ def invalid_primary_previous_order(rows: list[dict[str, str]]) -> list[str]:
     for row_number, row in enumerate(rows, start=2):
         previous_id = str(row.get("primary_previous_tower_id") or "").strip()
         if not previous_id:
+            try:
+                tower_rank = int(row["cluster_install_rank"])
+            except ValueError:
+                invalid_references.append(f"line {row_number}: invalid rank in {row!r}")
+                continue
+
+            rollout_status = str(row.get("rollout_status") or "").strip()
+            installed = str(row.get("installed") or "").strip().lower()
+            if tower_rank > 0 and rollout_status != "blocked" and installed != "true":
+                invalid_references.append(
+                    f"line {row_number}: rank {tower_rank} row {row.get('tower_id')} "
+                    "has no predecessor"
+                )
             continue
 
         try:

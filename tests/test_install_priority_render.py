@@ -116,8 +116,8 @@ class InstallPriorityRenderTests(unittest.TestCase):
 
         self.assertEqual(
             len(invalid_references),
-            3,
-            msg=f"Predecessor order validation should catch cross-cluster, absent, and non-earlier predecessors, got {invalid_references!r}",
+            4,
+            msg=f"Predecessor order validation should catch cross-cluster, absent, non-earlier, and missing predecessor rows, got {invalid_references!r}",
         )
         self.assertTrue(
             any("cluster" in reference for reference in invalid_references),
@@ -130,6 +130,10 @@ class InstallPriorityRenderTests(unittest.TestCase):
         self.assertTrue(
             any("not before" in reference for reference in invalid_references),
             msg=f"Predecessor order validation should explain backward or same-rank links, got {invalid_references!r}",
+        )
+        self.assertTrue(
+            any("has no predecessor" in reference for reference in invalid_references),
+            msg=f"Predecessor order validation should reject planned rows without predecessors, got {invalid_references!r}",
         )
 
     def test_reachable_seed_mqtt_overview_uses_los_cache_against_live_towers(self) -> None:

@@ -131,6 +131,13 @@ def build_cluster_plan(
                 for detached_id in unreachable_component:
                     assignment[detached_id] = current_cluster_key
 
+    _repair_cluster_assignments_for_local_connectivity(
+        assignment=assignment,
+        cluster_members=cluster_members,
+        seed_components=seed_components,
+        adjacency=adjacency,
+    )
+
     cluster_by_tower_id = dict(assignment)
 
     for seed_component in seed_components:
@@ -249,6 +256,73 @@ def _assign_nodes_to_seed_clusters(
                 cluster_members[assigned_cluster_key].add(tower_id)
 
     return assignment, dict(cluster_members)
+
+
+def _repair_cluster_assignments_for_local_connectivity(
+    *,
+    assignment: dict[int, str],
+    cluster_members: dict[str, set[int]],
+    seed_components: Sequence[Sequence[int]],
+    adjacency: Mapping[int, Mapping[int, float]],
+) -> None:
+    """Move detached assigned islands to the cluster that actually reaches them."""
+
+    seed_ids_by_cluster_key = {
+        cluster_key(seed_component): set(seed_component)
+        for seed_component in seed_components
+    }
+
+    while True:
+        moved_component = False
+
+        for current_cluster_key in sorted(cluster_members):
+            cluster_ids = set(cluster_members.get(current_cluster_key, set()))
+            if not cluster_ids:
+                continue
+
+            seed_ids = seed_ids_by_cluster_key.get(current_cluster_key, set())
+            for component in connected_components(sorted(cluster_ids), adjacency):
+                component_ids = set(component)
+                if component_ids & seed_ids:
+                    continue
+
+                bridge_candidates: list[tuple[float, str, int, int]] = []
+                for tower_id in sorted(component_ids):
+                    for neighbor_id, distance_m in adjacency.get(tower_id, {}).items():
+                        neighbor_cluster_key = assignment.get(neighbor_id)
+                        if not neighbor_cluster_key:
+                            continue
+                        if neighbor_cluster_key == current_cluster_key:
+                            continue
+
+                        bridge_candidates.append(
+                            (
+                                distance_m,
+                                neighbor_cluster_key,
+                                tower_id,
+                                neighbor_id,
+                            )
+                        )
+
+                if not bridge_candidates:
+                    continue
+
+                _distance_m, target_cluster_key, _tower_id, _neighbor_id = min(
+                    bridge_candidates
+                )
+                cluster_members[current_cluster_key].difference_update(component_ids)
+                cluster_members.setdefault(target_cluster_key, set()).update(component_ids)
+                for tower_id in component_ids:
+                    assignment[tower_id] = target_cluster_key
+
+                moved_component = True
+                break
+
+            if moved_component:
+                break
+
+        if not moved_component:
+            return
 
 
 def _plan_seed_cluster(
