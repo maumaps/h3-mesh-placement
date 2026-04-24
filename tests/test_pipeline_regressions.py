@@ -870,6 +870,13 @@ class PipelineRegressionTest(unittest.TestCase):
             "Installer handout checks should provide one field-review gate covering export files, predecessor links, graph redundancy, and diagnostics.",
         )
         self.assertIn(
+            "data/out/mesh_visibility_bridges.tsv\n"
+            "\tpython scripts/assert_install_priority_edges.py --csv-input data/out/install_priority.csv\n"
+            "\tpsql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_visibility_no_bridges.sql",
+            makefile_text,
+            "The field-review gate recipe should rerun both handout graph assertions when creating its own marker.",
+        )
+        self.assertIn(
             "scripts/assert_install_priority_edges.py",
             makefile_text,
             "Installer-priority Python tests should rerun when the post-export edge assertion changes.",

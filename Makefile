@@ -640,6 +640,8 @@ data/out/install_priority_reviewed: data/out/install_priority.html data/out/inst
 	test -f data/out/install_priority.html
 	test -f data/out/install_priority.csv
 	test -f data/out/mesh_visibility_bridges.tsv
+	python scripts/assert_install_priority_edges.py --csv-input data/out/install_priority.csv
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_visibility_no_bridges.sql
 	touch data/out/install_priority_reviewed
 
 data/out/visuals/mesh_surface.png: scripts/render_mapnik.py mapnik/styles/mesh_style.xml db/procedure/mesh_route_bridge | data/out/visuals ## Render static mesh surface map
