@@ -443,7 +443,7 @@ db/procedure/mesh_population: procedures/mesh_population.sql db/procedure/mesh_c
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_population.sql
 	touch db/procedure/mesh_population
 
-db/procedure/mesh_placement_restart: scripts/mesh_placement_restart.sh procedures/mesh_coarse_grid.sql procedures/mesh_population.sql tables/mesh_route_bootstrap_pairs.sql scripts/mesh_route_bootstrap.sql scripts/mesh_route_bridge_configured.sh procedures/mesh_route_cluster_slim.sql scripts/mesh_route_cluster_slim_configured.sh procedures/mesh_population_anchor_contract.sql procedures/mesh_generated_pair_contract.sql procedures/mesh_route_segment_reroute.sql scripts/mesh_visibility_edges_refresh.sql scripts/mesh_run_greedy_configured.sh procedures/mesh_tower_wiggle.sql scripts/mesh_tower_wiggle_configured.sh scripts/assert_mesh_towers_single_los_component.sql db/table/mesh_greedy_iterations | db/procedure ## Safely replay configured placement stages without rebuilding cached tables
+db/procedure/mesh_placement_restart: scripts/mesh_placement_restart.sh procedures/mesh_coarse_grid.sql procedures/mesh_population.sql tables/mesh_route_bootstrap_pairs.sql scripts/mesh_route_bootstrap.sql scripts/mesh_route_bridge_configured.sh procedures/mesh_route_cluster_slim.sql scripts/mesh_route_cluster_slim_configured.sh procedures/mesh_population_anchor_contract.sql procedures/mesh_generated_pair_contract.sql procedures/mesh_route_segment_reroute.sql scripts/mesh_visibility_edges_refresh.sql scripts/mesh_run_greedy_configured.sh procedures/mesh_tower_wiggle.sql scripts/mesh_tower_wiggle_configured.sh scripts/mesh_route_manual_redundancy.sql data/in/mesh_route_manual_redundancy.csv scripts/assert_mesh_towers_single_los_component.sql db/table/mesh_greedy_iterations | db/procedure ## Safely replay configured placement stages without rebuilding cached tables
 	scripts/mesh_placement_restart.sh
 	touch db/procedure/mesh_population
 	touch db/table/mesh_route_bootstrap_pairs
@@ -457,6 +457,7 @@ db/procedure/mesh_placement_restart: scripts/mesh_placement_restart.sh procedure
 	touch db/procedure/mesh_route
 	touch db/procedure/mesh_run_greedy
 	touch db/procedure/mesh_tower_wiggle
+	touch db/procedure/mesh_route_manual_redundancy
 	touch db/procedure/mesh_placement_restart
 
 
@@ -589,6 +590,11 @@ db/procedure/mesh_route_segment_reroute_current: procedures/mesh_route_segment_r
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 	touch db/procedure/mesh_route_segment_reroute
 	touch db/procedure/mesh_route_segment_reroute_current
+
+db/procedure/mesh_route_manual_redundancy: scripts/mesh_route_manual_redundancy.sql data/in/mesh_route_manual_redundancy.csv scripts/assert_mesh_towers_single_los_component.sql | db/procedure ## Insert manually reviewed route redundancy anchors
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_route_manual_redundancy.sql
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
+	touch db/procedure/mesh_route_manual_redundancy
 
 
 db/procedure/mesh_route_refresh_visibility: scripts/mesh_visibility_edges_refresh.sql scripts/assert_mesh_towers_single_los_component.sql db/table/mesh_visibility_edges db/procedure/mesh_route_segment_reroute db/procedure/mesh_visibility_edges_refresh | db/procedure ## Rebuild core visibility diagnostics after routing stages

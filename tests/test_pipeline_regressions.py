@@ -116,11 +116,13 @@ class PipelineRegressionTest(unittest.TestCase):
         )
         self.assertIn(
             "scripts/mesh_tower_wiggle_configured.sh\n\n"
+            'echo ">> Applying manually reviewed route redundancy anchors"\n'
+            "psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_route_manual_redundancy.sql\n\n"
             'echo ">> Refreshing visibility diagnostics after tower wiggle"\n'
             "psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_visibility_edges_refresh.sql\n"
             "psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql",
             placement_restart_text,
-            "Safe placement restart should refresh mesh_visibility_edges after tower wiggle moves towers, so exports and cluster checks read current LOS diagnostics.",
+            "Safe placement restart should apply reviewed redundancy anchors after tower wiggle, then refresh mesh_visibility_edges so exports and cluster checks read current LOS diagnostics.",
         )
         self.assertIn(
             "db/procedure/mesh_tower_wiggle_current",
@@ -819,6 +821,11 @@ class PipelineRegressionTest(unittest.TestCase):
             "data/out/mesh_visibility_bridges.tsv: scripts/report_mesh_visibility_bridges.sql | data/out",
             makefile_text,
             "Makefile should provide a read-only bridge/cut-node diagnostic report for DB-first rollout graph review.",
+        )
+        self.assertIn(
+            "db/procedure/mesh_route_manual_redundancy: scripts/mesh_route_manual_redundancy.sql data/in/mesh_route_manual_redundancy.csv scripts/assert_mesh_towers_single_los_component.sql | db/procedure",
+            makefile_text,
+            "Makefile should provide a narrow target for manually reviewed route redundancy anchors.",
         )
         self.assertIn(
             "scripts/mesh_tower_wiggle_configured.sh\n"

@@ -127,6 +127,9 @@ echo ">> Applying configured tower wiggle stage"
 psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_tower_wiggle.sql
 scripts/mesh_tower_wiggle_configured.sh
 
+echo ">> Applying manually reviewed route redundancy anchors"
+psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_route_manual_redundancy.sql
+
 echo ">> Refreshing visibility diagnostics after tower wiggle"
 psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_visibility_edges_refresh.sql
 psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
