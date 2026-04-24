@@ -220,31 +220,47 @@ if (!payloadEl || !window.maplibregl) {
       id: `${sourceName}-context`,
       type: 'line',
       source: sourceName,
+      filter: ['!=', ['get', 'link_kind'], 'phase_one_connector'],
       layout: {
         'line-cap': 'round',
         'line-join': 'round',
       },
       paint: {
-        'line-width': [
-          'case',
-          ['==', ['get', 'link_kind'], 'phase_one_connector'], 4,
-          mapMode === 'cluster' ? 3 : 2,
-        ],
-        'line-color': [
-          'case',
-          ['==', ['get', 'link_kind'], 'phase_one_connector'], '#111827',
-          '#7a8694',
-        ],
-        'line-opacity': [
-          'case',
-          ['==', ['get', 'link_kind'], 'phase_one_connector'], 0.88,
-          mapMode === 'cluster' ? 0.88 : 0.68,
-        ],
-        'line-dasharray': [
-          'case',
-          ['==', ['get', 'link_kind'], 'phase_one_connector'], ['literal', [1.2, 0.8]],
-          ['literal', [2, 1.4]],
-        ],
+        'line-width': mapMode === 'cluster' ? 3 : 2,
+        'line-color': '#7a8694',
+        'line-opacity': mapMode === 'cluster' ? 0.88 : 0.68,
+        'line-dasharray': [2, 1.4],
+      },
+    });
+    map.addLayer({
+      id: `${sourceName}-phase-one-halo`,
+      type: 'line',
+      source: sourceName,
+      filter: ['==', ['get', 'link_kind'], 'phase_one_connector'],
+      layout: {
+        'line-cap': 'round',
+        'line-join': 'round',
+      },
+      paint: {
+        'line-width': mapMode === 'cluster' ? 8 : 7,
+        'line-color': '#ffffff',
+        'line-opacity': 0.88,
+      },
+    });
+    map.addLayer({
+      id: `${sourceName}-phase-one`,
+      type: 'line',
+      source: sourceName,
+      filter: ['==', ['get', 'link_kind'], 'phase_one_connector'],
+      layout: {
+        'line-cap': 'round',
+        'line-join': 'round',
+      },
+      paint: {
+        'line-width': mapMode === 'cluster' ? 4.8 : 4.4,
+        'line-color': '#111827',
+        'line-opacity': 0.95,
+        'line-dasharray': [1.4, 0.7],
       },
     });
   };

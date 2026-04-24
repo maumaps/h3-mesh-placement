@@ -1028,9 +1028,19 @@ class InstallPriorityRenderTests(unittest.TestCase):
             msg="Overview phase one should draw only connector-tree context lines, not every same-phase context edge.",
         )
         self.assertIn(
-            "phase_one_connector'], '#111827'",
+            "`${sourceName}-phase-one`",
             html_text,
-            msg="Overview phase-one connector lines should be styled strongly enough to be visible during review.",
+            msg="Overview phase-one connector lines should have a dedicated foreground layer so MapLibre does not reject them with data-driven dash styling.",
+        )
+        self.assertIn(
+            "`${sourceName}-phase-one-halo`",
+            html_text,
+            msg="Overview phase-one connector lines should include a halo layer so they stay visible over raster basemaps.",
+        )
+        self.assertIn(
+            "'line-color': '#111827'",
+            html_text,
+            msg="Overview phase-one connector foreground should stay dark enough to be visible during review.",
         )
         self.assertIn(
             "updateOverviewView",
