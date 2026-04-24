@@ -219,7 +219,7 @@ if (!payloadEl || !window.maplibregl) {
       const markerEl = document.createElement('div');
       const source = String(feature.properties.source || '').toLowerCase();
       markerEl.className = `order-marker ${source === 'mqtt' ? 'planned' : 'installed'} overview`;
-      markerEl.textContent = source === 'mqtt' ? 'M' : 'S';
+      markerEl.textContent = source === 'mqtt' ? 'm' : 's';
       markerEl.title = `${feature.properties.name} (${feature.properties.country_name || feature.properties.country_code || 'unknown'})`;
 
       new maplibregl.Marker({ element: markerEl, anchor: 'center' })

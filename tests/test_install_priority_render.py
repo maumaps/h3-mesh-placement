@@ -70,8 +70,8 @@ class InstallPriorityRenderTests(unittest.TestCase):
 
         self.assertEqual(
             points[0]["marker"],
-            "M",
-            msg=f"Reachable MQTT overview rows should survive as M markers, got points {points!r}",
+            "m",
+            msg=f"Reachable MQTT overview rows should survive as m markers, got points {points!r}",
         )
         self.assertEqual(
             links[0]["target_h3"],
@@ -478,7 +478,7 @@ class InstallPriorityRenderTests(unittest.TestCase):
                     "h3": "882c2026d7fffff",
                     "name": "Feria 2",
                     "source": "seed",
-                    "marker": "S",
+                    "marker": "s",
                     "lon": 41.60,
                     "lat": 41.70,
                     "country_code": "ge",
@@ -488,7 +488,7 @@ class InstallPriorityRenderTests(unittest.TestCase):
                     "h3": "882c01da1bfffff",
                     "name": "Yerevan MQTT",
                     "source": "mqtt",
-                    "marker": "M",
+                    "marker": "m",
                     "lon": 44.52,
                     "lat": 40.18,
                     "country_code": "am",
@@ -617,7 +617,7 @@ class InstallPriorityRenderTests(unittest.TestCase):
         self.assertIn(
             "addSeedMqttMarkers",
             html_text,
-            msg="HTML handout should render dedicated M/S map markers for reachable seed and MQTT points.",
+            msg="HTML handout should render dedicated m/s map markers for reachable seed and MQTT points.",
         )
         self.assertIn(
             "addSeedMqttLinkLayers",
@@ -625,9 +625,9 @@ class InstallPriorityRenderTests(unittest.TestCase):
             msg="HTML handout should render every direct visible link touching the seed/MQTT overview points.",
         )
         self.assertIn(
-            "markerEl.textContent = source === 'mqtt' ? 'M' : 'S';",
+            "markerEl.textContent = source === 'mqtt' ? 'm' : 's';",
             html_text,
-            msg="Reachable overview points should be labeled with M/S markers on the map.",
+            msg="Reachable overview points should be labeled with m/s markers on the map.",
         )
         self.assertIn(
             "[41.58, 41.68]",
