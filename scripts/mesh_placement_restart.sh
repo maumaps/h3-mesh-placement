@@ -133,6 +133,7 @@ psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_route_manual_redundancy.s
 echo ">> Refreshing visibility diagnostics after tower wiggle"
 psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_visibility_edges_refresh.sql
 psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
+psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_visibility_no_bridges.sql
 
 trap - EXIT
 psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "drop table if exists ${tower_backup}; drop table if exists ${surface_backup};" >/dev/null

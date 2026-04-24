@@ -16,7 +16,7 @@ Backbone-first iteration is in progress.
 The current live placement restart uses `tables/mesh_pipeline_settings.sql` with coarse and greedy disabled, population anchors enabled with heavy existing-tower KMeans anchors, and route bridge/cluster-slim enabled.
 The live tower mix after the safe restart, population-anchor contraction, current wiggle pass, and manually reviewed redundancy anchors is `8 seed + 5 population + 32 route`; use `make db/procedure/mesh_placement_restart` to replay placement stages without rebuilding cached tables.
 The manual route redundancy anchors in `scripts/mesh_route_manual_redundancy.sql` are reviewed backup relays for the `100-101`, `102-103`, `12-99`, `102` cut-node, `81-95` bridge, `95` cut-node, `94-95` bridge, `12` cut-node, and leaf bridge fragility found during DB-first graph review.
-The current final visibility graph is one connected component; use `make data/out/mesh_visibility_bridges.tsv` after a visibility refresh to verify there are no bridge edges or cut nodes before field review.
+The current final visibility graph is one connected component; use `make db/procedure/mesh_visibility_no_bridges` after a visibility refresh to fail fast on bridge edges or cut nodes before field review, and `make data/out/mesh_visibility_bridges.tsv` when you need the TSV diagnostics.
 Do not use `make -B` for these remote replay checks.
 Keep using the canonical `existing_mesh_nodes.geojson` output from the curated + manual Liam Cottle merge as the only imported seed source while this iteration is being validated.
 

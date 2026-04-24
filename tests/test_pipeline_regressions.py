@@ -823,6 +823,11 @@ class PipelineRegressionTest(unittest.TestCase):
             "Makefile should provide a read-only bridge/cut-node diagnostic report for DB-first rollout graph review.",
         )
         self.assertIn(
+            "db/procedure/mesh_visibility_no_bridges: scripts/assert_mesh_visibility_no_bridges.sql db/procedure/mesh_route_refresh_visibility_current | db/procedure",
+            makefile_text,
+            "Makefile should provide a fail-fast bridge/cut-node invariant for final rollout graph review.",
+        )
+        self.assertIn(
             "db/procedure/mesh_route_manual_redundancy: scripts/mesh_route_manual_redundancy.sql scripts/assert_mesh_towers_single_los_component.sql | db/procedure",
             makefile_text,
             "Makefile should provide a narrow target for manually reviewed route redundancy anchors.",
@@ -893,6 +898,39 @@ class PipelineRegressionTest(unittest.TestCase):
             report_text.lower(),
             r"\b(insert|update|delete|truncate|drop|create|alter)\b",
             "The bridge diagnostic must remain read-only so it is safe to run against the live remote DB.",
+        )
+
+    def test_visibility_bridge_assertion_fails_fast(self) -> None:
+        """Final rollout checks should fail when refreshed visibility has graph bridges."""
+        assertion_text = (
+            REPO_ROOT / "scripts" / "assert_mesh_visibility_no_bridges.sql"
+        ).read_text()
+        restart_text = (REPO_ROOT / "scripts" / "mesh_placement_restart.sh").read_text()
+
+        self.assertIn(
+            "'cut_node'::text as finding_type",
+            assertion_text,
+            "The visibility redundancy assertion should detect articulation towers as cut_node findings.",
+        )
+        self.assertIn(
+            "'bridge_edge'::text as finding_type",
+            assertion_text,
+            "The visibility redundancy assertion should detect single-edge graph bridges as bridge_edge findings.",
+        )
+        self.assertIn(
+            "raise exception",
+            assertion_text.lower(),
+            "The visibility redundancy assertion must fail the pipeline when bridge/cut-node findings remain.",
+        )
+        self.assertIn(
+            "scripts/assert_mesh_visibility_no_bridges.sql",
+            restart_text,
+            "Placement restart should run the no-bridges assertion after the final visibility refresh.",
+        )
+        self.assertNotRegex(
+            assertion_text.lower(),
+            r"\b(insert|update|delete|truncate|drop|create|alter)\b",
+            "The visibility redundancy assertion must not mutate placement tables.",
         )
 
     def test_mesh_route_refresh_visibility_keeps_route_geom_optional(self) -> None:

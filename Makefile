@@ -47,6 +47,10 @@ data/out: | data ## Ensure output directory exists
 data/out/mesh_visibility_bridges.tsv: scripts/report_mesh_visibility_bridges.sql | data/out ## Export LOS graph bridge and cut-node diagnostics
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/report_mesh_visibility_bridges.sql > data/out/mesh_visibility_bridges.tsv
 
+db/procedure/mesh_visibility_no_bridges: scripts/assert_mesh_visibility_no_bridges.sql db/procedure/mesh_route_refresh_visibility_current | db/procedure ## Assert refreshed LOS graph has no bridge edges or cut nodes
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_visibility_no_bridges.sql
+	touch db/procedure/mesh_visibility_no_bridges
+
 data/backups: | data ## Ensure durable database backup directory exists
 	mkdir -p data/backups
 
