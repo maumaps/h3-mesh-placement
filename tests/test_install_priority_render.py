@@ -9,6 +9,7 @@ from scripts.export_install_priority import (
     choose_primary_previous_tower_id,
 )
 from scripts.assert_install_priority_edges import (
+    invalid_primary_previous_order,
     missing_primary_previous_edges,
     read_primary_previous_pairs,
 )
@@ -52,10 +53,10 @@ class InstallPriorityRenderTests(unittest.TestCase):
         from pathlib import Path
 
         csv_text = (
-            "tower_id,primary_previous_tower_id,display_name\n"
-            "1,,Installed Seed\n"
-            "2,1,Route 2\n"
-            "3,2,Route 3\n"
+            "tower_id,cluster_key,cluster_install_rank,primary_previous_tower_id,display_name\n"
+            "1,seed:1,0,,Installed Seed\n"
+            "2,seed:1,1,1,Route 2\n"
+            "3,seed:1,2,2,Route 3\n"
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             csv_path = Path(tmpdir) / "install_priority.csv"
@@ -67,6 +68,68 @@ class InstallPriorityRenderTests(unittest.TestCase):
             pairs,
             [(2, 1), (3, 2)],
             msg=f"CSV predecessor parser should keep only rows with primary_previous_tower_id, got {pairs!r}",
+        )
+
+    def test_install_priority_edge_assertion_rejects_invalid_order(self) -> None:
+        """CSV predecessor validation should reject cross-cluster and backward links."""
+
+        rows = [
+            {
+                "tower_id": "1",
+                "cluster_key": "seed:1",
+                "cluster_install_rank": "0",
+                "primary_previous_tower_id": "",
+            },
+            {
+                "tower_id": "2",
+                "cluster_key": "seed:1",
+                "cluster_install_rank": "1",
+                "primary_previous_tower_id": "3",
+            },
+            {
+                "tower_id": "3",
+                "cluster_key": "seed:2",
+                "cluster_install_rank": "0",
+                "primary_previous_tower_id": "",
+            },
+            {
+                "tower_id": "4",
+                "cluster_key": "seed:1",
+                "cluster_install_rank": "2",
+                "primary_previous_tower_id": "99",
+            },
+            {
+                "tower_id": "5",
+                "cluster_key": "seed:1",
+                "cluster_install_rank": "3",
+                "primary_previous_tower_id": "6",
+            },
+            {
+                "tower_id": "6",
+                "cluster_key": "seed:1",
+                "cluster_install_rank": "3",
+                "primary_previous_tower_id": "",
+            },
+        ]
+
+        invalid_references = invalid_primary_previous_order(rows)
+
+        self.assertEqual(
+            len(invalid_references),
+            3,
+            msg=f"Predecessor order validation should catch cross-cluster, absent, and non-earlier predecessors, got {invalid_references!r}",
+        )
+        self.assertTrue(
+            any("cluster" in reference for reference in invalid_references),
+            msg=f"Predecessor order validation should explain cross-cluster links, got {invalid_references!r}",
+        )
+        self.assertTrue(
+            any("absent" in reference for reference in invalid_references),
+            msg=f"Predecessor order validation should explain missing predecessor rows, got {invalid_references!r}",
+        )
+        self.assertTrue(
+            any("not before" in reference for reference in invalid_references),
+            msg=f"Predecessor order validation should explain backward or same-rank links, got {invalid_references!r}",
         )
 
     def test_reachable_seed_mqtt_overview_uses_los_cache_against_live_towers(self) -> None:

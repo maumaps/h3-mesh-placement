@@ -68,7 +68,7 @@ The export writes:
 - `data/out/install_priority.html`
 - `data/out/install_priority.csv`
 
-Run `make data/out/install_priority_edges_checked` after exporting when you need a fail-fast check that every `primary_previous_tower_id` in the CSV has a direct visible edge in the current `mesh_visibility_edges` table.
+Run `make data/out/install_priority_edges_checked` after exporting when you need a fail-fast check that every `primary_previous_tower_id` in the CSV points to an earlier row in the same cluster and has a direct visible edge in the current `mesh_visibility_edges` table.
 Run `make data/out/install_priority_reviewed` for the full field-review gate: export exists, predecessor links are visible, bridge/cut-node assertion passes, and the bridge diagnostic TSV exists.
 
 The HTML file includes a top summary table with one true “next node” per cluster, a MapLibre overview map, and one mini map per cluster.
