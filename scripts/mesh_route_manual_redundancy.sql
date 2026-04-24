@@ -23,7 +23,12 @@ values
     ('882c019365fffff', 'route', 'backup_141_131_around_95_cut_node'),
     ('882c019235fffff', 'route', 'backup_141_131_around_95_cut_node'),
     ('882c05332bfffff', 'route', 'backup_141_131_around_95_cut_node'),
-    ('882c215049fffff', 'route', 'backup_30_109_around_12_cut_node');
+    ('882c215049fffff', 'route', 'backup_30_109_around_12_cut_node'),
+    ('882c056ad5fffff', 'route', 'backup_7_94_around_7_91_leaf_bridge'),
+    ('882c056ee9fffff', 'route', 'backup_7_94_around_7_91_leaf_bridge'),
+    ('882c211303fffff', 'route', 'backup_26_5_around_26_30_leaf_bridge'),
+    ('882c2aa885fffff', 'route', 'backup_37_104_around_37_100_leaf_bridge'),
+    ('882c0c9227fffff', 'route', 'backup_90_86_around_89_90_leaf_bridge');
 
 do
 $$
