@@ -95,7 +95,7 @@ def write_csv(rows: list[dict[str, object]], output_path: Path) -> None:
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8", newline="") as csv_file:
-        writer = csv.DictWriter(csv_file, fieldnames=CSV_COLUMNS)
+        writer = csv.DictWriter(csv_file, fieldnames=CSV_COLUMNS, extrasaction="ignore")
         writer.writeheader()
         for row in rows:
             writer.writerow(row)
@@ -390,6 +390,7 @@ def export_rows(
                     plan_row,
                     rank_by_tower_id,
                 ),
+                "previous_connection_ids": list(plan_row.previous_connection_ids),
                 "inter_cluster_neighbor_ids": connector_metadata[
                     "inter_cluster_neighbor_ids"
                 ],

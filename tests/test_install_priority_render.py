@@ -193,6 +193,16 @@ class InstallPriorityRenderTests(unittest.TestCase):
             fake_cursor.queries[1].lower(),
             msg=f"Overview-link query should source direct links from mesh_los_cache, got SQL {fake_cursor.queries[1]!r}",
         )
+        self.assertIn(
+            "least(relevant_links.src_h3, relevant_links.dst_h3)",
+            fake_cursor.queries[1],
+            msg=f"Overview-link query should canonicalize undirected link endpoints before rendering, got SQL {fake_cursor.queries[1]!r}",
+        )
+        self.assertIn(
+            "group by",
+            fake_cursor.queries[1].lower(),
+            msg=f"Overview-link query should deduplicate bidirectional LOS cache rows before rendering, got SQL {fake_cursor.queries[1]!r}",
+        )
 
     def test_nearby_seed_point_hides_duplicate_mqtt_overview_marker(self) -> None:
         """A seed should win over a nearby MQTT point in the overview overlay."""
@@ -555,8 +565,10 @@ class InstallPriorityRenderTests(unittest.TestCase):
                 geocoder_status_ru="ok",
             ),
         ]
+        html_rows = [dict(row) for row in output_rows]
+        html_rows[1]["previous_connection_ids"] = [1]
         html_text = render_html_document(
-            rows=output_rows,
+            rows=html_rows,
             generated_at="2026-04-09T00:00:00+00:00",
             geocoder_base_url="https://geocoder.batu.market",
             cluster_bound_features=[
@@ -673,6 +685,16 @@ class InstallPriorityRenderTests(unittest.TestCase):
             "addContextLayers",
             html_text,
             msg="HTML handout should render dashed context connectors so neighboring rollout clusters are easier to understand.",
+        )
+        self.assertIn(
+            "\"previous_connection_ids\": [1]",
+            html_text,
+            msg=f"HTML handout should keep non-CSV previous connection ids in the map payload, got HTML {html_text!r}",
+        )
+        self.assertIn(
+            "link_kind: 'previous'",
+            html_text,
+            msg="HTML handout should render non-primary same-cluster predecessors as dashed local context links.",
         )
         self.assertIn(
             "map_order_label",

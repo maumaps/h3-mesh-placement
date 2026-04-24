@@ -22,12 +22,18 @@ iter=0
 while :; do
     iter=$((iter + 1))
     echo ">> Cluster slim iteration ${iter}"
+    before_progress="$(psql --no-psqlrc --set=ON_ERROR_STOP=1 -At -c "select count(*) from mesh_route_cluster_slim_failures;")"
     promoted="$(PGOPTIONS="${PGOPTIONS:-} -c statement_timeout=0" psql --no-psqlrc --set=ON_ERROR_STOP=1 -At -c "call mesh_route_cluster_slim(${iter}, null);")"
     promoted="${promoted:-0}"
+    after_progress="$(psql --no-psqlrc --set=ON_ERROR_STOP=1 -At -c "select count(*) from mesh_route_cluster_slim_failures;")"
 
-    if [ "${promoted}" -eq 0 ]; then
+    if [ "${promoted}" -eq 0 ] && [ "${after_progress}" -le "${before_progress}" ]; then
         echo ">> Cluster slim converged after $((iter - 1)) iteration(s)"
         break
+    fi
+
+    if [ "${promoted}" -eq 0 ]; then
+        echo ">> Cluster slim advanced candidate log without new towers; continuing"
     fi
 
     if [ "${max_iters}" -gt 0 ] && [ "${iter}" -ge "${max_iters}" ]; then

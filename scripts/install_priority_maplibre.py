@@ -53,6 +53,9 @@ def normalize_rows(rows: Sequence[Mapping[str, object]]) -> list[dict[str, objec
         normalized["inter_cluster_neighbor_ids"] = _as_int_list(
             row.get("inter_cluster_neighbor_ids")
         )
+        normalized["previous_connection_ids"] = _as_int_list(
+            row.get("previous_connection_ids")
+        )
         normalized["map_order_label"] = _build_map_order_label(normalized)
         normalized_rows.append(normalized)
 
@@ -145,6 +148,9 @@ def _as_int_list(value: object) -> list[int]:
 
     if value in (None, ""):
         return []
+
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        return [int(item) for item in value]
 
     return [
         int(item)

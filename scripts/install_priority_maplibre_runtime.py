@@ -81,6 +81,34 @@ if (!payloadEl || !window.maplibregl) {
   const contextPairs = new Set();
 
   payload.rows.forEach((row) => {
+    (row.previous_connection_ids || []).forEach((previousId) => {
+      if (previousId === row.primary_previous_tower_id) return;
+
+      const previousRow = rowsByTowerId.get(previousId);
+      if (!previousRow || previousRow.cluster_key !== row.cluster_key) return;
+
+      const pairKey = ['previous', ...[row.tower_id, previousId].sort((left, right) => left - right)].join(':');
+      if (contextPairs.has(pairKey)) return;
+      contextPairs.add(pairKey);
+      contextFeatures.push({
+        type: 'Feature',
+        geometry: {
+          type: 'LineString',
+          coordinates: [
+            [previousRow.lon, previousRow.lat],
+            [row.lon, row.lat],
+          ],
+        },
+        properties: {
+          from_cluster_key: row.cluster_key,
+          to_cluster_key: previousRow.cluster_key,
+          from_tower_id: row.tower_id,
+          to_tower_id: previousId,
+          link_kind: 'previous',
+        },
+      });
+    });
+
     (row.inter_cluster_neighbor_ids || []).forEach((neighborId) => {
       const neighborRow = rowsByTowerId.get(neighborId);
       if (!neighborRow) return;

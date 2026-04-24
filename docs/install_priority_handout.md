@@ -75,11 +75,13 @@ The HTML file includes a top summary table with one true “next node” per clu
 The summary and detail tables now include captions, scoped headers, and labeled map links so screen readers can follow the same rollout data.
 On narrow screens the summary table remains horizontally scrollable, while each cluster detail section swaps to mobile cards with the same values and links.
 Solid lines show the recommended rollout path inside each cluster.
+Dashed local lines on cluster mini maps show additional already-reachable same-cluster predecessors that were not chosen as the primary install edge.
+This keeps links such as Komzpa to a later Batumi-cluster tower visible even when another predecessor is used for the ranked route line.
 The overview map shows every rollout number plus the merged Voronoi outline around each cluster’s current extent.
 Dashed gray lines show the cheapest visible connector between rollout clusters.
 Those links are context only and do not drive the install order itself.
 The same overview now overlays reachable seed and MQTT import points as `s` and `m` markers.
-For those `s`/`m` points, every direct visible link from the live visibility graph is drawn as a thin context line so imported backbone candidates can be inspected without changing the rollout queue itself.
+For those `s`/`m` points, every unique undirected direct visible link from the live visibility graph is drawn as a thin context line so imported backbone candidates can be inspected without changing the rollout queue itself.
 On the mini maps, those connector lines and large outer Voronoi edges no longer stretch the viewport away from the local cluster geometry.
 `blocked` means the tower belongs to that rollout queue, yet there is still no visible path from any installed seed to that tower.
 The basemap uses the public OpenFreeMap `liberty` style so the handout does not depend on referrer-gated access to OpenStreetMap standard tiles.

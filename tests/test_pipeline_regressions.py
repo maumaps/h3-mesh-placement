@@ -717,6 +717,26 @@ class PipelineRegressionTest(unittest.TestCase):
             "mesh_route_cluster_slim should not run visibility refresh internally because the Make pipeline already runs route_refresh_visibility after cluster slim converges.",
         )
 
+    def test_mesh_route_cluster_slim_wrapper_continues_after_logged_attempts(self) -> None:
+        """Cluster slim should continue after logged non-promoting attempts."""
+        wrapper_text = (REPO_ROOT / "scripts" / "mesh_route_cluster_slim_configured.sh").read_text()
+
+        self.assertIn(
+            "before_progress=",
+            wrapper_text,
+            "Cluster-slim wrapper should snapshot the attempt log before each call so logged failures do not look like convergence.",
+        )
+        self.assertIn(
+            "after_progress=",
+            wrapper_text,
+            "Cluster-slim wrapper should recheck the attempt log after each call so completed/rejected corridors keep the loop moving.",
+        )
+        self.assertIn(
+            '[ "${promoted}" -eq 0 ] && [ "${after_progress}" -le "${before_progress}" ]',
+            wrapper_text,
+            "Cluster-slim wrapper should converge only when no towers were promoted and no candidate-log progress was made.",
+        )
+
     def test_mesh_tower_wiggle_defers_refresh(self) -> None:
         """Tower wiggle should not run heavy local or global visibility refresh inside each single-tower move."""
         wiggle_text = (REPO_ROOT / "procedures" / "mesh_tower_wiggle.sql").read_text()

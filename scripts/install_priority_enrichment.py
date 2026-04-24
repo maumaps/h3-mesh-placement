@@ -451,9 +451,12 @@ def fetch_reachable_seed_mqtt_overview(
             direct_links.target_h3::text
         from (
             select
-                relevant_links.src_h3 as source_h3,
-                relevant_links.dst_h3 as target_h3
+                least(relevant_links.src_h3, relevant_links.dst_h3) as source_h3,
+                greatest(relevant_links.src_h3, relevant_links.dst_h3) as target_h3
             from relevant_links
+            group by
+                least(relevant_links.src_h3, relevant_links.dst_h3),
+                greatest(relevant_links.src_h3, relevant_links.dst_h3)
         ) as direct_links
         order by
             source_h3::text,

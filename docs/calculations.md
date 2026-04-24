@@ -198,6 +198,7 @@ The stage then runs `scripts/assert_mesh_towers_single_los_component.sql`, which
 **What:** For intra-cluster pairs exceeding 7 hops, routes candidate corridors and promotes intermediate towers so hop counts shrink.
 **Why:** The 7-hop budget is a hard design constraint, so the graph must be “tightened” before maximizing population.
 **Optimization:** Processes a bounded candidate batch per iteration and reuses existing towers on a corridor.
+The configured wrapper treats a newly logged failed or completed corridor as progress even when that specific invocation inserts no new tower, so one rejected corridor cannot make the whole slim stage look converged.
 Like bridge, it now defers local surface and visibility refresh to the later route-refresh stage instead of recomputing them synchronously inside each cluster-slim iteration.
 After each cluster-slim run, the same single-component assertion verifies that tightening did not strand any live tower.
 
@@ -245,6 +246,7 @@ Before each resume loop, `scripts/fill_mesh_los_cache_queue_indexes.sql` ensures
 **What:** For intra-cluster pairs exceeding 7 hops, routes candidate corridors and promotes intermediate towers so hop counts shrink.
 **Why:** The 7-hop budget is a hard design constraint, so the graph must be “tightened” before maximizing population.
 **Optimization:** Processes one corridor per invocation, stores failed pair attempts, and reuses `mesh_route_corridor_between_towers(...)` so the expensive pgRouting graph stays centralized.
+The configured wrapper keeps looping after non-promoting attempts when the failure/completion log advanced, because those rows remove bad corridors from the remaining queue.
 Like bridge, it now defers local surface and visibility refresh to the later route-refresh stage instead of recomputing them synchronously inside each cluster-slim iteration.
 
 ### Population anchor contraction (`mesh_population_anchor_contract`)
