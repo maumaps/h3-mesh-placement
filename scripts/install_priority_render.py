@@ -214,6 +214,26 @@ def render_html_document(
         for row in normalized_rows
         if bool(row["is_next_for_cluster"])
     ]
+    connect_max_rank_by_cluster = {
+        str(cluster_rows[0]["cluster_key"]): _default_cluster_max_rank(cluster_rows)
+        for cluster_rows in grouped_rows.values()
+    }
+    overview_connect_rows = [
+        row
+        for row in normalized_rows
+        if bool(row["installed"])
+        or (
+            row["cluster_install_rank"] not in (None, "")
+            and int(row["cluster_install_rank"])
+            <= connect_max_rank_by_cluster[str(row["cluster_key"])]
+        )
+    ]
+    overview_map_aspect_ratio = _map_aspect_ratio(
+        overview_connect_rows,
+        min_ratio=1.8,
+        max_ratio=3.2,
+        default_ratio=2.2,
+    )
 
     html_parts = [
         "<!doctype html>",
@@ -232,7 +252,7 @@ def render_html_document(
         ".summary,.cluster,.map-panel{background:#fff;border-radius:18px;padding:18px;margin-bottom:18px;box-shadow:0 10px 30px rgba(23,50,77,0.08);}",
         ".cluster h2,.summary h2,.map-panel h2{margin:0 0 10px;font-size:1.3rem;}",
         ".meta{color:#55606d;font-size:0.95rem;margin:6px 0 0;}",
-        ".overview-map{height:480px;border-radius:16px;overflow:hidden;border:1px solid #d8d2c5;}",
+        ".overview-map{aspect-ratio:var(--overview-map-aspect,2.2)/1;min-height:360px;height:auto;border-radius:16px;overflow:hidden;border:1px solid #d8d2c5;}",
         ".cluster-map{aspect-ratio:var(--cluster-map-aspect,1.6)/1;min-height:220px;height:auto;border-radius:14px;overflow:hidden;border:1px solid #e2ddd3;margin:14px 0 10px;}",
         ".table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:14px;}",
         ".table-wrap:focus-visible,a:focus-visible{outline:3px solid #d97706;outline-offset:3px;}",
@@ -294,8 +314,8 @@ def render_html_document(
         "a{color:#0d5ea8;text-decoration:none;}",
         "a:hover{text-decoration:underline;}",
         ".maplibregl-popup-content{max-width:280px;font:14px/1.4 'Trebuchet MS','Segoe UI',sans-serif;}",
-        "@media (max-width: 920px){.page{padding:14px}.hero,.summary,.cluster,.map-panel{padding:14px}.hero h1{font-size:1.6rem}.overview-map{height:360px}.cluster-map{min-height:220px}.cluster-table-wrap{display:none}.cluster-cards{display:block}}",
-        "@media (max-width: 640px){.overview-map{height:300px}.phase-control{padding:10px}.phase-tabs{grid-template-columns:1fr}.cluster-card{padding:12px}.cluster-card-grid{grid-template-columns:1fr}.legend span{font-size:0.84rem}.summary-table{min-width:680px}}",
+        "@media (max-width: 920px){.page{padding:14px}.hero,.summary,.cluster,.map-panel{padding:14px}.hero h1{font-size:1.6rem}.overview-map{min-height:300px}.cluster-map{min-height:220px}.cluster-table-wrap{display:none}.cluster-cards{display:block}}",
+        "@media (max-width: 640px){.overview-map{min-height:260px}.phase-control{padding:10px}.phase-tabs{grid-template-columns:1fr}.cluster-card{padding:12px}.cluster-card-grid{grid-template-columns:1fr}.legend span{font-size:0.84rem}.summary-table{min-width:680px}}",
         "</style>",
         "</head>",
         "<body>",
@@ -315,7 +335,7 @@ def render_html_document(
         "<button type='button' class='overview-view-tab phase-tab' role='tab' aria-selected='false' data-overview-view='coverage'><strong>Phase 2: Improve coverage</strong><span>Show the full later queue for hop reduction and local fill-in.</span></button>",
         "</div>",
         "</div>",
-        "<div id='overview-map' class='overview-map' role='img' aria-label='Overview rollout map for all installer clusters'></div>",
+        f"<div id='overview-map' class='overview-map' style='--overview-map-aspect:{overview_map_aspect_ratio:.2f}' role='img' aria-label='Overview rollout map for all installer clusters'></div>",
         "<div id='map-fallback' class='map-fallback' role='status' aria-live='polite'>Interactive map could not load. The tables below still contain the full handout.</div>",
         "<div class='legend'>",
         "<span><i style='background:#27548a'></i>Installed seed</span>",
@@ -350,7 +370,7 @@ def render_html_document(
             row for row in cluster_rows if str(row["rollout_status"]) == "blocked"
         ]
         cluster_dom_id = cluster_map_id(str(cluster_rows[0]["cluster_key"]))
-        compact_max_rank = _default_cluster_max_rank(cluster_rows)
+        compact_max_rank = connect_max_rank_by_cluster[str(cluster_rows[0]["cluster_key"])]
         compact_rows = [
             row
             for row in cluster_rows
@@ -369,8 +389,8 @@ def render_html_document(
                 next_label=next_label,
                 blocked_count=len(blocked_rows),
                 compact_max_rank=compact_max_rank,
-                compact_map_aspect_ratio=_cluster_map_aspect_ratio(compact_rows),
-                full_map_aspect_ratio=_cluster_map_aspect_ratio(cluster_rows),
+                compact_map_aspect_ratio=_map_aspect_ratio(compact_rows),
+                full_map_aspect_ratio=_map_aspect_ratio(cluster_rows),
             )
         )
 
@@ -415,21 +435,33 @@ def _default_cluster_max_rank(cluster_rows: Sequence[Mapping[str, object]]) -> i
 def _cluster_map_aspect_ratio(cluster_rows: Sequence[Mapping[str, object]]) -> float:
     """Return a bounded Web Mercator bbox aspect ratio for a cluster map."""
 
+    return _map_aspect_ratio(cluster_rows)
+
+
+def _map_aspect_ratio(
+    rows: Sequence[Mapping[str, object]],
+    *,
+    min_ratio: float = 1.2,
+    max_ratio: float = 2.2,
+    default_ratio: float = 1.6,
+) -> float:
+    """Return a bounded Web Mercator bbox aspect ratio for map content."""
+
     points = [
         _web_mercator_xy(float(row["lon"]), float(row["lat"]))
-        for row in cluster_rows
+        for row in rows
     ]
     if len(points) < 2:
-        return 1.6
+        return default_ratio
 
     x_values = [point[0] for point in points]
     y_values = [point[1] for point in points]
     x_span = max(x_values) - min(x_values)
     y_span = max(y_values) - min(y_values)
     if y_span <= 0:
-        return 2.2
+        return max_ratio
 
-    return min(max(x_span / y_span, 1.2), 2.2)
+    return min(max(x_span / y_span, min_ratio), max_ratio)
 
 
 def _web_mercator_xy(lon: float, lat: float) -> tuple[float, float]:

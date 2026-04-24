@@ -32,6 +32,7 @@ from scripts.install_priority_map_payload import dedupe_clusters
 from scripts.install_priority_map_payload import phase_one_connector_features
 from scripts.install_priority_render import _cluster_map_aspect_ratio
 from scripts.install_priority_render import _default_cluster_max_rank
+from scripts.install_priority_render import _map_aspect_ratio
 from scripts.install_priority_render_sections import render_cluster_section
 
 
@@ -184,6 +185,33 @@ class InstallPriorityRenderTests(unittest.TestCase):
             expected_ratio,
             places=6,
             msg=f"Cluster map aspect should be computed after Web Mercator projection, got {aspect_ratio} for rows {rows!r}",
+        )
+
+    def test_overview_map_uses_bounded_mercator_aspect_ratio(self) -> None:
+        """Overview map proportions should follow the phase-one Mercator bbox."""
+
+        rows = [
+            {"lon": 41.6, "lat": 41.7},
+            {"lon": 44.5, "lat": 40.2},
+            {"lon": 45.1, "lat": 42.0},
+        ]
+
+        aspect_ratio = _map_aspect_ratio(
+            rows,
+            min_ratio=1.8,
+            max_ratio=3.2,
+            default_ratio=2.2,
+        )
+
+        self.assertGreaterEqual(
+            aspect_ratio,
+            1.8,
+            msg=f"Overview aspect should honor the lower bound for broad regional maps, got {aspect_ratio} for rows {rows!r}",
+        )
+        self.assertLessEqual(
+            aspect_ratio,
+            3.2,
+            msg=f"Overview aspect should honor the upper bound so the map does not become a flat strip, got {aspect_ratio} for rows {rows!r}",
         )
 
     def test_connect_view_cutoff_ignores_installed_cluster_links(self) -> None:
@@ -1011,6 +1039,16 @@ class InstallPriorityRenderTests(unittest.TestCase):
             "overview-map",
             html_text,
             msg="HTML handout should include the overview map container.",
+        )
+        self.assertIn(
+            ".overview-map{aspect-ratio:var(--overview-map-aspect,2.2)/1;min-height:360px;height:auto",
+            html_text,
+            msg="Overview map should use a Mercator-derived aspect ratio instead of a fixed-height strip.",
+        )
+        self.assertIn(
+            "style='--overview-map-aspect:",
+            html_text,
+            msg="Overview map container should carry the phase-one Mercator bbox aspect ratio.",
         )
         self.assertIn(
             "class='overview-view-tabs phase-tabs'",
