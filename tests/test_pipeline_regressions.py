@@ -136,6 +136,11 @@ class PipelineRegressionTest(unittest.TestCase):
             "Tower wiggle wrapper should use GNU parallel workers when configured so candidate scoring can occupy the remote CPU pool.",
         )
         self.assertIn(
+            ">> Wiggle resetting queue before ${parallel_workers} worker(s)",
+            (REPO_ROOT / "scripts" / "mesh_tower_wiggle_configured.sh").read_text(),
+            "Parallel wiggle should initialize the dirty queue without spending a full single-worker wiggle iteration before workers start.",
+        )
+        self.assertIn(
             "for update of q skip locked",
             (REPO_ROOT / "procedures" / "mesh_tower_wiggle.sql").read_text(),
             "Parallel wiggle workers should claim different dirty tower rows instead of evaluating the same tower concurrently.",

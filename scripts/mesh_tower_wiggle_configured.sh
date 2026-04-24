@@ -22,12 +22,35 @@ if [ "${parallel_workers}" -gt 0 ]; then
 fi
 
 if [ "${parallel_workers}" -gt 1 ]; then
-    echo ">> Wiggle seeding queue before ${parallel_workers} worker(s)"
-    moved="$(psql --no-psqlrc --set=ON_ERROR_STOP=1 -At -c "select mesh_tower_wiggle(true);")"
-    moved="${moved:-0}"
+    echo ">> Wiggle resetting queue before ${parallel_workers} worker(s)"
+    dirty_count="$(psql --no-psqlrc --set=ON_ERROR_STOP=1 -At <<'SQL'
+update mesh_towers
+set recalculation_count = 0
+where recalculation_count is null
+  and source in ('population', 'route', 'cluster_slim', 'bridge', 'coarse');
 
-    if [ "${moved}" -eq 0 ]; then
-        echo ">> Wiggle converged during queue seed"
+-- Queue of towers that still need wiggle evaluation.
+create table if not exists mesh_tower_wiggle_queue (
+    tower_id integer primary key,
+    is_dirty boolean not null default true
+);
+
+delete from mesh_tower_wiggle_queue;
+
+insert into mesh_tower_wiggle_queue (tower_id, is_dirty)
+select t.tower_id, true
+from mesh_towers t
+where t.source in ('population', 'route', 'cluster_slim', 'bridge', 'coarse');
+
+select count(*)
+from mesh_tower_wiggle_queue
+where is_dirty;
+SQL
+)"
+    dirty_count="${dirty_count##*$'\n'}"
+
+    if [ "${dirty_count}" -eq 0 ]; then
+        echo ">> Wiggle has no eligible dirty towers"
         exit 0
     fi
 
