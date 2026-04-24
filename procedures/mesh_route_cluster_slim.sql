@@ -681,20 +681,22 @@ begin
                 distance_to_closest_tower = 0
             where h3 = new_h3;
 
-            update mesh_surface_h3_r8
-            set clearance = null,
-                path_loss = null,
-                visible_uncovered_population = null,
-                visible_tower_count = null,
-                distance_to_closest_tower = coalesce(
-                    least(
-                        distance_to_closest_tower,
+            if worker_count = 1 then
+                update mesh_surface_h3_r8
+                set clearance = null,
+                    path_loss = null,
+                    visible_uncovered_population = null,
+                    visible_tower_count = null,
+                    distance_to_closest_tower = coalesce(
+                        least(
+                            distance_to_closest_tower,
+                            ST_Distance(centroid_geog, new_centroid)
+                        ),
                         ST_Distance(centroid_geog, new_centroid)
-                    ),
-                    ST_Distance(centroid_geog, new_centroid)
-                )
-            where h3 <> new_h3
-              and ST_DWithin(centroid_geog, new_centroid, refresh_radius);
+                    )
+                where h3 <> new_h3
+                  and ST_DWithin(centroid_geog, new_centroid, refresh_radius);
+            end if;
 
         end loop;
 

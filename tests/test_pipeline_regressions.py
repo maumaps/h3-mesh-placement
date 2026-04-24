@@ -851,6 +851,16 @@ class PipelineRegressionTest(unittest.TestCase):
             "Cluster-slim procedure should partition ranked candidate pairs deterministically across workers.",
         )
         self.assertIn(
+            "if worker_count = 1 then",
+            procedure_text,
+            "Cluster-slim workers should skip wide surface-spacing updates in parallel mode to avoid overlapping update deadlocks.",
+        )
+        self.assertIn(
+            "refresh_parallel_spacing",
+            wrapper_text,
+            "Cluster-slim wrapper should run one serial surface-spacing refresh after parallel workers promote towers.",
+        )
+        self.assertIn(
             "scripts/mesh_route_cluster_slim_worker.sh",
             makefile_text,
             "Cluster-slim Make targets should depend on the worker script so remote resume picks up parallel execution changes.",

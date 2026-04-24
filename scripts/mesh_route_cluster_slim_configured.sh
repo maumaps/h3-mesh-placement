@@ -24,6 +24,51 @@ if [ "${worker_count}" -lt 1 ]; then
 fi
 iter=0
 
+refresh_parallel_spacing() {
+    if [ "${worker_count}" -le 1 ] || [ "${promoted}" -le 0 ]; then
+        return
+    fi
+
+    psql --no-psqlrc --set=ON_ERROR_STOP=1 <<'SQL'
+with slim_towers as (
+    -- Parallel workers update exact tower cells only; this serial pass updates
+    -- nearby spacing once so workers do not deadlock on overlapping H3 radii.
+    select
+        surface.h3,
+        surface.centroid_geog
+    from mesh_towers tower
+    join mesh_surface_h3_r8 surface on surface.h3 = tower.h3
+    where tower.source = 'cluster_slim'
+),
+nearest_slim_tower as (
+    -- Compute the closest cluster-slim tower per affected cell in one ordered update.
+    select
+        surface.h3,
+        min(ST_Distance(surface.centroid_geog, slim_towers.centroid_geog)) as distance_m
+    from mesh_surface_h3_r8 surface
+    join slim_towers
+      on ST_DWithin(surface.centroid_geog, slim_towers.centroid_geog, 100000)
+    group by surface.h3
+)
+update mesh_surface_h3_r8 surface
+set clearance = null,
+    path_loss = null,
+    visible_uncovered_population = null,
+    visible_tower_count = null,
+    distance_to_closest_tower = coalesce(
+        least(surface.distance_to_closest_tower, nearest_slim_tower.distance_m),
+        nearest_slim_tower.distance_m
+    )
+from nearest_slim_tower
+where surface.h3 = nearest_slim_tower.h3
+  and not exists (
+        select 1
+        from slim_towers
+        where slim_towers.h3 = surface.h3
+    );
+SQL
+}
+
 while :; do
     iter=$((iter + 1))
     echo ">> Cluster slim iteration ${iter}"
@@ -40,6 +85,7 @@ while :; do
         promoted="$(bash scripts/mesh_route_cluster_slim_worker.sh "${iter}" 1 0)"
     fi
     promoted="${promoted:-0}"
+    refresh_parallel_spacing
     after_progress="$(psql --no-psqlrc --set=ON_ERROR_STOP=1 -At -c "select count(*) from mesh_route_cluster_slim_failures;")"
 
     if [ "${promoted}" -eq 0 ] && [ "${after_progress}" -le "${before_progress}" ]; then
