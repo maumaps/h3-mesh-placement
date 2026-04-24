@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from html import escape
+import math
 from typing import Mapping, Sequence
 
 from scripts.install_priority_graph import TowerRecord
@@ -232,7 +233,7 @@ def render_html_document(
         ".cluster h2,.summary h2,.map-panel h2{margin:0 0 10px;font-size:1.3rem;}",
         ".meta{color:#55606d;font-size:0.95rem;margin:6px 0 0;}",
         ".overview-map{height:480px;border-radius:16px;overflow:hidden;border:1px solid #d8d2c5;}",
-        ".cluster-map{aspect-ratio:3.1/1;min-height:320px;max-height:430px;height:auto;border-radius:14px;overflow:hidden;border:1px solid #e2ddd3;margin:14px 0 10px;}",
+        ".cluster-map{aspect-ratio:var(--cluster-map-aspect,1.6)/1;min-height:220px;height:auto;border-radius:14px;overflow:hidden;border:1px solid #e2ddd3;margin:14px 0 10px;}",
         ".table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:14px;}",
         ".table-wrap:focus-visible,a:focus-visible{outline:3px solid #d97706;outline-offset:3px;}",
         "table{width:100%;border-collapse:collapse;min-width:980px;}",
@@ -287,14 +288,14 @@ def render_html_document(
         ".cluster-card-grid dt{font-size:0.76rem;text-transform:uppercase;letter-spacing:0.03em;color:#5a6673;}",
         ".cluster-card-grid dd{margin:4px 0 0;line-height:1.4;}",
         ".cluster-view-panel[hidden]{display:none;}",
-        ".full-cluster-map{aspect-ratio:2.8/1;max-height:480px;margin-top:12px;}",
+        ".full-cluster-map{margin-top:12px;}",
         ".full-cluster-table{margin-top:12px;}",
         ".sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}",
         "a{color:#0d5ea8;text-decoration:none;}",
         "a:hover{text-decoration:underline;}",
         ".maplibregl-popup-content{max-width:280px;font:14px/1.4 'Trebuchet MS','Segoe UI',sans-serif;}",
-        "@media (max-width: 920px){.page{padding:14px}.hero,.summary,.cluster,.map-panel{padding:14px}.hero h1{font-size:1.6rem}.overview-map{height:360px}.cluster-map{aspect-ratio:2.35/1;min-height:240px;max-height:330px}.cluster-table-wrap{display:none}.cluster-cards{display:block}}",
-        "@media (max-width: 640px){.overview-map{height:300px}.cluster-map{aspect-ratio:2.05/1;min-height:220px;max-height:300px}.phase-control{padding:10px}.phase-tabs{grid-template-columns:1fr}.cluster-card{padding:12px}.cluster-card-grid{grid-template-columns:1fr}.legend span{font-size:0.84rem}.summary-table{min-width:680px}}",
+        "@media (max-width: 920px){.page{padding:14px}.hero,.summary,.cluster,.map-panel{padding:14px}.hero h1{font-size:1.6rem}.overview-map{height:360px}.cluster-map{min-height:220px}.cluster-table-wrap{display:none}.cluster-cards{display:block}}",
+        "@media (max-width: 640px){.overview-map{height:300px}.phase-control{padding:10px}.phase-tabs{grid-template-columns:1fr}.cluster-card{padding:12px}.cluster-card-grid{grid-template-columns:1fr}.legend span{font-size:0.84rem}.summary-table{min-width:680px}}",
         "</style>",
         "</head>",
         "<body>",
@@ -350,6 +351,15 @@ def render_html_document(
         ]
         cluster_dom_id = cluster_map_id(str(cluster_rows[0]["cluster_key"]))
         compact_max_rank = _default_cluster_max_rank(cluster_rows)
+        compact_rows = [
+            row
+            for row in cluster_rows
+            if bool(row["installed"])
+            or (
+                row["cluster_install_rank"] not in (None, "")
+                and int(row["cluster_install_rank"]) <= compact_max_rank
+            )
+        ]
         html_parts.extend(
             render_cluster_section(
                 cluster_label=cluster_label,
@@ -359,6 +369,8 @@ def render_html_document(
                 next_label=next_label,
                 blocked_count=len(blocked_rows),
                 compact_max_rank=compact_max_rank,
+                compact_map_aspect_ratio=_cluster_map_aspect_ratio(compact_rows),
+                full_map_aspect_ratio=_cluster_map_aspect_ratio(cluster_rows),
             )
         )
 
@@ -398,3 +410,35 @@ def _default_cluster_max_rank(cluster_rows: Sequence[Mapping[str, object]]) -> i
         return min(planned_ranks)
 
     return 0
+
+
+def _cluster_map_aspect_ratio(cluster_rows: Sequence[Mapping[str, object]]) -> float:
+    """Return a bounded Web Mercator bbox aspect ratio for a cluster map."""
+
+    points = [
+        _web_mercator_xy(float(row["lon"]), float(row["lat"]))
+        for row in cluster_rows
+    ]
+    if len(points) < 2:
+        return 1.6
+
+    x_values = [point[0] for point in points]
+    y_values = [point[1] for point in points]
+    x_span = max(x_values) - min(x_values)
+    y_span = max(y_values) - min(y_values)
+    if y_span <= 0:
+        return 2.2
+
+    return min(max(x_span / y_span, 1.2), 2.2)
+
+
+def _web_mercator_xy(lon: float, lat: float) -> tuple[float, float]:
+    """Project lon/lat to Web Mercator radians for visual bbox ratios."""
+
+    clamped_lat = min(max(lat, -85.05112878), 85.05112878)
+    lat_rad = math.radians(clamped_lat)
+
+    return (
+        math.radians(lon),
+        math.log(math.tan(math.pi / 4 + lat_rad / 2)),
+    )

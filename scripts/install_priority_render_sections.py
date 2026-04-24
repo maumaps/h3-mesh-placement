@@ -74,6 +74,8 @@ def render_cluster_section(
     next_label: str,
     blocked_count: int,
     compact_max_rank: int,
+    compact_map_aspect_ratio: float = 1.6,
+    full_map_aspect_ratio: float = 1.6,
 ) -> list[str]:
     """Render one cluster section with desktop table and mobile cards."""
 
@@ -134,6 +136,7 @@ def render_cluster_section(
         ),
         (
             f"<div id='{escape(cluster_dom_id)}' class='cluster-map' "
+            f"style='--cluster-map-aspect:{compact_map_aspect_ratio:.2f}' "
             f"data-max-rank='{escape(str(compact_max_rank))}' role='img' "
             f"aria-label='Map for {escape(cluster_label)} rollout cluster'></div>"
         ),
@@ -251,6 +254,7 @@ def render_cluster_section(
             ),
             (
                 f"<div id='{escape(full_map_id)}' class='cluster-map full-cluster-map' "
+                f"style='--cluster-map-aspect:{full_map_aspect_ratio:.2f}' "
                 f"role='img' aria-label='Full map for {escape(cluster_label)} rollout cluster'></div>"
             ),
             (

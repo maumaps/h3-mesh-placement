@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import unittest
 
 from scripts.export_install_priority import (
@@ -29,6 +30,7 @@ from scripts.install_priority_lib import (
 )
 from scripts.install_priority_map_payload import dedupe_clusters
 from scripts.install_priority_map_payload import phase_one_connector_features
+from scripts.install_priority_render import _cluster_map_aspect_ratio
 from scripts.install_priority_render import _default_cluster_max_rank
 from scripts.install_priority_render_sections import render_cluster_section
 
@@ -87,6 +89,8 @@ class InstallPriorityRenderTests(unittest.TestCase):
                 next_label="Connector ridge",
                 blocked_count=0,
                 compact_max_rank=1,
+                compact_map_aspect_ratio=1.35,
+                full_map_aspect_ratio=1.75,
             )
         )
 
@@ -99,6 +103,16 @@ class InstallPriorityRenderTests(unittest.TestCase):
             html_text.count("data-max-rank='1'"),
             1,
             msg=f"Only the compact map should carry the rank cutoff; the full map must stay unfiltered, got HTML {html_text!r}",
+        )
+        self.assertIn(
+            "style='--cluster-map-aspect:1.35'",
+            html_text,
+            msg=f"Compact cluster map should carry its Web Mercator bbox aspect ratio, got HTML {html_text!r}",
+        )
+        self.assertIn(
+            "style='--cluster-map-aspect:1.75'",
+            html_text,
+            msg=f"Full cluster map should carry its own Web Mercator bbox aspect ratio, got HTML {html_text!r}",
         )
         self.assertIn(
             "role='tablist'",
@@ -149,6 +163,27 @@ class InstallPriorityRenderTests(unittest.TestCase):
             "Later ridge",
             html_text,
             msg=f"Coverage tab content should still retain late rollout rows, got HTML {html_text!r}",
+        )
+
+    def test_cluster_map_aspect_ratio_uses_web_mercator_bbox(self) -> None:
+        """Cluster mini-map proportions should follow the visual Web Mercator bbox."""
+
+        rows = [
+            {"lon": 44.0, "lat": 40.0},
+            {"lon": 46.0, "lat": 41.0},
+        ]
+
+        aspect_ratio = _cluster_map_aspect_ratio(rows)
+        expected_ratio = math.radians(2.0) / (
+            math.log(math.tan(math.pi / 4 + math.radians(41.0) / 2))
+            - math.log(math.tan(math.pi / 4 + math.radians(40.0) / 2))
+        )
+
+        self.assertAlmostEqual(
+            aspect_ratio,
+            expected_ratio,
+            places=6,
+            msg=f"Cluster map aspect should be computed after Web Mercator projection, got {aspect_ratio} for rows {rows!r}",
         )
 
     def test_connect_view_cutoff_ignores_installed_cluster_links(self) -> None:
