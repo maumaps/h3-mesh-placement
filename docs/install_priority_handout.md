@@ -95,7 +95,7 @@ The same overview now overlays reachable seed and MQTT import points as `s` and 
 For those `s`/`m` points, every unique undirected direct visible link from the live visibility graph is drawn as a thin context line so imported backbone candidates can be inspected without changing the rollout queue itself.
 On the mini maps, those connector lines and large outer Voronoi edges no longer stretch the viewport away from the local cluster geometry.
 `blocked` means the tower belongs to that rollout queue, yet there is still no visible path from any installed seed to that tower.
-The basemap uses a simple OpenStreetMap raster tile style so the forwarded handout does not depend on MapLibre vector style, glyph, or sprite loading.
+The basemap uses a simple CARTO Voyager raster tile style so the forwarded handout does not depend on MapLibre vector style, glyph, or sprite loading.
 `maplibre-gl.js` and `maplibre-gl.css` are now vendored and inlined into the generated HTML, so a forwarded Telegram file does not need to fetch the MapLibre runtime from a CDN before it can draw the maps.
 The map bootstrap now re-attaches overlays even when the basemap style is already cached and isolates per-layer failures, which makes the single HTML file more reliable when it is forwarded directly in mobile in-app browsers such as Telegram.
 The same bootstrap now exposes `window.__installPriorityMaps` for phone-side debugging, which makes it possible to inspect which mini maps are currently mounted when a mobile browser drops overlays.

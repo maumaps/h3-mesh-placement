@@ -968,7 +968,7 @@ class InstallPriorityRenderTests(unittest.TestCase):
             msg="HTML handout should not depend on external MapLibre JS or CSS URLs because mobile content:// viewers can refuse those requests.",
         )
         self.assertIn(
-            "tile.openstreetmap.org",
+            "basemaps.cartocdn.com/rastertiles/voyager",
             html_text,
             msg="HTML handout should use a visible raster basemap so forwarded files do not depend on vector style and sprite loading.",
         )
@@ -1026,6 +1026,11 @@ class InstallPriorityRenderTests(unittest.TestCase):
             "phaseOneConnectorEdges.features.filter",
             html_text,
             msg="Overview phase one should draw only connector-tree context lines, not every same-phase context edge.",
+        )
+        self.assertIn(
+            "phase_one_connector'], '#111827'",
+            html_text,
+            msg="Overview phase-one connector lines should be styled strongly enough to be visible during review.",
         )
         self.assertIn(
             "updateOverviewView",

@@ -18,20 +18,29 @@ if (!payloadEl || !window.maplibregl) {
   const styleUrl = {
     version: 8,
     sources: {
-      osmStandard: {
+      cartoVoyager: {
         type: 'raster',
         tiles: [
-          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+          'https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+          'https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
         ],
         tileSize: 256,
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
       },
     },
     layers: [
       {
-        id: 'osm-standard',
+        id: 'background',
+        type: 'background',
+        paint: {
+          'background-color': '#eef2f1',
+        },
+      },
+      {
+        id: 'carto-voyager',
         type: 'raster',
-        source: 'osmStandard',
+        source: 'cartoVoyager',
       },
     ],
   };
@@ -216,10 +225,26 @@ if (!payloadEl || !window.maplibregl) {
         'line-join': 'round',
       },
       paint: {
-        'line-width': mapMode === 'cluster' ? 3 : 2,
-        'line-color': '#7a8694',
-        'line-opacity': mapMode === 'cluster' ? 0.88 : 0.68,
-        'line-dasharray': [2, 1.4],
+        'line-width': [
+          'case',
+          ['==', ['get', 'link_kind'], 'phase_one_connector'], 4,
+          mapMode === 'cluster' ? 3 : 2,
+        ],
+        'line-color': [
+          'case',
+          ['==', ['get', 'link_kind'], 'phase_one_connector'], '#111827',
+          '#7a8694',
+        ],
+        'line-opacity': [
+          'case',
+          ['==', ['get', 'link_kind'], 'phase_one_connector'], 0.88,
+          mapMode === 'cluster' ? 0.88 : 0.68,
+        ],
+        'line-dasharray': [
+          'case',
+          ['==', ['get', 'link_kind'], 'phase_one_connector'], ['literal', [1.2, 0.8]],
+          ['literal', [2, 1.4]],
+        ],
       },
     });
   };
