@@ -14,8 +14,9 @@ The default `make test` target was rewired to avoid upstream derived-table rebui
 
 Backbone-first iteration is in progress.
 The current live placement restart uses `tables/mesh_pipeline_settings.sql` with coarse and greedy disabled, population anchors enabled with heavy existing-tower KMeans anchors, and route bridge/cluster-slim enabled.
-The live tower mix after the safe restart, population-anchor contraction, and current wiggle pass is `35 mqtt + 6 seed + 1 population + 26 route`; use `make db/procedure/mesh_placement_restart` to replay placement stages without rebuilding cached tables.
-`make -B db/procedure/mesh_placement_restart` checked all 7 population and 26 route towers through the configured wiggle stage, preserved close generated towers unless a merge target kept the same cached visible-neighbor set, and `make -B db/procedure/mesh_route_refresh_visibility_current` refreshed current visibility diagnostics after the wiggle moves.
+The live tower mix after the safe restart, population-anchor contraction, and current wiggle pass is `8 seed + 5 population + 13 route`; use `make db/procedure/mesh_placement_restart` to replay placement stages without rebuilding cached tables.
+The current final visibility graph is one connected component, but still has bridge edges and cut nodes; use `make data/out/mesh_visibility_bridges.tsv` after a visibility refresh to inspect the fragile links before field review.
+Do not use `make -B` for these remote replay checks.
 Keep using the canonical `existing_mesh_nodes.geojson` output from the curated + manual Liam Cottle merge as the only imported seed source while this iteration is being validated.
 
 mesh_visibility_edges_refresh() takes ~25 minutes on the current dataset; needs optimization to avoid timeouts.

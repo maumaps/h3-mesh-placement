@@ -816,6 +816,11 @@ class PipelineRegressionTest(unittest.TestCase):
             "Makefile should provide a current visibility refresh target after wiggle that does not replay route or rebuild surface tables.",
         )
         self.assertIn(
+            "data/out/mesh_visibility_bridges.tsv: scripts/report_mesh_visibility_bridges.sql | data/out",
+            makefile_text,
+            "Makefile should provide a read-only bridge/cut-node diagnostic report for DB-first rollout graph review.",
+        )
+        self.assertIn(
             "scripts/mesh_tower_wiggle_configured.sh\n"
             "\tpsql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_visibility_edges_refresh.sql\n"
             "\tpsql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql",
@@ -856,6 +861,31 @@ class PipelineRegressionTest(unittest.TestCase):
             "separation_default constant double precision := 0",
             wiggle_text,
             "mesh_tower_wiggle should keep fallback tower spacing at 0 so adjacent hex placements stay allowed during wiggle moves.",
+        )
+
+    def test_visibility_bridge_report_is_read_only(self) -> None:
+        """Bridge diagnostics should not mutate placement tables while reviewing graph fragility."""
+        report_text = (REPO_ROOT / "scripts" / "report_mesh_visibility_bridges.sql").read_text()
+
+        self.assertIn(
+            "copy (",
+            report_text,
+            "The bridge diagnostic should emit a copy-friendly TSV report from one read-only query.",
+        )
+        self.assertIn(
+            "'cut_node'::text as finding_type",
+            report_text,
+            "The bridge diagnostic should report articulation towers as cut_node findings.",
+        )
+        self.assertIn(
+            "'bridge_edge'::text as finding_type",
+            report_text,
+            "The bridge diagnostic should report single-edge graph bridges as bridge_edge findings.",
+        )
+        self.assertNotRegex(
+            report_text.lower(),
+            r"\b(insert|update|delete|truncate|drop|create|alter)\b",
+            "The bridge diagnostic must remain read-only so it is safe to run against the live remote DB.",
         )
 
     def test_mesh_route_refresh_visibility_keeps_route_geom_optional(self) -> None:

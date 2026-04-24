@@ -44,6 +44,9 @@ data/mid/gebco: | data/mid ## Ensure intermediate GEBCO directory exists
 data/out: | data ## Ensure output directory exists
 	mkdir -p data/out
 
+data/out/mesh_visibility_bridges.tsv: scripts/report_mesh_visibility_bridges.sql | data/out ## Export LOS graph bridge and cut-node diagnostics
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/report_mesh_visibility_bridges.sql > data/out/mesh_visibility_bridges.tsv
+
 data/backups: | data ## Ensure durable database backup directory exists
 	mkdir -p data/backups
 
