@@ -132,6 +132,7 @@ def build_cluster_plan(
                     assignment[detached_id] = current_cluster_key
 
     _repair_cluster_assignments_for_local_connectivity(
+        towers_by_id=towers_by_id,
         assignment=assignment,
         cluster_members=cluster_members,
         seed_components=seed_components,
@@ -260,6 +261,7 @@ def _assign_nodes_to_seed_clusters(
 
 def _repair_cluster_assignments_for_local_connectivity(
     *,
+    towers_by_id: Mapping[int, TowerRecord],
     assignment: dict[int, str],
     cluster_members: dict[str, set[int]],
     seed_components: Sequence[Sequence[int]],
@@ -269,6 +271,14 @@ def _repair_cluster_assignments_for_local_connectivity(
 
     seed_ids_by_cluster_key = {
         cluster_key(seed_component): set(seed_component)
+        for seed_component in seed_components
+    }
+    seed_country_codes_by_cluster_key = {
+        cluster_key(seed_component): {
+            (towers_by_id[seed_id].country_code or "").strip().lower()
+            for seed_id in seed_component
+            if (towers_by_id[seed_id].country_code or "").strip()
+        }
         for seed_component in seed_components
     }
 
@@ -286,7 +296,12 @@ def _repair_cluster_assignments_for_local_connectivity(
                 if component_ids & seed_ids:
                     continue
 
-                bridge_candidates: list[tuple[float, str, int, int]] = []
+                component_country_codes = {
+                    (towers_by_id[tower_id].country_code or "").strip().lower()
+                    for tower_id in component_ids
+                    if (towers_by_id[tower_id].country_code or "").strip()
+                }
+                bridge_candidates: list[tuple[int, float, str, int, int]] = []
                 for tower_id in sorted(component_ids):
                     for neighbor_id, distance_m in adjacency.get(tower_id, {}).items():
                         neighbor_cluster_key = assignment.get(neighbor_id)
@@ -295,8 +310,19 @@ def _repair_cluster_assignments_for_local_connectivity(
                         if neighbor_cluster_key == current_cluster_key:
                             continue
 
+                        seed_country_codes = seed_country_codes_by_cluster_key.get(
+                            neighbor_cluster_key,
+                            set(),
+                        )
+                        country_priority = (
+                            0
+                            if component_country_codes
+                            and component_country_codes & seed_country_codes
+                            else 1
+                        )
                         bridge_candidates.append(
                             (
+                                country_priority,
                                 distance_m,
                                 neighbor_cluster_key,
                                 tower_id,
@@ -307,7 +333,7 @@ def _repair_cluster_assignments_for_local_connectivity(
                 if not bridge_candidates:
                     continue
 
-                _distance_m, target_cluster_key, _tower_id, _neighbor_id = min(
+                _country_priority, _distance_m, target_cluster_key, _tower_id, _neighbor_id = min(
                     bridge_candidates
                 )
                 cluster_members[current_cluster_key].difference_update(component_ids)

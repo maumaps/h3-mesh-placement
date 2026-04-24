@@ -361,12 +361,14 @@ class InstallPriorityTests(unittest.TestCase):
             msg=f"Installer plan should not expose blocked rollout nodes, got rows {plan_rows!r}",
         )
 
-    def test_build_cluster_plan_repairs_detached_same_country_assignment(self) -> None:
-        """Same-country ownership must not split the local visible install chain."""
+    def test_build_cluster_plan_repairs_detached_assignment_to_same_country_neighbor(self) -> None:
+        """Detached islands should prefer a reachable neighbor cluster from the same country."""
 
         towers_by_id = {
-            1: TowerRecord(1, "seed", 41.60, 41.70, "Batumi", True, country_code="am", country_name="Armenia"),
-            2: TowerRecord(2, "route", 41.61, 41.71, "route #2", False, country_code="am", country_name="Armenia"),
+            1: TowerRecord(1, "seed", 41.60, 41.70, "Batumi", True, country_code="ge", country_name="Georgia"),
+            2: TowerRecord(2, "route", 41.61, 41.71, "route #2", False, country_code="ge", country_name="Georgia"),
+            5: TowerRecord(5, "seed", 43.80, 40.78, "Gyumri", True, country_code="am", country_name="Armenia"),
+            6: TowerRecord(6, "route", 43.81, 40.79, "route #6", False, country_code="am", country_name="Armenia"),
             10: TowerRecord(10, "seed", 44.70, 41.80, "Tbilisi", True, country_code="ge", country_name="Georgia"),
             30: TowerRecord(30, "cluster_slim", 43.70, 41.20, "cluster_slim #30", False, country_code="ge", country_name="Georgia"),
             31: TowerRecord(31, "cluster_slim", 43.71, 41.21, "cluster_slim #31", False, country_code="ge", country_name="Georgia"),
@@ -375,7 +377,9 @@ class InstallPriorityTests(unittest.TestCase):
             [
                 (1, 2, 1000.0),
                 (10, 2, 9000.0),
-                (2, 30, 1000.0),
+                (5, 6, 1000.0),
+                (2, 30, 5000.0),
+                (6, 30, 1000.0),
                 (30, 31, 1000.0),
             ]
         )
@@ -389,12 +393,12 @@ class InstallPriorityTests(unittest.TestCase):
         self.assertEqual(
             rows_by_tower_id[30].cluster_label,
             "Batumi",
-            msg=f"Detached same-country island should move to the cluster that has the visible predecessor chain, got rows {plan_rows!r}",
+            msg=f"Detached Georgia island should move to reachable Georgia/Batumi instead of the nearer Armenia/Gyumri bridge, got rows {plan_rows!r}",
         )
         self.assertEqual(
             rows_by_tower_id[30].previous_connection_ids,
             (2,),
-            msg=f"Moved island root should keep the predecessor that makes it installable, got rows {plan_rows!r}",
+            msg=f"Moved island root should keep the same-country predecessor that makes it installable, got rows {plan_rows!r}",
         )
         self.assertTrue(
             all(
