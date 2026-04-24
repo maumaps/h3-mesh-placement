@@ -1141,6 +1141,21 @@ class InstallPriorityRenderTests(unittest.TestCase):
             msg="HTML handout should mount both compact and full cluster map containers from one payload.",
         )
         self.assertIn(
+            "const maxActiveClusterMaps = 4;",
+            html_text,
+            msg="HTML handout should cap active cluster WebGL maps so browsers do not lose contexts on reports with many clusters.",
+        )
+        self.assertIn(
+            "enforceClusterMapLimit",
+            html_text,
+            msg="HTML handout should unmount older offscreen cluster maps when too many MapLibre contexts are active.",
+        )
+        self.assertNotIn(
+            "!prefersLazyClusterMaps()",
+            html_text,
+            msg="Desktop reports should also lazy-mount cluster maps instead of eagerly creating every WebGL context.",
+        )
+        self.assertIn(
             "setupClusterViewTabs",
             html_text,
             msg="HTML handout should switch cluster maps through explicit rollout phase tabs.",

@@ -659,6 +659,7 @@ if (!payloadEl || !window.maplibregl) {
     ];
   }));
   const activeClusterMaps = new Map();
+  const maxActiveClusterMaps = 4;
   let overviewMap = null;
   let overviewOrderMarkers = [];
 
@@ -672,6 +673,51 @@ if (!payloadEl || !window.maplibregl) {
   const clearOverviewOrderMarkers = () => {
     overviewOrderMarkers.forEach((marker) => marker.remove());
     overviewOrderMarkers = [];
+  };
+  const mapTargetIsVisible = (cluster) => {
+    const container = document.getElementById(cluster.map_id);
+    if (!container) return false;
+
+    return container.getClientRects().length > 0;
+  };
+  const clusterContainerIsFullscreen = (container) => {
+    if (!document.fullscreenElement) return false;
+
+    return document.fullscreenElement === container || container.contains(document.fullscreenElement);
+  };
+  const unmountClusterMapById = (mapId) => {
+    const cluster = clusterByMapId.get(mapId);
+    const container = document.getElementById(mapId);
+    const clusterMap = activeClusterMaps.get(mapId);
+
+    if (!container || !clusterMap || clusterContainerIsFullscreen(container)) return false;
+
+    clusterMap.remove();
+    activeClusterMaps.delete(mapId);
+    container.innerHTML = '';
+    container.dataset.mapMounted = 'false';
+
+    return true;
+  };
+  const enforceClusterMapLimit = (preferredMapId = '') => {
+    if (activeClusterMaps.size <= maxActiveClusterMaps) return;
+
+    Array.from(activeClusterMaps.keys()).forEach((mapId) => {
+      if (activeClusterMaps.size <= maxActiveClusterMaps) return;
+      if (mapId === preferredMapId) return;
+
+      const cluster = clusterByMapId.get(mapId);
+      if (cluster && mapTargetIsVisible(cluster) && clusterIsNearViewport(cluster)) return;
+
+      unmountClusterMapById(mapId);
+    });
+
+    Array.from(activeClusterMaps.keys()).forEach((mapId) => {
+      if (activeClusterMaps.size <= maxActiveClusterMaps) return;
+      if (mapId === preferredMapId) return;
+
+      unmountClusterMapById(mapId);
+    });
   };
   const updateOverviewView = (viewMode) => {
     if (!overviewMap) return;
@@ -739,6 +785,7 @@ if (!payloadEl || !window.maplibregl) {
       safeOverlayStep(`${cluster.map_id} order markers`, () => addOrderMarkers(clusterMap, clusterCollection, 'cluster'));
       requestAnimationFrame(() => { clusterMap.resize(); fitToFeatures(clusterMap, clusterRoutes.features.length ? [...clusterFeatures, ...clusterRoutes.features] : clusterFeatures); });
     });
+    enforceClusterMapLimit(cluster.map_id);
 
     return clusterMap;
   };
@@ -802,29 +849,12 @@ if (!payloadEl || !window.maplibregl) {
       });
     });
   };
-  const clusterContainerIsFullscreen = (container) => {
-    if (!document.fullscreenElement) return false;
-
-    return document.fullscreenElement === container || container.contains(document.fullscreenElement);
-  };
   const unmountClusterMap = (cluster) => {
-    const container = document.getElementById(cluster.map_id);
-    const clusterMap = activeClusterMaps.get(cluster.map_id);
-
-    if (!container || !clusterMap || clusterContainerIsFullscreen(container)) return;
-
-    clusterMap.remove();
-    activeClusterMaps.delete(cluster.map_id);
-    container.innerHTML = '';
-    container.dataset.mapMounted = 'false';
+    unmountClusterMapById(cluster.map_id);
   };
   const clusterContainerIsVisible = (cluster) => {
-    const container = document.getElementById(cluster.map_id);
-    if (!container) return false;
-
-    return container.getClientRects().length > 0;
+    return mapTargetIsVisible(cluster);
   };
-  const prefersLazyClusterMaps = () => window.matchMedia('(max-width: 920px)').matches;
   const clusterIsNearViewport = (cluster) => {
     const container = document.getElementById(cluster.map_id);
     if (!container) return false;
@@ -841,13 +871,14 @@ if (!payloadEl || !window.maplibregl) {
         return;
       }
 
-      if (!prefersLazyClusterMaps() || clusterIsNearViewport(cluster)) {
+      if (clusterIsNearViewport(cluster)) {
         mountClusterMap(cluster);
         return;
       }
 
       unmountClusterMap(cluster);
     });
+    enforceClusterMapLimit();
   };
   window.__installPriorityMaps.syncVisibleClusterMaps = syncVisibleClusterMaps;
   window.__installPriorityMaps.mountClusterMap = (mapId) => {
@@ -857,10 +888,8 @@ if (!payloadEl || !window.maplibregl) {
     return mountClusterMap(cluster);
   };
   const initializeClusterMaps = () => {
-    if (!prefersLazyClusterMaps() || !window.IntersectionObserver) {
-      clusterMapTargets.forEach((cluster) => {
-        if (clusterContainerIsVisible(cluster)) mountClusterMap(cluster);
-      });
+    if (!window.IntersectionObserver) {
+      syncVisibleClusterMaps();
       return;
     }
 
