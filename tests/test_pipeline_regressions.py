@@ -260,12 +260,28 @@ class PipelineRegressionTest(unittest.TestCase):
         initial_nodes_sql = (REPO_ROOT / "tables/mesh_initial_nodes_h3_r8.sql").read_text()
 
         self.assertIn(
-            "where source in ('seed', 'mqtt')",
+            "reachable_initial_nodes(h3)",
             initial_nodes_sql,
             msg=(
-                "mesh_initial_nodes_h3_r8 should insert both curated seeds and "
-                "reachable MQTT nodes into mesh_towers so MQTT participates in "
+                "mesh_initial_nodes_h3_r8 should insert curated seeds and only "
+                "seed-reachable MQTT nodes into mesh_towers so MQTT participates in "
                 f"visibility and rollout planning; SQL was {initial_nodes_sql!r}"
+            ),
+        )
+        self.assertIn(
+            "where mesh_initial_nodes_h3_r8.source = 'seed'",
+            initial_nodes_sql,
+            msg=(
+                "mesh_initial_nodes_h3_r8 should always keep curated seeds as "
+                f"installed roots; SQL was {initial_nodes_sql!r}"
+            ),
+        )
+        self.assertIn(
+            "mesh_initial_nodes_h3_r8.source = 'mqtt'",
+            initial_nodes_sql,
+            msg=(
+                "mesh_initial_nodes_h3_r8 should still admit MQTT nodes when "
+                f"the recursive LOS reachability walk reaches them; SQL was {initial_nodes_sql!r}"
             ),
         )
         self.assertNotIn(
@@ -274,6 +290,14 @@ class PipelineRegressionTest(unittest.TestCase):
             msg=(
                 "mesh_initial_nodes_h3_r8 must not drop MQTT nodes from "
                 f"mesh_towers before the rollout graph is built; SQL was {initial_nodes_sql!r}"
+            ),
+        )
+        self.assertIn(
+            "mesh_los_cache.clearance > 0",
+            initial_nodes_sql,
+            msg=(
+                "MQTT tower import should use cached LOS reachability instead "
+                f"of boundary-only inclusion; SQL was {initial_nodes_sql!r}"
             ),
         )
 
