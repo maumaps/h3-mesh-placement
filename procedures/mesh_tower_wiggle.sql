@@ -138,7 +138,8 @@ begin
     order by coalesce(t.recalculation_count, 0) asc,
              coalesce(s.visible_population, s.population, 0) desc,
              t.tower_id asc
-    limit 1;
+    limit 1
+    for update of q skip locked;
 
     if not found then
         raise notice 'Wiggle idle: no dirty towers remain';
@@ -326,6 +327,11 @@ begin
         best.h3 := anchor.h3;
         best.visible_population := anchor.priority_population;
     end if;
+
+    -- Candidate scoring can run in parallel workers, but the graph mutation and
+    -- component check must stay serialized so two concurrent moves cannot both
+    -- validate against the same stale tower set.
+    perform pg_advisory_xact_lock(hashtext('mesh_tower_wiggle_write'));
 
     with recursive visible_edges as (
         select distinct

@@ -131,6 +131,21 @@ class PipelineRegressionTest(unittest.TestCase):
             "Tower wiggle wrapper should allow PostgreSQL parallel query workers so one safe sequential wiggle pass can still use several CPU cores.",
         )
         self.assertIn(
+            "parallel --line-buffer --halt soon,fail=1",
+            (REPO_ROOT / "scripts" / "mesh_tower_wiggle_configured.sh").read_text(),
+            "Tower wiggle wrapper should use GNU parallel workers when configured so candidate scoring can occupy the remote CPU pool.",
+        )
+        self.assertIn(
+            "for update of q skip locked",
+            (REPO_ROOT / "procedures" / "mesh_tower_wiggle.sql").read_text(),
+            "Parallel wiggle workers should claim different dirty tower rows instead of evaluating the same tower concurrently.",
+        )
+        self.assertIn(
+            "pg_advisory_xact_lock(hashtext('mesh_tower_wiggle_write'))",
+            (REPO_ROOT / "procedures" / "mesh_tower_wiggle.sql").read_text(),
+            "Parallel wiggle workers should serialize graph mutations and component checks after concurrent candidate scoring.",
+        )
+        self.assertIn(
             "db/procedure/mesh_tower_wiggle_current",
             makefile_text,
             "Makefile should expose a safe current-wiggle target that does not rebuild route inputs when only local refinement is requested.",

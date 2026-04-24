@@ -21,6 +21,23 @@ if [ "${parallel_workers}" -gt 0 ]; then
     export PGOPTIONS="${PGOPTIONS:-} -c max_parallel_workers_per_gather=${parallel_workers} -c parallel_setup_cost=0 -c parallel_tuple_cost=0.001 -c min_parallel_table_scan_size=0 -c min_parallel_index_scan_size=0"
 fi
 
+if [ "${parallel_workers}" -gt 1 ]; then
+    echo ">> Wiggle seeding queue before ${parallel_workers} worker(s)"
+    moved="$(psql --no-psqlrc --set=ON_ERROR_STOP=1 -At -c "select mesh_tower_wiggle(true);")"
+    moved="${moved:-0}"
+
+    if [ "${moved}" -eq 0 ]; then
+        echo ">> Wiggle converged during queue seed"
+        exit 0
+    fi
+
+    seq "${parallel_workers}" \
+        | parallel --line-buffer --halt soon,fail=1 \
+            bash scripts/mesh_tower_wiggle_worker.sh "${max_iters}" {}
+
+    exit 0
+fi
+
 while :; do
     iter=$((iter + 1))
     echo ">> Wiggle iteration ${iter}"

@@ -72,6 +72,7 @@ Configured iteration caps:
 - `greedy_iterations` controls the greedy loop when `enable_greedy=true`.
 - `wiggle_iterations` controls the tower-wiggle loop when `enable_wiggle=true`, with `WIGGLE_ITERATIONS=<n>` still available as a one-run override.
 - `wiggle_parallel_workers` controls PostgreSQL parallel workers per heavy wiggle query, with `WIGGLE_PARALLEL_WORKERS=<n>` available for one remote resume run.
+  When this is greater than 1, GNU parallel runs several wiggle workers that claim dirty towers with `FOR UPDATE SKIP LOCKED`; graph writes and component checks are still serialized by an advisory lock.
 - `population_existing_anchor_weight` controls how strongly current towers pull KMeans clusters away from duplicate population anchors.
 - `enable_route_segment_reroute` controls the post-contract local route-pair optimizer; `route_segment_reroute_candidate_limit` caps each endpoint candidate list and `route_segment_reroute_max_moves` bounds one pass.
 - `enable_population_anchor_contract` controls the post-route cleanup that removes soft population anchors only when generated towers preserve cached non-population LOS neighbors and the deletion does not increase the live LOS component count; `population_anchor_contract_distance_m=0` makes that replacement search topology-only; positive values re-enable a distance window.
