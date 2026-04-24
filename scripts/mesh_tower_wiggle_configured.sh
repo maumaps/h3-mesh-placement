@@ -12,8 +12,14 @@ if [ "${enabled}" != t ]; then
 fi
 
 max_iters="${WIGGLE_ITERATIONS:-$(pg_setting_int wiggle_iterations)}"
+parallel_workers="${WIGGLE_PARALLEL_WORKERS:-$(pg_setting_int_default wiggle_parallel_workers 8)}"
 iter=0
 reset=true
+
+if [ "${parallel_workers}" -gt 0 ]; then
+    echo ">> Tower wiggle enabling up to ${parallel_workers} PostgreSQL parallel worker(s) per heavy query"
+    export PGOPTIONS="${PGOPTIONS:-} -c max_parallel_workers_per_gather=${parallel_workers} -c parallel_setup_cost=0 -c parallel_tuple_cost=0.001 -c min_parallel_table_scan_size=0 -c min_parallel_index_scan_size=0"
+fi
 
 while :; do
     iter=$((iter + 1))

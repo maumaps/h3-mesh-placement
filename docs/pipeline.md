@@ -71,6 +71,7 @@ Configured iteration caps:
 - `cluster_slim_iterations` controls the cluster-slim loop, with `SLIM_ITERATIONS=<n>` still available as a one-run override.
 - `greedy_iterations` controls the greedy loop when `enable_greedy=true`.
 - `wiggle_iterations` controls the tower-wiggle loop when `enable_wiggle=true`, with `WIGGLE_ITERATIONS=<n>` still available as a one-run override.
+- `wiggle_parallel_workers` controls PostgreSQL parallel workers per heavy wiggle query, with `WIGGLE_PARALLEL_WORKERS=<n>` available for one remote resume run.
 - `population_existing_anchor_weight` controls how strongly current towers pull KMeans clusters away from duplicate population anchors.
 - `enable_route_segment_reroute` controls the post-contract local route-pair optimizer; `route_segment_reroute_candidate_limit` caps each endpoint candidate list and `route_segment_reroute_max_moves` bounds one pass.
 - `enable_population_anchor_contract` controls the post-route cleanup that removes soft population anchors only when generated towers preserve cached non-population LOS neighbors and the deletion does not increase the live LOS component count; `population_anchor_contract_distance_m=0` makes that replacement search topology-only; positive values re-enable a distance window.

@@ -61,6 +61,7 @@ class PipelineRegressionTest(unittest.TestCase):
             "population_existing_anchor_weight": "1000000",
             "population_anchor_cluster_oversampling": "2",
             "enable_wiggle": "true",
+            "wiggle_parallel_workers": "8",
             "wiggle_candidate_limit": "256",
         }.items():
             self.assertIn(
@@ -123,6 +124,11 @@ class PipelineRegressionTest(unittest.TestCase):
             "psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql",
             placement_restart_text,
             "Safe placement restart should apply reviewed redundancy anchors after tower wiggle, then refresh mesh_visibility_edges so exports and cluster checks read current LOS diagnostics.",
+        )
+        self.assertIn(
+            "max_parallel_workers_per_gather=${parallel_workers}",
+            (REPO_ROOT / "scripts" / "mesh_tower_wiggle_configured.sh").read_text(),
+            "Tower wiggle wrapper should allow PostgreSQL parallel query workers so one safe sequential wiggle pass can still use several CPU cores.",
         )
         self.assertIn(
             "db/procedure/mesh_tower_wiggle_current",

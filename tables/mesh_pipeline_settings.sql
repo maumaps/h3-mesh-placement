@@ -63,6 +63,7 @@ values
     ('greedy_iterations', '100'),
     ('enable_wiggle', 'true'),
     ('wiggle_iterations', '0'),
+    ('wiggle_parallel_workers', '8'),
     ('wiggle_candidate_limit', '256')
 on conflict (setting) do update
 set value = excluded.value,

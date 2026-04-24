@@ -11,3 +11,8 @@ pg_setting_int() {
     psql --no-psqlrc --set=ON_ERROR_STOP=1 -At \
         -c "select value::integer from mesh_pipeline_settings where setting = '$1'"
 }
+
+pg_setting_int_default() {
+    psql --no-psqlrc --set=ON_ERROR_STOP=1 -At \
+        -c "select coalesce((select value::integer from mesh_pipeline_settings where setting = '$1'), $2)"
+}
