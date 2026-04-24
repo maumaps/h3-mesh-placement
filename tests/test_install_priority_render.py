@@ -239,8 +239,8 @@ class InstallPriorityRenderTests(unittest.TestCase):
             msg=f"Overview phase 1 should include all planned neighbor joins, got clusters {cluster_payload!r}",
         )
 
-    def test_overview_connect_cutoff_ignores_redundant_late_cluster_edge(self) -> None:
-        """Overview connect mode should use the connector tree, not every visible cluster pair."""
+    def test_overview_connect_cutoff_keeps_every_direct_cluster_edge(self) -> None:
+        """Overview connect mode should keep every direct neighboring cluster join."""
 
         rows = [
             {
@@ -314,8 +314,8 @@ class InstallPriorityRenderTests(unittest.TestCase):
 
         self.assertEqual(
             cluster_a["connect_max_rank"],
-            1,
-            msg=f"Overview phase 1 should exclude redundant late direct edges once the connector tree already links the clusters, got clusters {cluster_payload!r}",
+            25,
+            msg=f"Overview phase 1 should include the late direct neighbor edge instead of only a minimum connector tree, got clusters {cluster_payload!r}",
         )
         phase_one_edges = phase_one_connector_features(rows)
         phase_one_tower_pairs = {
@@ -330,8 +330,8 @@ class InstallPriorityRenderTests(unittest.TestCase):
 
         self.assertEqual(
             phase_one_tower_pairs,
-            {frozenset({2, 20}), frozenset({21, 30})},
-            msg=f"Overview phase 1 should draw only connector-tree edges and omit redundant late direct links, got features {phase_one_edges!r}",
+            {frozenset({2, 20}), frozenset({3, 30}), frozenset({21, 30})},
+            msg=f"Overview phase 1 should draw every direct inter-cluster connector pair, got features {phase_one_edges!r}",
         )
 
     def test_install_priority_edge_assertion_finds_missing_predecessors(self) -> None:
@@ -1025,7 +1025,17 @@ class InstallPriorityRenderTests(unittest.TestCase):
         self.assertIn(
             "phaseOneConnectorEdges.features.filter",
             html_text,
-            msg="Overview phase one should draw only connector-tree context lines, not every same-phase context edge.",
+            msg="Overview phase one should draw only explicit inter-cluster connector lines, not every same-phase context edge.",
+        )
+        self.assertIn(
+            "seedMqttLinks: viewMode === 'coverage'",
+            html_text,
+            msg="Overview phase one should hide seed/MQTT direct-link overlays so the connector route is not cluttered with non-install lines.",
+        )
+        self.assertIn(
+            "seedMqttLinkSource.setData(collections.seedMqttLinks)",
+            html_text,
+            msg="Overview phase switch should update seed/MQTT link overlays when moving between connect and coverage views.",
         )
         self.assertIn(
             "`${sourceName}-phase-one`",

@@ -66,11 +66,11 @@ def dedupe_clusters(
 def connect_max_rank_by_cluster_from_rows(
     normalized_rows: Sequence[Mapping[str, object]],
 ) -> dict[str, int]:
-    """Find the last rank needed to join the cluster connector tree."""
+    """Find the last rank needed to touch every known neighbor cluster."""
 
-    connector_tree_edges = phase_one_connector_edges(normalized_rows)
+    connector_edges = phase_one_connector_edges(normalized_rows)
     connector_ranks_by_cluster: dict[str, list[int]] = {}
-    for edge in connector_tree_edges:
+    for edge in connector_edges:
         connector_ranks_by_cluster.setdefault(edge.left_cluster_key, []).append(
             edge.left_rank,
         )
@@ -107,7 +107,7 @@ def connect_max_rank_by_cluster_from_rows(
 def phase_one_connector_edges(
     normalized_rows: Sequence[Mapping[str, object]],
 ) -> list[_ClusterConnectorEdge]:
-    """Return the connector-tree edges used by overview phase one."""
+    """Return the direct inter-cluster joins used by overview phase one."""
 
     rows_by_tower_id = {
         int(row["tower_id"]): row
@@ -155,12 +155,7 @@ def phase_one_connector_edges(
             ):
                 best_edge_by_cluster_pair[pair_key] = edge
 
-    connector_tree_edges = _minimum_connector_tree(
-        cluster_keys={str(row["cluster_key"]) for row in normalized_rows},
-        edges=best_edge_by_cluster_pair.values(),
-    )
-
-    return connector_tree_edges
+    return sorted(best_edge_by_cluster_pair.values(), key=_connector_tree_score)
 
 
 def phase_one_connector_features(
@@ -232,7 +227,7 @@ def _normalize_connector_edge(
 
 
 def _connector_tree_score(edge: _ClusterConnectorEdge) -> tuple[int, int, int, int]:
-    """Prefer the earliest connector that grows the overview phase-one tree."""
+    """Prefer the earliest connector for a cluster-pair overlay."""
 
     return (
         edge.later_rank,
@@ -240,36 +235,6 @@ def _connector_tree_score(edge: _ClusterConnectorEdge) -> tuple[int, int, int, i
         edge.left_tower_id,
         edge.right_tower_id,
     )
-
-
-def _minimum_connector_tree(
-    *,
-    cluster_keys: set[str],
-    edges: Sequence[_ClusterConnectorEdge],
-) -> list[_ClusterConnectorEdge]:
-    """Return the minimum-rank connector tree across reachable clusters."""
-
-    parent = {cluster_key: cluster_key for cluster_key in cluster_keys}
-
-    def find(cluster_key: str) -> str:
-        while parent[cluster_key] != cluster_key:
-            parent[cluster_key] = parent[parent[cluster_key]]
-            cluster_key = parent[cluster_key]
-
-        return cluster_key
-
-    tree_edges: list[_ClusterConnectorEdge] = []
-    for edge in sorted(edges, key=_connector_tree_score):
-        left_root = find(edge.left_cluster_key)
-        right_root = find(edge.right_cluster_key)
-        if left_root == right_root:
-            continue
-
-        parent[right_root] = left_root
-        tree_edges.append(edge)
-
-    return tree_edges
-
 
 def _optional_rank(value: object) -> int | None:
     """Normalize optional rank values from CSV or JSON-shaped rows."""

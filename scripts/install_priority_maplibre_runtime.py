@@ -478,6 +478,12 @@ if (!payloadEl || !window.maplibregl) {
         type: 'FeatureCollection',
         features: overviewContextFeatures,
       },
+      seedMqttLinks: viewMode === 'coverage'
+        ? overviewSeedMqttLinks
+        : {
+          type: 'FeatureCollection',
+          features: [],
+        },
       fitFeatures: overviewRouteFeatures.length
         ? [...overviewFeatures, ...overviewRouteFeatures]
         : overviewFeatures,
@@ -581,12 +587,14 @@ if (!payloadEl || !window.maplibregl) {
     const nodeSource = overviewMap.getSource('overview-nodes');
     const routeSource = overviewMap.getSource('overview-route-segments');
     const contextSource = overviewMap.getSource('overview-context-segments');
+    const seedMqttLinkSource = overviewMap.getSource('overview-seed-mqtt-links');
 
     if (!nodeSource || !routeSource || !contextSource) return;
 
     if (nodeSource) nodeSource.setData(collections.collection);
     if (routeSource) routeSource.setData(collections.routes);
     if (contextSource) contextSource.setData(collections.context);
+    if (seedMqttLinkSource) seedMqttLinkSource.setData(collections.seedMqttLinks);
 
     clearOverviewOrderMarkers();
     overviewOrderMarkers = addOrderMarkers(overviewMap, collections.collection, 'overview');
@@ -805,7 +813,7 @@ if (!payloadEl || !window.maplibregl) {
     const initialOverviewCollections = buildOverviewCollections('connect');
     safeOverlayStep('overview bounds', () => addClusterBoundLayers(overviewMap, 'overview-cluster-bounds', overviewBounds, 'overview'));
     safeOverlayStep('overview connectors', () => addContextLayers(overviewMap, 'overview-context-segments', initialOverviewCollections.context, 'overview'));
-    safeOverlayStep('overview seed/mqtt links', () => addSeedMqttLinkLayers(overviewMap, 'overview-seed-mqtt-links', overviewSeedMqttLinks));
+    safeOverlayStep('overview seed/mqtt links', () => addSeedMqttLinkLayers(overviewMap, 'overview-seed-mqtt-links', initialOverviewCollections.seedMqttLinks));
     safeOverlayStep('overview nodes', () => addNodeLayers(overviewMap, 'overview-nodes', initialOverviewCollections.collection, 'overview'));
     safeOverlayStep('overview routes', () => addRouteLayers(overviewMap, 'overview-route-segments', initialOverviewCollections.routes, 'overview'));
     safeOverlayStep('overview seed/mqtt markers', () => addSeedMqttMarkers(overviewMap, overviewSeedMqtt));
