@@ -823,7 +823,7 @@ class PipelineRegressionTest(unittest.TestCase):
             "Makefile should provide a read-only bridge/cut-node diagnostic report for DB-first rollout graph review.",
         )
         self.assertIn(
-            "db/procedure/mesh_route_manual_redundancy: scripts/mesh_route_manual_redundancy.sql data/in/mesh_route_manual_redundancy.csv scripts/assert_mesh_towers_single_los_component.sql | db/procedure",
+            "db/procedure/mesh_route_manual_redundancy: scripts/mesh_route_manual_redundancy.sql scripts/assert_mesh_towers_single_los_component.sql | db/procedure",
             makefile_text,
             "Makefile should provide a narrow target for manually reviewed route redundancy anchors.",
         )

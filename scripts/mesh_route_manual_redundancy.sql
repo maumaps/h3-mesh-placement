@@ -8,7 +8,12 @@ create temporary table mesh_route_manual_redundancy_input (
     reason text not null
 ) on commit drop;
 
-\copy pg_temp.mesh_route_manual_redundancy_input (h3_text, source, reason) from 'data/in/mesh_route_manual_redundancy.csv' with csv header
+insert into mesh_route_manual_redundancy_input (h3_text, source, reason)
+values
+    ('882c2ab507fffff', 'route', 'backup_83_103_around_100_101_bridge'),
+    ('882c2ea889fffff', 'route', 'backup_101_102_around_102_103_bridge'),
+    ('882c2ea8d5fffff', 'route', 'backup_101_102_around_102_103_bridge'),
+    ('882c21a80dfffff', 'route', 'backup_12_84_around_12_99_bridge');
 
 do
 $$
