@@ -378,6 +378,11 @@ class PipelineRegressionTest(unittest.TestCase):
             "mesh_route_cluster_slim should share the same cache-ready marker so downstream tower recalculation does not restart LOS cache preparation.",
         )
         self.assertIn(
+            "db/procedure/mesh_route_cluster_slim_current: procedures/mesh_route_cluster_slim.sql scripts/mesh_route_cluster_slim_configured.sh scripts/assert_mesh_towers_single_los_component.sql db/table/mesh_route_cluster_slim_failures",
+            makefile_text,
+            "mesh_route_cluster_slim_current should run only the current-state slim stage without pulling route bridge, LOS cache staging, or base imports into a safe resume.",
+        )
+        self.assertIn(
             "db/procedure/fill_mesh_los_cache_prepare: scripts/fill_mesh_los_cache_prepare.sql db/table/mesh_surface_h3_r8 db/table/mesh_towers db/table/mesh_los_cache db/procedure/mesh_visibility_edges_route_priority_geom db/procedure/mesh_route_bootstrap db/procedure/mesh_population",
             makefile_text,
             "fill_mesh_los_cache_prepare should depend on configured population anchors so route cache staging sees the sparse city/serviceability hints.",
@@ -1670,6 +1675,7 @@ class PipelineRegressionTest(unittest.TestCase):
         targets = [
             "db/procedure/mesh_route_bridge",
             "db/procedure/mesh_route_cluster_slim",
+            "db/procedure/mesh_route_cluster_slim_current",
             "db/procedure/mesh_population_anchor_contract",
             "db/procedure/mesh_generated_pair_contract",
             "db/procedure/mesh_route_segment_reroute",

@@ -36,6 +36,7 @@ Edit that file, run `make db/table/mesh_pipeline_settings`, and then restart the
 Stage toggles currently live there as `enable_coarse=false`, `enable_population=true`, `enable_population_anchor_contract=true`, `enable_route_bridge=true`, `enable_cluster_slim=true`, `enable_greedy=false`, and `enable_wiggle=true`.
 Use `make db/procedure/mesh_run_greedy_full` after setting `enable_greedy=true` when you want to execute the greedy placement loop.
 Use `make db/procedure/mesh_placement_restart` when the database and LOS cache already exist and you only need to replay configured tower placement stages without rebuilding cached tables from stale Make markers.
+Use `make db/procedure/mesh_route_cluster_slim_current` when route bridge has already produced a current route graph and you only need to resume cluster slimming without letting Make replay route bridge or base imports.
 Intermediate targets such as `db/table/osm_for_mesh_placement` or `db/table/mesh_surface_h3_r8` can be executed independently to debug single steps.
 Use `make data/out/install_priority_reviewed` when you want the installer handout after routing or greedy placement with the field-review invariants checked.
 

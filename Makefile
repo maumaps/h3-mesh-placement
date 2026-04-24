@@ -560,6 +560,13 @@ db/procedure/mesh_route_cluster_slim: procedures/mesh_route_cluster_slim.sql scr
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 	touch db/procedure/mesh_route_cluster_slim
 
+db/procedure/mesh_route_cluster_slim_current: procedures/mesh_route_cluster_slim.sql scripts/mesh_route_cluster_slim_configured.sh scripts/assert_mesh_towers_single_los_component.sql db/table/mesh_route_cluster_slim_failures | db/procedure ## Apply cluster-slim on current route graph without replaying route bridge
+	bash -lc 'set -euo pipefail; PGOPTIONS="$${PGOPTIONS:-} -c statement_timeout=0" psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_route_cluster_slim.sql'
+	scripts/mesh_route_cluster_slim_configured.sh
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
+	touch db/procedure/mesh_route_cluster_slim
+	touch db/procedure/mesh_route_cluster_slim_current
+
 db/procedure/mesh_population_anchor_contract: procedures/mesh_population_anchor_contract.sql scripts/assert_mesh_towers_single_los_component.sql db/procedure/mesh_route_cluster_slim db/table/mesh_pipeline_settings | db/procedure ## Contract soft population anchors when generated route towers preserve cached LOS neighbors
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_population_anchor_contract.sql
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
