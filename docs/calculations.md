@@ -199,6 +199,7 @@ The stage then runs `scripts/assert_mesh_towers_single_los_component.sql`, which
 **Why:** The 7-hop budget is a hard design constraint, so the graph must be “tightened” before maximizing population.
 **Optimization:** Processes a bounded candidate batch per iteration and reuses existing towers on a corridor.
 The configured wrapper treats a newly logged failed or completed corridor as progress even when that specific invocation inserts no new tower, so one rejected corridor cannot make the whole slim stage look converged.
+The route search blocks only candidate cells inside the configured separation threshold; with the default zero separation, new relay cells remain available for actual corridor densification.
 Like bridge, it now defers local surface and visibility refresh to the later route-refresh stage instead of recomputing them synchronously inside each cluster-slim iteration.
 After each cluster-slim run, the same single-component assertion verifies that tightening did not strand any live tower.
 

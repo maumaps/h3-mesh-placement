@@ -310,14 +310,16 @@ begin
 
         stage_started_at := clock_timestamp();
 
-        -- Lock out nodes that already host towers (besides the endpoints) so the router avoids
-        -- planting duplicates right next to existing infrastructure.
+        -- Lock out non-tower cells only when they violate the configured tower
+        -- spacing. With zero separation, every placeable route-graph cell stays
+        -- available so the slim pass can actually densify long corridors.
         insert into mesh_route_blocked_nodes (node_id)
         select mrn.node_id
         from mesh_route_nodes mrn
         join mesh_surface_h3_r8 surface on surface.h3 = mrn.h3
         where surface.has_tower is not true
           and surface.distance_to_closest_tower is not null
+          and surface.distance_to_closest_tower < separation
           and not exists (
                 select 1
                 from mesh_route_cluster_slim_endpoints ep

@@ -721,6 +721,11 @@ class PipelineRegressionTest(unittest.TestCase):
             slim_text,
             "mesh_route_cluster_slim should not run visibility refresh internally because the Make pipeline already runs route_refresh_visibility after cluster slim converges.",
         )
+        self.assertIn(
+            "surface.distance_to_closest_tower < separation",
+            slim_text,
+            "mesh_route_cluster_slim should block only cells inside the configured spacing threshold; otherwise it removes every non-tower route cell and cannot densify clusters.",
+        )
 
     def test_mesh_route_cluster_slim_wrapper_continues_after_logged_attempts(self) -> None:
         """Cluster slim should continue after logged non-promoting attempts."""
