@@ -549,6 +549,21 @@ begin
         end;
     end if;
 
+    if best.h3 <> anchor.h3
+       and exists (
+            select 1
+            from mesh_towers occupied
+            where occupied.h3 = best.h3
+              and occupied.tower_id <> anchor.tower_id
+        ) then
+        raise notice 'Wiggle kept tower % at % because concurrent worker occupied candidate %',
+            anchor.tower_id,
+            anchor.h3,
+            best.h3;
+        best.h3 := anchor.h3;
+        best.visible_population := anchor.priority_population;
+    end if;
+
     if best.h3 = anchor.h3 then
         update mesh_towers
         set recalculation_count = coalesce(recalculation_count, 0) + 1
