@@ -164,6 +164,41 @@ class InstallPriorityTests(unittest.TestCase):
             msg=f"MQTT should still appear as installed infrastructure inside the seed-named cluster, got rows {plan_rows!r}",
         )
 
+    def test_build_cluster_plan_attaches_disconnected_mqtt_to_seed_cluster(self) -> None:
+        """MQTT-only installed components should not become user-facing rollout clusters."""
+
+        towers_by_id = {
+            1: TowerRecord(1, "seed", 41.60, 41.70, "Batumi", True),
+            2: TowerRecord(2, "seed", 44.70, 41.80, "Tbilisi", True),
+            3: TowerRecord(3, "mqtt", 41.61, 41.71, "mqtt #3", True),
+            4: TowerRecord(4, "route", 41.62, 41.72, "route #4", False, people_estimate=1200),
+        }
+        adjacency = build_adjacency(
+            [
+                (1, 4, 900.0),
+            ]
+        )
+
+        plan_rows = build_cluster_plan(towers_by_id, adjacency)
+        cluster_labels = {row.cluster_label for row in plan_rows}
+        mqtt_rows = [row for row in plan_rows if row.source == "mqtt"]
+
+        self.assertEqual(
+            cluster_labels,
+            {"Batumi", "Tbilisi"},
+            msg=f"Installed MQTT should attach to a seed cluster instead of creating its own cluster label, got rows {plan_rows!r}",
+        )
+        self.assertEqual(
+            len(mqtt_rows),
+            1,
+            msg=f"Installed MQTT should still be represented once in the seed-cluster handout, got rows {plan_rows!r}",
+        )
+        self.assertIn(
+            mqtt_rows[0].cluster_label,
+            {"Batumi", "Tbilisi"},
+            msg=f"MQTT row should belong to one of the seed-created clusters, got row {mqtt_rows[0]!r}",
+        )
+
     def test_build_cluster_plan_prefers_more_people_even_if_route_exists(self) -> None:
         """Impact is now estimated people reach, so a higher-reach cluster node can beat a route node."""
 

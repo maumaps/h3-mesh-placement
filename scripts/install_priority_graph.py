@@ -89,14 +89,17 @@ def build_cluster_plan(
 ) -> list[PlanRow]:
     """Plan a separate rollout queue for every installed seed cluster."""
 
-    if not any(tower.installed for tower in towers_by_id.values()):
+    if not any(
+        tower.installed and tower.source == "seed"
+        for tower in towers_by_id.values()
+    ):
         raise ValueError("No installed seed towers were found in mesh_towers.")
 
     plan_rows: list[PlanRow] = []
     installed_seed_ids = sorted(
         tower_id
         for tower_id, tower in towers_by_id.items()
-        if tower.installed
+        if tower.installed and tower.source == "seed"
     )
     seed_components: list[tuple[int, ...]] = []
     assignment: dict[int, str] = {}
@@ -369,12 +372,24 @@ def _plan_seed_cluster(
     ] or list(cluster_seed_ids)
     seed_labels = [towers_by_id[seed_id].label for seed_id in display_seed_ids]
     cluster_label = ", ".join(sorted(seed_labels, key=str.lower))
-    active_ids = set(cluster_seed_ids)
+    installed_ids = {
+        tower_id
+        for tower_id in cluster_tower_ids
+        if towers_by_id[tower_id].installed
+    }
+    active_ids = set(installed_ids)
     remaining_ids = set(cluster_tower_ids) - active_ids
     plan_rows: list[PlanRow] = []
 
     # Emit installed towers first so field teams see their current backbone.
-    for seed_id in sorted(cluster_seed_ids, key=lambda item: towers_by_id[item].label.lower()):
+    for seed_id in sorted(
+        installed_ids,
+        key=lambda item: (
+            0 if towers_by_id[item].source == "seed" else 1,
+            towers_by_id[item].label.lower(),
+            item,
+        ),
+    ):
         tower = towers_by_id[seed_id]
         plan_rows.append(
             PlanRow(
