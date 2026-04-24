@@ -143,6 +143,26 @@ class InstallPriorityMobileTests(unittest.TestCase):
             msg="Cluster map badges should be smaller than overview badges so mini maps stay legible on phones.",
         )
         self.assertIn(
+            ".cluster-map{aspect-ratio:3.1/1;min-height:320px;max-height:430px;height:auto",
+            html_text,
+            msg="Desktop cluster mini maps should use a taller responsive aspect ratio instead of a flat fixed-height strip.",
+        )
+        self.assertIn(
+            ".full-cluster-map{aspect-ratio:2.8/1;max-height:480px",
+            html_text,
+            msg="Full cluster maps should be slightly taller than compact maps so their longer data table does not feel visually detached.",
+        )
+        self.assertIn(
+            ".cluster-map{aspect-ratio:2.35/1;min-height:240px;max-height:330px}",
+            html_text,
+            msg="Tablet cluster mini maps should keep proportions closer to the stacked data cards without consuming the whole viewport.",
+        )
+        self.assertIn(
+            ".cluster-map{aspect-ratio:2.05/1;min-height:220px;max-height:300px}",
+            html_text,
+            msg="Phone cluster mini maps should stay more square than the desktop embed while preserving a stable bounded height.",
+        )
+        self.assertIn(
             "mapMode === 'cluster' ? 4 : 7",
             html_text,
             msg="Cluster point circles should use a smaller radius than overview points in the MapLibre bootstrap.",
