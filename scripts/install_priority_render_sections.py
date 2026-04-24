@@ -108,18 +108,25 @@ def render_cluster_section(
             if blocked_count
             else ""
         ),
-        "<div class='cluster-view-tabs' role='tablist' "
-        f"aria-label='Views for {escape(cluster_label)} rollout cluster'>",
+        "<div class='phase-control cluster-phase-control'>",
+        "<p class='phase-control-label'>Cluster detail phase</p>",
+        (
+            "<div class='cluster-view-tabs phase-tabs' role='tablist' "
+            f"aria-label='Views for {escape(cluster_label)} rollout cluster'>"
+        ),
         (
             f"<button type='button' id='{escape(connect_tab_id)}' "
-            "class='cluster-view-tab active' role='tab' aria-selected='true' "
-            f"aria-controls='{escape(connect_panel_id)}'>Connect clusters</button>"
+            "class='cluster-view-tab phase-tab active' role='tab' aria-selected='true' "
+            f"aria-controls='{escape(connect_panel_id)}'><strong>Phase 1: Connect clusters</strong>"
+            "<span>Install through the current cluster-join prefix.</span></button>"
         ),
         (
             f"<button type='button' id='{escape(coverage_tab_id)}' "
-            "class='cluster-view-tab' role='tab' aria-selected='false' "
-            f"aria-controls='{escape(coverage_panel_id)}'>Improve coverage</button>"
+            "class='cluster-view-tab phase-tab' role='tab' aria-selected='false' "
+            f"aria-controls='{escape(coverage_panel_id)}'><strong>Phase 2: Improve coverage</strong>"
+            "<span>Show every later row and the full local map.</span></button>"
         ),
+        "</div>",
         "</div>",
         (
             f"<div id='{escape(connect_panel_id)}' class='cluster-view-panel active' "

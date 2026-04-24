@@ -110,6 +110,16 @@ class InstallPriorityRenderTests(unittest.TestCase):
             msg=f"Default rollout tab should describe the cluster-connection phase, got HTML {html_text!r}",
         )
         self.assertIn(
+            "Cluster detail phase",
+            html_text,
+            msg=f"Cluster section should label the phase switch so it is not mistaken for ordinary action buttons, got HTML {html_text!r}",
+        )
+        self.assertIn(
+            "Phase 1: Connect clusters",
+            html_text,
+            msg=f"Cluster section should make the default phase number explicit, got HTML {html_text!r}",
+        )
+        self.assertIn(
             "Improve coverage",
             html_text,
             msg=f"Full rollout tab should describe the later hop-reduction phase, got HTML {html_text!r}",
@@ -939,9 +949,24 @@ class InstallPriorityRenderTests(unittest.TestCase):
             msg="HTML handout should include the overview map container.",
         )
         self.assertIn(
-            "class='overview-view-tabs'",
+            "class='overview-view-tabs phase-tabs'",
             html_text,
             msg="HTML handout should expose the rollout phase switch on the overview map.",
+        )
+        self.assertIn(
+            "Map view phase",
+            html_text,
+            msg="Overview phase control should be explicitly labeled as a map-view switch.",
+        )
+        self.assertIn(
+            "Show only the install prefix that joins the rollout queues.",
+            html_text,
+            msg="Overview phase 1 control should explain what it filters.",
+        )
+        self.assertIn(
+            "Show the full later queue for hop reduction and local fill-in.",
+            html_text,
+            msg="Overview phase 2 control should explain what it reveals.",
         )
         self.assertIn(
             "data-overview-view='connect'",

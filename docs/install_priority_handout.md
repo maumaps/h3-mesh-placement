@@ -10,6 +10,7 @@ The HTML output is the primary field artifact and stays as a single file with an
 The overview map highlights the current next node in each cluster with an order badge.
 The overview map opens in `Connect clusters` mode so it shows only the rollout prefix needed to connect neighboring queues.
 Its `Improve coverage` mode shows the full later plan for hop reduction and local coverage review.
+The phase switch is styled as a two-option control above the overview map and repeated inside each cluster detail section.
 Each cluster mini map shows the local install order directly on the nodes and draws a follow line from each step back to its chosen predecessor.
 By default, each cluster section shows the order prefix through the currently known connector points to neighboring clusters.
 Each cluster section has two tabs: `Connect clusters` for that connector-first field route, and `Improve coverage` for the full later queue that reduces hops and fills local coverage.
