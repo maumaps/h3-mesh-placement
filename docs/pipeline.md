@@ -37,7 +37,7 @@ Stage toggles currently live there as `enable_coarse=false`, `enable_population=
 Use `make db/procedure/mesh_run_greedy_full` after setting `enable_greedy=true` when you want to execute the greedy placement loop.
 Use `make db/procedure/mesh_placement_restart` when the database and LOS cache already exist and you only need to replay configured tower placement stages without rebuilding cached tables from stale Make markers.
 Intermediate targets such as `db/table/osm_for_mesh_placement` or `db/table/mesh_surface_h3_r8` can be executed independently to debug single steps.
-Use `make data/out/install_priority.html` when you want the installer handout after routing or greedy placement.
+Use `make data/out/install_priority_reviewed` when you want the installer handout after routing or greedy placement with the field-review invariants checked.
 
 The key stage order is:
 - Import sources → merge curated seeds with the optional Liam Cottle snapshot → import `mesh_initial_nodes`.
@@ -89,7 +89,7 @@ Execute `make all` to refresh every artifact from downloads through routing.
 Run `make db/procedure/mesh_run_greedy_full` after setting `enable_greedy=true` to execute greedy placement when you are ready.
 The configured greedy wrapper runs with `statement_timeout=0` because LOS and post-placement visibility refresh work can legitimately exceed the default timeout.
 `make db/procedure/mesh_placement_restart` also invokes the tower-wiggle wrapper, so setting `enable_wiggle=true` is enough for the safe replay path. Run `make db/procedure/mesh_tower_wiggle_current` when you want to apply wiggle to the current tower set without replaying route inputs.
-Run `make data/out/install_priority.html` to build the field handout in HTML and CSV from the current database state.
+Run `make data/out/install_priority_reviewed` to build the field handout in HTML and CSV from the current database state, verify predecessor links against `mesh_visibility_edges`, and fail on bridge/cut-node graph findings.
 Most SQL files are idempotent rebuild steps, but many `tables/` files intentionally drop and recreate derived tables.
 Inspect the file and run the matching Make target when one exists, especially around `mesh_towers`, `mesh_surface_h3_r8`, route graph tables, and cache-adjacent stages.
 Any missing credentials or tooling gaps should be recorded in `docs/todo.md`.
