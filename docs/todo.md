@@ -45,3 +45,6 @@ Use `db/procedure/fill_mesh_los_cache_backfill` later when you want to spend mor
 - mesh_route_cluster_slim progress notices print malformed `0.0` fragments in psql output; keep the iteration logging but fix the formatting in a later pass.
 `db/test/mesh_population` now runs as a direct sparse-anchor smoke test and no longer replays placement in dry-run.
 Population-anchor stars are now handled by the applied `mesh_population_anchor_contract` stage: population anchors are soft terminals, while close route-only pairs remain preserved unless cached LOS-neighbor sets prove they are redundant. Use `make db/procedure/mesh_population_anchor_contract_current` to re-run only that cleanup on current towers without replaying route stages.
+
+The MQTT import fix now inserts `source in ('seed', 'mqtt')` into `mesh_towers`, but the remote 100 km database still needs a safe resume path before rerunning it.
+`make -n db/table/mesh_initial_nodes_h3_r8` on geocint unexpectedly wants to replay OSM merge/import and `georgia_boundary` before the seed/MQTT table, so do not run that target until the dependencies are narrowed or an explicit reviewed resume target is added.
