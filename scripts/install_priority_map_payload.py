@@ -69,6 +69,7 @@ def connect_max_rank_by_cluster_from_rows(
     """Find the last rank needed to touch every known neighbor cluster."""
 
     connector_edges = phase_one_connector_edges(normalized_rows)
+    has_any_connector_edge = bool(connector_edges)
     connector_ranks_by_cluster: dict[str, list[int]] = {}
     for edge in connector_edges:
         connector_ranks_by_cluster.setdefault(edge.left_cluster_key, []).append(
@@ -96,6 +97,8 @@ def connect_max_rank_by_cluster_from_rows(
         planned_ranks = planned_ranks_by_cluster.get(cluster_key, [])
         if connector_ranks:
             connect_max_rank_by_cluster[cluster_key] = max(connector_ranks)
+        elif planned_ranks and not has_any_connector_edge:
+            connect_max_rank_by_cluster[cluster_key] = max(planned_ranks)
         elif planned_ranks:
             connect_max_rank_by_cluster[cluster_key] = min(planned_ranks)
         else:

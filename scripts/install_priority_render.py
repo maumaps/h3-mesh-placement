@@ -218,6 +218,18 @@ def render_html_document(
         str(cluster_rows[0]["cluster_key"]): _default_cluster_max_rank(cluster_rows)
         for cluster_rows in grouped_rows.values()
     }
+    if not any(
+        row.get("inter_cluster_neighbor_ids") not in (None, "", [])
+        and not bool(row.get("installed"))
+        for row in normalized_rows
+    ):
+        connect_max_rank_by_cluster = {
+            cluster_key: _max_planned_cluster_rank(cluster_rows)
+            for cluster_key, cluster_rows in (
+                (str(rows[0]["cluster_key"]), rows)
+                for rows in grouped_rows.values()
+            )
+        }
     overview_connect_rows = [
         row
         for row in normalized_rows
@@ -434,6 +446,21 @@ def _default_cluster_max_rank(cluster_rows: Sequence[Mapping[str, object]]) -> i
     ]
     if planned_ranks:
         return min(planned_ranks)
+
+    return 0
+
+
+def _max_planned_cluster_rank(cluster_rows: Sequence[Mapping[str, object]]) -> int:
+    """Return the full planned queue length for clusters without connector data."""
+
+    planned_ranks = [
+        int(row["cluster_install_rank"])
+        for row in cluster_rows
+        if row.get("cluster_install_rank") not in (None, "")
+        and not bool(row.get("installed"))
+    ]
+    if planned_ranks:
+        return max(planned_ranks)
 
     return 0
 

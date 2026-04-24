@@ -397,6 +397,64 @@ class InstallPriorityRenderTests(unittest.TestCase):
             msg=f"Overview phase 1 should draw every direct inter-cluster connector pair, got features {phase_one_edges!r}",
         )
 
+    def test_overview_connect_cutoff_shows_full_queue_when_connectors_are_absent(self) -> None:
+        """Overview connect mode should not collapse every cluster to rank 1 when connector metadata is missing."""
+
+        rows = [
+            {
+                "tower_id": 1,
+                "cluster_key": "seed:a",
+                "cluster_label": "A",
+                "cluster_install_rank": 0,
+                "installed": True,
+                "inter_cluster_neighbor_ids": [],
+            },
+            {
+                "tower_id": 2,
+                "cluster_key": "seed:a",
+                "cluster_label": "A",
+                "cluster_install_rank": 1,
+                "installed": False,
+                "inter_cluster_neighbor_ids": [],
+            },
+            {
+                "tower_id": 3,
+                "cluster_key": "seed:a",
+                "cluster_label": "A",
+                "cluster_install_rank": 4,
+                "installed": False,
+                "inter_cluster_neighbor_ids": [],
+            },
+            {
+                "tower_id": 20,
+                "cluster_key": "seed:b",
+                "cluster_label": "B",
+                "cluster_install_rank": 0,
+                "installed": True,
+                "inter_cluster_neighbor_ids": [],
+            },
+            {
+                "tower_id": 21,
+                "cluster_key": "seed:b",
+                "cluster_label": "B",
+                "cluster_install_rank": 3,
+                "installed": False,
+                "inter_cluster_neighbor_ids": [],
+            },
+        ]
+
+        cluster_payload = dedupe_clusters(rows)
+        cutoffs_by_label = {
+            cluster["cluster_label"]: cluster["connect_max_rank"]
+            for cluster in cluster_payload
+        }
+
+        self.assertEqual(
+            cutoffs_by_label,
+            {"A": 4, "B": 3},
+            msg=f"Missing connector metadata should make phase 1 show each full rollout queue instead of one arbitrary first node, got clusters {cluster_payload!r}",
+        )
+
     def test_install_priority_edge_assertion_finds_missing_predecessors(self) -> None:
         """CSV predecessor validation should flag route steps without visible edges."""
 
