@@ -28,6 +28,7 @@ from scripts.install_priority_lib import (
     render_html_document,
 )
 from scripts.install_priority_map_payload import dedupe_clusters
+from scripts.install_priority_map_payload import phase_one_connector_features
 from scripts.install_priority_render import _default_cluster_max_rank
 from scripts.install_priority_render_sections import render_cluster_section
 
@@ -249,6 +250,8 @@ class InstallPriorityRenderTests(unittest.TestCase):
                 "cluster_install_rank": 0,
                 "installed": True,
                 "inter_cluster_neighbor_ids": [],
+                "lon": 41.0,
+                "lat": 41.0,
             },
             {
                 "tower_id": 2,
@@ -257,6 +260,8 @@ class InstallPriorityRenderTests(unittest.TestCase):
                 "cluster_install_rank": 1,
                 "installed": False,
                 "inter_cluster_neighbor_ids": [20],
+                "lon": 41.1,
+                "lat": 41.1,
             },
             {
                 "tower_id": 3,
@@ -265,6 +270,8 @@ class InstallPriorityRenderTests(unittest.TestCase):
                 "cluster_install_rank": 25,
                 "installed": False,
                 "inter_cluster_neighbor_ids": [30],
+                "lon": 41.2,
+                "lat": 41.2,
             },
             {
                 "tower_id": 20,
@@ -273,6 +280,8 @@ class InstallPriorityRenderTests(unittest.TestCase):
                 "cluster_install_rank": 0,
                 "installed": True,
                 "inter_cluster_neighbor_ids": [],
+                "lon": 42.0,
+                "lat": 42.0,
             },
             {
                 "tower_id": 21,
@@ -281,6 +290,8 @@ class InstallPriorityRenderTests(unittest.TestCase):
                 "cluster_install_rank": 4,
                 "installed": False,
                 "inter_cluster_neighbor_ids": [30],
+                "lon": 42.1,
+                "lat": 42.1,
             },
             {
                 "tower_id": 30,
@@ -289,6 +300,8 @@ class InstallPriorityRenderTests(unittest.TestCase):
                 "cluster_install_rank": 0,
                 "installed": True,
                 "inter_cluster_neighbor_ids": [],
+                "lon": 43.0,
+                "lat": 43.0,
             },
         ]
 
@@ -303,6 +316,22 @@ class InstallPriorityRenderTests(unittest.TestCase):
             cluster_a["connect_max_rank"],
             1,
             msg=f"Overview phase 1 should exclude redundant late direct edges once the connector tree already links the clusters, got clusters {cluster_payload!r}",
+        )
+        phase_one_edges = phase_one_connector_features(rows)
+        phase_one_tower_pairs = {
+            frozenset(
+                {
+                    edge["properties"]["from_tower_id"],
+                    edge["properties"]["to_tower_id"],
+                }
+            )
+            for edge in phase_one_edges
+        }
+
+        self.assertEqual(
+            phase_one_tower_pairs,
+            {frozenset({2, 20}), frozenset({21, 30})},
+            msg=f"Overview phase 1 should draw only connector-tree edges and omit redundant late direct links, got features {phase_one_edges!r}",
         )
 
     def test_install_priority_edge_assertion_finds_missing_predecessors(self) -> None:
@@ -987,6 +1016,16 @@ class InstallPriorityRenderTests(unittest.TestCase):
             "cluster.connect_max_rank",
             html_text,
             msg="Overview connect mode should use the explicit per-cluster cutoff instead of recomputing the first connector in JavaScript.",
+        )
+        self.assertIn(
+            "\"phase_one_connector_edges\"",
+            html_text,
+            msg="HTML handout should embed the exact connector-tree edges for phase-one overview context lines.",
+        )
+        self.assertIn(
+            "phaseOneConnectorEdges.features.filter",
+            html_text,
+            msg="Overview phase one should draw only connector-tree context lines, not every same-phase context edge.",
         )
         self.assertIn(
             "updateOverviewView",

@@ -11,6 +11,7 @@ from typing import Mapping, Sequence
 from scripts.install_priority_map_payload import (
     dedupe_clusters,
     fallback_cluster_bound_features,
+    phase_one_connector_features,
 )
 from scripts.install_priority_maplibre_runtime import build_map_script
 from scripts.install_priority_maplibre_vendor import read_maplibre_assets
@@ -89,6 +90,9 @@ def render_map_assets(
                 normalized_rows,
                 deduped_clusters,
             )
+        ),
+        "phase_one_connector_edges": phase_one_connector_features(
+            normalized_rows,
         ),
         "mqtt_points": list(mqtt_points or []),
         "seed_mqtt_links": list(seed_mqtt_links or []),

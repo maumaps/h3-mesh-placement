@@ -38,7 +38,9 @@ def dedupe_clusters(
 ) -> list[dict[str, object]]:
     """Keep one cluster metadata row per cluster key for the map payload."""
 
-    connect_max_rank_by_cluster = _connect_max_rank_by_cluster(normalized_rows)
+    connect_max_rank_by_cluster = connect_max_rank_by_cluster_from_rows(
+        normalized_rows,
+    )
     deduped_clusters: list[dict[str, object]] = []
     seen_cluster_keys: set[str] = set()
 
@@ -61,25 +63,62 @@ def dedupe_clusters(
     return deduped_clusters
 
 
-def _connect_max_rank_by_cluster(
+def connect_max_rank_by_cluster_from_rows(
     normalized_rows: Sequence[Mapping[str, object]],
 ) -> dict[str, int]:
     """Find the last rank needed to join the cluster connector tree."""
+
+    connector_tree_edges = phase_one_connector_edges(normalized_rows)
+    connector_ranks_by_cluster: dict[str, list[int]] = {}
+    for edge in connector_tree_edges:
+        connector_ranks_by_cluster.setdefault(edge.left_cluster_key, []).append(
+            edge.left_rank,
+        )
+        connector_ranks_by_cluster.setdefault(edge.right_cluster_key, []).append(
+            edge.right_rank,
+        )
+
+    planned_ranks_by_cluster: dict[str, list[int]] = {}
+    for row in normalized_rows:
+        rank = _optional_rank(row.get("cluster_install_rank"))
+        if rank is not None and not bool(row.get("installed")):
+            planned_ranks_by_cluster.setdefault(str(row["cluster_key"]), []).append(
+                rank,
+            )
+
+    connect_max_rank_by_cluster: dict[str, int] = {}
+    for row in normalized_rows:
+        cluster_key = str(row["cluster_key"])
+        if cluster_key in connect_max_rank_by_cluster:
+            continue
+
+        connector_ranks = connector_ranks_by_cluster.get(cluster_key, [])
+        planned_ranks = planned_ranks_by_cluster.get(cluster_key, [])
+        if connector_ranks:
+            connect_max_rank_by_cluster[cluster_key] = max(connector_ranks)
+        elif planned_ranks:
+            connect_max_rank_by_cluster[cluster_key] = min(planned_ranks)
+        else:
+            connect_max_rank_by_cluster[cluster_key] = 0
+
+    return connect_max_rank_by_cluster
+
+
+def phase_one_connector_edges(
+    normalized_rows: Sequence[Mapping[str, object]],
+) -> list[_ClusterConnectorEdge]:
+    """Return the connector-tree edges used by overview phase one."""
 
     rows_by_tower_id = {
         int(row["tower_id"]): row
         for row in normalized_rows
     }
-    planned_ranks_by_cluster: dict[str, list[int]] = {}
     best_edge_by_cluster_pair: dict[tuple[str, str], _ClusterConnectorEdge] = {}
 
     for row in normalized_rows:
         cluster_key = str(row["cluster_key"])
         tower_id = int(row["tower_id"])
         rank = _optional_rank(row.get("cluster_install_rank"))
-
-        if rank is not None and not bool(row.get("installed")):
-            planned_ranks_by_cluster.setdefault(cluster_key, []).append(rank)
 
         if rank is None or bool(row.get("installed")):
             continue
@@ -120,31 +159,45 @@ def _connect_max_rank_by_cluster(
         cluster_keys={str(row["cluster_key"]) for row in normalized_rows},
         edges=best_edge_by_cluster_pair.values(),
     )
-    connector_ranks_by_cluster: dict[str, list[int]] = {}
-    for edge in connector_tree_edges:
-        connector_ranks_by_cluster.setdefault(edge.left_cluster_key, []).append(
-            edge.left_rank,
+
+    return connector_tree_edges
+
+
+def phase_one_connector_features(
+    normalized_rows: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    """Build GeoJSON lines for the overview phase-one cluster joins."""
+
+    rows_by_tower_id = {
+        int(row["tower_id"]): row
+        for row in normalized_rows
+    }
+    features: list[dict[str, object]] = []
+
+    for edge in phase_one_connector_edges(normalized_rows):
+        left_row = rows_by_tower_id[edge.left_tower_id]
+        right_row = rows_by_tower_id[edge.right_tower_id]
+        features.append(
+            {
+                "type": "Feature",
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": [
+                        [float(left_row["lon"]), float(left_row["lat"])],
+                        [float(right_row["lon"]), float(right_row["lat"])],
+                    ],
+                },
+                "properties": {
+                    "from_cluster_key": edge.left_cluster_key,
+                    "to_cluster_key": edge.right_cluster_key,
+                    "from_tower_id": edge.left_tower_id,
+                    "to_tower_id": edge.right_tower_id,
+                    "link_kind": "phase_one_connector",
+                },
+            }
         )
-        connector_ranks_by_cluster.setdefault(edge.right_cluster_key, []).append(
-            edge.right_rank,
-        )
 
-    connect_max_rank_by_cluster: dict[str, int] = {}
-    for row in normalized_rows:
-        cluster_key = str(row["cluster_key"])
-        if cluster_key in connect_max_rank_by_cluster:
-            continue
-
-        connector_ranks = connector_ranks_by_cluster.get(cluster_key, [])
-        planned_ranks = planned_ranks_by_cluster.get(cluster_key, [])
-        if connector_ranks:
-            connect_max_rank_by_cluster[cluster_key] = max(connector_ranks)
-        elif planned_ranks:
-            connect_max_rank_by_cluster[cluster_key] = min(planned_ranks)
-        else:
-            connect_max_rank_by_cluster[cluster_key] = 0
-
-    return connect_max_rank_by_cluster
+    return features
 
 
 def _normalize_connector_edge(

@@ -419,7 +419,7 @@ if (!payloadEl || !window.maplibregl) {
       });
     const overviewContextFeatures = viewMode === 'coverage'
       ? contextFeatures
-      : contextFeatures.filter((feature) => (
+      : phaseOneConnectorEdges.features.filter((feature) => (
         includedTowerIds.has(feature.properties.from_tower_id)
         && includedTowerIds.has(feature.properties.to_tower_id)
       ));
@@ -453,6 +453,10 @@ if (!payloadEl || !window.maplibregl) {
   const overviewSeedMqttLinks = {
     type: 'FeatureCollection',
     features: seedMqttLinkFeatures,
+  };
+  const phaseOneConnectorEdges = {
+    type: 'FeatureCollection',
+    features: payload.phase_one_connector_edges || [],
   };
   const clusterMapTargets = payload.clusters.flatMap((cluster) => ([
     { ...cluster, map_id: cluster.map_id },
