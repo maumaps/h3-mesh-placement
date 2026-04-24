@@ -260,28 +260,20 @@ class PipelineRegressionTest(unittest.TestCase):
         initial_nodes_sql = (REPO_ROOT / "tables/mesh_initial_nodes_h3_r8.sql").read_text()
 
         self.assertIn(
+            "where source in ('seed', 'mqtt')",
+            initial_nodes_sql,
+            msg=(
+                "mesh_initial_nodes_h3_r8 should insert both curated seeds and "
+                "MQTT targets into mesh_towers so routing can try to reach them before "
+                f"post-route pruning; SQL was {initial_nodes_sql!r}"
+            ),
+        )
+        self.assertNotIn(
             "reachable_initial_nodes(h3)",
             initial_nodes_sql,
             msg=(
-                "mesh_initial_nodes_h3_r8 should insert curated seeds and only "
-                "seed-reachable MQTT nodes into mesh_towers so MQTT participates in "
-                f"visibility and rollout planning; SQL was {initial_nodes_sql!r}"
-            ),
-        )
-        self.assertIn(
-            "where mesh_initial_nodes_h3_r8.source = 'seed'",
-            initial_nodes_sql,
-            msg=(
-                "mesh_initial_nodes_h3_r8 should always keep curated seeds as "
-                f"installed roots; SQL was {initial_nodes_sql!r}"
-            ),
-        )
-        self.assertIn(
-            "mesh_initial_nodes_h3_r8.source = 'mqtt'",
-            initial_nodes_sql,
-            msg=(
-                "mesh_initial_nodes_h3_r8 should still admit MQTT nodes when "
-                f"the recursive LOS reachability walk reaches them; SQL was {initial_nodes_sql!r}"
+                "mesh_initial_nodes_h3_r8 must not pre-filter disconnected MQTT "
+                f"before route construction has tried to reach them; SQL was {initial_nodes_sql!r}"
             ),
         )
         self.assertNotIn(
@@ -290,14 +282,6 @@ class PipelineRegressionTest(unittest.TestCase):
             msg=(
                 "mesh_initial_nodes_h3_r8 must not drop MQTT nodes from "
                 f"mesh_towers before the rollout graph is built; SQL was {initial_nodes_sql!r}"
-            ),
-        )
-        self.assertIn(
-            "mesh_los_cache.clearance > 0",
-            initial_nodes_sql,
-            msg=(
-                "MQTT tower import should use cached LOS reachability instead "
-                f"of boundary-only inclusion; SQL was {initial_nodes_sql!r}"
             ),
         )
 
@@ -319,6 +303,38 @@ class PipelineRegressionTest(unittest.TestCase):
             "db/procedure/mesh_initial_nodes_h3_r8_current: tables/mesh_initial_nodes_h3_r8.sql db/raw/initial_nodes",
             makefile_text,
             msg="The current seed/MQTT target must not depend on raw imports, because geocint already has the imported table.",
+        )
+
+    def test_placement_restart_prunes_unreached_mqtt_after_route_bridge(self) -> None:
+        """Route construction should try MQTT targets before pruning unreachable ones."""
+        makefile_text = (REPO_ROOT / "Makefile").read_text()
+        restart_text = (REPO_ROOT / "scripts" / "mesh_placement_restart.sh").read_text()
+        prune_text = (REPO_ROOT / "scripts" / "mesh_prune_unreached_mqtt.sql").read_text()
+
+        self.assertIn(
+            "scripts/mesh_prune_unreached_mqtt.sql",
+            makefile_text,
+            msg="mesh_placement_restart should depend on the post-route MQTT pruning script so Make reruns when pruning behavior changes.",
+        )
+        self.assertLess(
+            restart_text.index("scripts/mesh_route_bridge_configured.sh"),
+            restart_text.index("scripts/mesh_prune_unreached_mqtt.sql"),
+            msg="Placement restart should run route bridge before pruning unreached MQTT targets.",
+        )
+        self.assertLess(
+            restart_text.index("scripts/mesh_prune_unreached_mqtt.sql"),
+            restart_text.index("scripts/assert_mesh_towers_single_los_component.sql"),
+            msg="Placement restart should prune unreached MQTT targets before enforcing the single-component invariant.",
+        )
+        self.assertIn(
+            "where t.source = 'mqtt'",
+            prune_text,
+            msg=f"MQTT pruning should delete unreached MQTT targets explicitly; SQL was {prune_text!r}",
+        )
+        self.assertIn(
+            "where t.source in ('route', 'cluster_slim', 'bridge', 'greedy')",
+            prune_text,
+            msg=f"MQTT pruning should also remove generated relay tails outside the seed-reachable component; SQL was {prune_text!r}",
         )
 
     def test_osm_merge_target_overwrites_existing_mid_pbf(self) -> None:

@@ -97,6 +97,7 @@ psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_route_bootstrap.sql
 
 echo ">> Applying configured route bridge stage"
 scripts/mesh_route_bridge_configured.sh
+psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_prune_unreached_mqtt.sql
 psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 
 echo ">> Applying configured cluster-slim stage"
