@@ -362,7 +362,12 @@ def _plan_seed_cluster(
 ) -> list[PlanRow]:
     """Build the local rollout queue for one seed-rooted cluster."""
 
-    seed_labels = [towers_by_id[seed_id].label for seed_id in cluster_seed_ids]
+    display_seed_ids = [
+        seed_id
+        for seed_id in cluster_seed_ids
+        if towers_by_id[seed_id].source == "seed"
+    ] or list(cluster_seed_ids)
+    seed_labels = [towers_by_id[seed_id].label for seed_id in display_seed_ids]
     cluster_label = ", ".join(sorted(seed_labels, key=str.lower))
     active_ids = set(cluster_seed_ids)
     remaining_ids = set(cluster_tower_ids) - active_ids

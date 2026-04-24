@@ -130,6 +130,40 @@ class InstallPriorityTests(unittest.TestCase):
             msg=f"Each installed seed cluster should get its own next node, got {next_rows!r} from rows {plan_rows!r}",
         )
 
+    def test_build_cluster_plan_names_mqtt_joined_cluster_by_seed(self) -> None:
+        """Installed MQTT roots should participate in rollout without renaming the seed cluster."""
+
+        towers_by_id = {
+            1: TowerRecord(1, "seed", 41.60, 41.70, "Batumi", True),
+            2: TowerRecord(2, "mqtt", 41.61, 41.71, "mqtt #2", True),
+            3: TowerRecord(3, "route", 41.62, 41.72, "route #3", False, people_estimate=1200),
+        }
+        adjacency = build_adjacency(
+            [
+                (1, 2, 900.0),
+                (2, 3, 900.0),
+            ]
+        )
+
+        plan_rows = build_cluster_plan(towers_by_id, adjacency)
+        cluster_labels = {row.cluster_label for row in plan_rows}
+        installed_labels = {
+            row.label
+            for row in plan_rows
+            if row.rollout_status == "installed"
+        }
+
+        self.assertEqual(
+            cluster_labels,
+            {"Batumi"},
+            msg=f"MQTT joined to a seed component should not rename the rollout cluster, got rows {plan_rows!r}",
+        )
+        self.assertEqual(
+            installed_labels,
+            {"Batumi", "mqtt #2"},
+            msg=f"MQTT should still appear as installed infrastructure inside the seed-named cluster, got rows {plan_rows!r}",
+        )
+
     def test_build_cluster_plan_prefers_more_people_even_if_route_exists(self) -> None:
         """Impact is now estimated people reach, so a higher-reach cluster node can beat a route node."""
 
