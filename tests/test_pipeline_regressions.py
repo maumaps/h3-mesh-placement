@@ -214,6 +214,21 @@ class PipelineRegressionTest(unittest.TestCase):
             contract_text,
             "mesh_population_anchor_contract should preserve non-population visible-neighbor roles when removing soft anchors.",
         )
+        self.assertIn(
+            "single-source reachability check",
+            contract_text,
+            "mesh_population_anchor_contract should avoid all-roots recursive component walks that explode on large cluster-slim graphs.",
+        )
+        self.assertIn(
+            "hypothetical_start as",
+            contract_text,
+            "mesh_population_anchor_contract should test deletion safety from one representative tower instead of materializing every root path.",
+        )
+        self.assertNotIn(
+            "path ||",
+            contract_text,
+            "mesh_population_anchor_contract should not accumulate recursive path arrays because they consume excessive memory on dense live graphs.",
+        )
         self.assertNotIn(
             "h3_los_between_cells",
             contract_text,

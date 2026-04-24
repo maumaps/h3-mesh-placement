@@ -20,8 +20,6 @@ declare
     synthetic record;
     leaf record;
     preserves_single_component boolean;
-    current_component_count integer;
-    hypothetical_component_count integer;
     removed_population integer := 0;
     removed_generated integer := 0;
 begin
@@ -408,58 +406,10 @@ begin
                 )
             order by nb.tower_id
         loop
-            -- Never remove a generated leaf if that would increase the number
-            -- of live tower LOS components. Local neighbor preservation is not
-            -- enough when population anchors bridge other population-only
-            -- segments.
-            with recursive current_towers as (
-                select
-                    tower_id,
-                    h3
-                from mesh_towers
-            ),
-            current_visible_edges as (
-                select distinct
-                    src.tower_id as source_id,
-                    dst.tower_id as target_id
-                from current_towers src
-                join current_towers dst on dst.tower_id <> src.tower_id
-                join mesh_los_cache link
-                  on link.src_h3 = least(src.h3, dst.h3)
-                 and link.dst_h3 = greatest(src.h3, dst.h3)
-                 and link.mast_height_src = mast_height
-                 and link.mast_height_dst = mast_height
-                 and link.frequency_hz = frequency
-                 and link.clearance > 0
-            ),
-            current_walk(root_id, tower_id, path) as (
-                select
-                    current_towers.tower_id as root_id,
-                    current_towers.tower_id,
-                    array[current_towers.tower_id]
-                from current_towers
-
-                union all
-
-                select
-                    current_walk.root_id,
-                    current_visible_edges.target_id,
-                    current_walk.path || current_visible_edges.target_id
-                from current_walk
-                join current_visible_edges on current_visible_edges.source_id = current_walk.tower_id
-                where not current_visible_edges.target_id = any(current_walk.path)
-            ),
-            current_components as (
-                select
-                    tower_id,
-                    min(root_id) as component_id
-                from current_walk
-                group by tower_id
-            )
-            select count(distinct component_id)
-            into current_component_count
-            from current_components;
-
+            -- Never remove a generated leaf if that would split the live LOS
+            -- graph. The graph is asserted connected before this stage, so a
+            -- single-source reachability check is enough and avoids the
+            -- all-roots path explosion that large slimmed graphs trigger.
             with recursive hypothetical_towers as (
                 select
                     tower_id,
@@ -481,37 +431,31 @@ begin
                  and link.frequency_hz = frequency
                  and link.clearance > 0
             ),
-            hypothetical_walk(root_id, tower_id, path) as (
-                select
-                    hypothetical_towers.tower_id as root_id,
-                    hypothetical_towers.tower_id,
-                    array[hypothetical_towers.tower_id]
+            hypothetical_start as (
+                select min(tower_id) as tower_id
                 from hypothetical_towers
+            ),
+            hypothetical_walk(tower_id) as (
+                select tower_id
+                from hypothetical_start
+                where tower_id is not null
 
                 union
 
-                select
-                    hypothetical_walk.root_id,
-                    hypothetical_visible_edges.target_id,
-                    hypothetical_walk.path || hypothetical_visible_edges.target_id
+                select hypothetical_visible_edges.target_id
                 from hypothetical_walk
                 join hypothetical_visible_edges on hypothetical_visible_edges.source_id = hypothetical_walk.tower_id
-                where not hypothetical_visible_edges.target_id = any(hypothetical_walk.path)
-            ),
-            hypothetical_components as (
-                select
-                    tower_id,
-                    min(root_id) as component_id
-                from hypothetical_walk
-                group by tower_id
             )
             select
                 case
                     when (select count(*) from hypothetical_towers) <= 1 then true
                     else (
-                        select count(distinct component_id)
-                        from hypothetical_components
-                    ) <= current_component_count
+                        select count(*)
+                        from hypothetical_walk
+                    ) = (
+                        select count(*)
+                        from hypothetical_towers
+                    )
                 end
             into preserves_single_component;
 
@@ -544,54 +488,6 @@ begin
         -- increase the number of live LOS components. Existing replacement
         -- checks above cover local neighbor roles, while this guard protects
         -- bridges that pass through another population anchor.
-        with recursive current_towers as (
-            select
-                tower_id,
-                h3
-            from mesh_towers
-        ),
-        current_visible_edges as (
-            select distinct
-                src.tower_id as source_id,
-                dst.tower_id as target_id
-            from current_towers src
-            join current_towers dst on dst.tower_id <> src.tower_id
-            join mesh_los_cache link
-              on link.src_h3 = least(src.h3, dst.h3)
-             and link.dst_h3 = greatest(src.h3, dst.h3)
-             and link.mast_height_src = mast_height
-             and link.mast_height_dst = mast_height
-             and link.frequency_hz = frequency
-             and link.clearance > 0
-        ),
-        current_walk(root_id, tower_id, path) as (
-            select
-                current_towers.tower_id as root_id,
-                current_towers.tower_id,
-                array[current_towers.tower_id]
-            from current_towers
-
-            union
-
-            select
-                current_walk.root_id,
-                current_visible_edges.target_id,
-                current_walk.path || current_visible_edges.target_id
-            from current_walk
-            join current_visible_edges on current_visible_edges.source_id = current_walk.tower_id
-            where not current_visible_edges.target_id = any(current_walk.path)
-        ),
-        current_components as (
-            select
-                tower_id,
-                min(root_id) as component_id
-            from current_walk
-            group by tower_id
-        )
-        select count(distinct component_id)
-        into current_component_count
-        from current_components;
-
         with recursive hypothetical_towers as (
             select
                 tower_id,
@@ -613,37 +509,31 @@ begin
              and link.frequency_hz = frequency
              and link.clearance > 0
         ),
-        hypothetical_walk(root_id, tower_id, path) as (
-            select
-                hypothetical_towers.tower_id as root_id,
-                hypothetical_towers.tower_id,
-                array[hypothetical_towers.tower_id]
+        hypothetical_start as (
+            select min(tower_id) as tower_id
             from hypothetical_towers
+        ),
+        hypothetical_walk(tower_id) as (
+            select tower_id
+            from hypothetical_start
+            where tower_id is not null
 
             union
 
-            select
-                hypothetical_walk.root_id,
-                hypothetical_visible_edges.target_id,
-                hypothetical_walk.path || hypothetical_visible_edges.target_id
+            select hypothetical_visible_edges.target_id
             from hypothetical_walk
             join hypothetical_visible_edges on hypothetical_visible_edges.source_id = hypothetical_walk.tower_id
-            where not hypothetical_visible_edges.target_id = any(hypothetical_walk.path)
-        ),
-        hypothetical_components as (
-            select
-                tower_id,
-                min(root_id) as component_id
-            from hypothetical_walk
-            group by tower_id
         )
         select
             case
                 when (select count(*) from hypothetical_towers) <= 1 then true
                 else (
-                    select count(distinct component_id)
-                    from hypothetical_components
-                ) <= current_component_count
+                    select count(*)
+                    from hypothetical_walk
+                ) = (
+                    select count(*)
+                    from hypothetical_towers
+                )
             end
         into preserves_single_component;
 
