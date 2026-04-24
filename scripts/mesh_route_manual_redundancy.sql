@@ -18,7 +18,8 @@ values
     ('882c2c40a5fffff', 'route', 'backup_80_103_around_102_cut_node'),
     ('882c2a488bfffff', 'route', 'backup_95_97_around_81_95_bridge'),
     ('882c052a03fffff', 'route', 'backup_81_96_around_95_cut_node'),
-    ('882c05332dfffff', 'route', 'backup_81_96_around_95_cut_node');
+    ('882c05332dfffff', 'route', 'backup_81_96_around_95_cut_node'),
+    ('882c056eddfffff', 'route', 'backup_91_95_around_94_95_bridge');
 
 do
 $$
