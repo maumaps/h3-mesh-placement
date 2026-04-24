@@ -9,6 +9,8 @@ This lets one team walk out from Batumi while another team walks out from Tbilis
 The HTML output is the primary field artifact and stays as a single file with an interactive overview map plus mini maps per cluster.
 The overview map highlights the current next node in each cluster with an order badge.
 Each cluster mini map shows the local install order directly on the nodes and draws a follow line from each step back to its chosen predecessor.
+By default, each cluster section shows the order prefix through the currently known connector points to neighboring clusters.
+Later rows and the full unfiltered cluster map stay in a `See more...` disclosure so the field view starts with the route needed to join nearby rollout queues.
 Dashed context lines show the cheapest visible connector between each pair of rollout clusters.
 Cluster bounds on the maps are generated as Voronoi cells around all tower points and then merged by `cluster_key`, so the outlines reflect which part of the current tower field is closest to each rollout queue.
 The Voronoi cells are clipped to a geodesic buffer around the full point cloud using the widest nearest-neighbor spacing in real meters, so outer edges do not depend on degree padding or Web Mercator assumptions.
@@ -79,6 +81,7 @@ On narrow screens the summary table remains horizontally scrollable, while each 
 Solid lines show the recommended rollout path inside each cluster.
 Dashed local lines on cluster mini maps show additional already-reachable same-cluster predecessors that were not chosen as the primary install edge.
 This keeps links such as Komzpa to a later Batumi-cluster tower visible even when another predecessor is used for the ranked route line.
+The default per-cluster table and mini map stop at the last current connector point; opening `See more...` reveals the full list and a full cluster map for later coverage work.
 The overview map shows every rollout number plus the merged Voronoi outline around each cluster’s current extent.
 Dashed gray lines show the cheapest visible connector between rollout clusters.
 Those links are context only and do not drive the install order itself.

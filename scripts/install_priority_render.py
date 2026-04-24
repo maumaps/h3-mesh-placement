@@ -277,6 +277,10 @@ def render_html_document(
         ".cluster-card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px;margin:12px 0;}",
         ".cluster-card-grid dt{font-size:0.76rem;text-transform:uppercase;letter-spacing:0.03em;color:#5a6673;}",
         ".cluster-card-grid dd{margin:4px 0 0;line-height:1.4;}",
+        ".cluster-more{margin-top:12px;border-top:1px solid #e6e1d8;padding-top:12px;}",
+        ".cluster-more summary{cursor:pointer;font-weight:700;color:#0d5ea8;}",
+        ".full-cluster-map{margin-top:12px;}",
+        ".full-cluster-table{margin-top:12px;}",
         ".sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}",
         "a{color:#0d5ea8;text-decoration:none;}",
         "a:hover{text-decoration:underline;}",
@@ -330,6 +334,7 @@ def render_html_document(
             row for row in cluster_rows if str(row["rollout_status"]) == "blocked"
         ]
         cluster_dom_id = cluster_map_id(str(cluster_rows[0]["cluster_key"]))
+        compact_max_rank = _default_cluster_max_rank(cluster_rows)
         html_parts.extend(
             render_cluster_section(
                 cluster_label=cluster_label,
@@ -338,6 +343,7 @@ def render_html_document(
                 installed_labels=installed_labels,
                 next_label=next_label,
                 blocked_count=len(blocked_rows),
+                compact_max_rank=compact_max_rank,
             )
         )
 
@@ -352,3 +358,27 @@ def render_html_document(
     html_parts.extend(["</div>", "</body>", "</html>"])
 
     return "\n".join(html_parts)
+
+
+def _default_cluster_max_rank(cluster_rows: Sequence[Mapping[str, object]]) -> int:
+    """Show the rollout prefix through all currently known cluster joins."""
+
+    connector_ranks = [
+        int(row["cluster_install_rank"])
+        for row in cluster_rows
+        if row.get("cluster_install_rank") not in (None, "")
+        and row.get("inter_cluster_neighbor_ids") not in (None, "", [])
+    ]
+    if connector_ranks:
+        return max(connector_ranks)
+
+    planned_ranks = [
+        int(row["cluster_install_rank"])
+        for row in cluster_rows
+        if row.get("cluster_install_rank") not in (None, "")
+        and not bool(row.get("installed"))
+    ]
+    if planned_ranks:
+        return min(planned_ranks)
+
+    return 0

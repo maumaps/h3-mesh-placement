@@ -21,11 +21,13 @@ def dedupe_clusters(
         if cluster_key in seen_cluster_keys:
             continue
         seen_cluster_keys.add(cluster_key)
+        map_id = _cluster_map_id(cluster_key)
         deduped_clusters.append(
             {
                 "cluster_key": cluster_key,
                 "cluster_label": str(row["cluster_label"]),
-                "map_id": _cluster_map_id(cluster_key),
+                "map_id": map_id,
+                "full_map_id": f"{map_id}-full",
             }
         )
 

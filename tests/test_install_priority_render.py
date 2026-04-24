@@ -27,10 +27,86 @@ from scripts.install_priority_lib import (
     format_location_description,
     render_html_document,
 )
+from scripts.install_priority_render_sections import render_cluster_section
 
 
 class InstallPriorityRenderTests(unittest.TestCase):
     """Verify display labels, output rows, and HTML rendering."""
+
+    def test_cluster_section_hides_late_rows_behind_see_more(self) -> None:
+        """Cluster sections should default to connector-prefix rows and expose the rest on demand."""
+
+        base_row = {
+            "cluster_key": "seed:1",
+            "cluster_label": "Batumi",
+            "is_next_for_cluster": False,
+            "rollout_status": "planned",
+            "installed": False,
+            "display_type": "Route",
+            "impact_people_est": 0,
+            "impact_tower_count": 0,
+            "next_connections": "",
+            "previous_connections": "Batumi",
+            "blocked_reason": "",
+            "location_en": "Georgia",
+            "location_ru": "Грузия",
+            "google_maps_url": "https://maps.google.com/?q=0,0",
+            "osm_url": "https://www.openstreetmap.org/",
+        }
+        rows = [
+            {
+                **base_row,
+                "cluster_install_rank": 0,
+                "rollout_status": "installed",
+                "installed": True,
+                "display_name": "Batumi",
+            },
+            {
+                **base_row,
+                "cluster_install_rank": 1,
+                "is_next_for_cluster": True,
+                "rollout_status": "next",
+                "display_name": "Connector ridge",
+            },
+            {
+                **base_row,
+                "cluster_install_rank": 2,
+                "display_name": "Later ridge",
+            },
+        ]
+
+        html_text = "\n".join(
+            render_cluster_section(
+                cluster_label="Batumi",
+                cluster_rows=rows,
+                cluster_dom_id="cluster-map-seed-1",
+                installed_labels=["Batumi"],
+                next_label="Connector ridge",
+                blocked_count=0,
+                compact_max_rank=1,
+            )
+        )
+
+        self.assertIn(
+            "data-max-rank='1'",
+            html_text,
+            msg=f"Compact cluster map should carry the rank cutoff for MapLibre filtering, got HTML {html_text!r}",
+        )
+        self.assertIn(
+            "See more...",
+            html_text,
+            msg=f"Late rollout rows should move behind an explicit disclosure, got HTML {html_text!r}",
+        )
+        self.assertIn(
+            "cluster-map-seed-1-full",
+            html_text,
+            msg=f"Disclosure should include a full unfiltered cluster map, got HTML {html_text!r}",
+        )
+        self.assertIn(
+            "Later ridge",
+            html_text,
+            msg=f"Full disclosure content should still retain late rollout rows, got HTML {html_text!r}",
+        )
 
     def test_install_priority_edge_assertion_finds_missing_predecessors(self) -> None:
         """CSV predecessor validation should flag route steps without visible edges."""
@@ -679,6 +755,16 @@ class InstallPriorityRenderTests(unittest.TestCase):
             "cluster-map-seed-1",
             html_text,
             msg="HTML handout should include the per-cluster mini map container.",
+        )
+        self.assertIn(
+            "clusterMapTargets",
+            html_text,
+            msg="HTML handout should mount both compact and full cluster map containers from one payload.",
+        )
+        self.assertIn(
+            "dataset.maxRank",
+            html_text,
+            msg="HTML handout should let compact cluster maps filter points by the connector-prefix rank cutoff.",
         )
         self.assertIn(
             "addRouteLayers",

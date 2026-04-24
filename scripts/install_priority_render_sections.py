@@ -73,12 +73,24 @@ def render_cluster_section(
     installed_labels: Sequence[str],
     next_label: str,
     blocked_count: int,
+    compact_max_rank: int,
 ) -> list[str]:
     """Render one cluster section with desktop table and mobile cards."""
 
     heading_id = f"{cluster_dom_id}-heading"
     table_region_id = f"{cluster_dom_id}-table"
     cards_region_id = f"{cluster_dom_id}-cards"
+    full_map_id = f"{cluster_dom_id}-full"
+    compact_rows = [
+        row
+        for row in cluster_rows
+        if bool(row["installed"])
+        or (
+            row["cluster_install_rank"] not in (None, "")
+            and int(row["cluster_install_rank"]) <= compact_max_rank
+        )
+    ]
+    has_more_rows = len(compact_rows) < len(cluster_rows)
     html_parts = [
         "<section class='cluster' aria-labelledby='{heading_id}'>".format(
             heading_id=escape(heading_id)
@@ -94,7 +106,8 @@ def render_cluster_section(
             else ""
         ),
         (
-            f"<div id='{escape(cluster_dom_id)}' class='cluster-map' role='img' "
+            f"<div id='{escape(cluster_dom_id)}' class='cluster-map' "
+            f"data-max-rank='{escape(str(compact_max_rank))}' role='img' "
             f"aria-label='Map for {escape(cluster_label)} rollout cluster'></div>"
         ),
         (
@@ -107,7 +120,7 @@ def render_cluster_section(
         "<tbody>",
     ]
 
-    for row in cluster_rows:
+    for row in compact_rows:
         row_classes = _row_classes(row)
         node_label = str(row["display_name"])
         blocked_reason = str(row["blocked_reason"]).strip()
@@ -159,7 +172,7 @@ def render_cluster_section(
         ]
     )
 
-    for row in cluster_rows:
+    for row in compact_rows:
         row_classes = _row_classes(row)
         node_label = str(row["display_name"])
         blocked_reason = str(row["blocked_reason"]).strip()
@@ -201,9 +214,130 @@ def render_cluster_section(
             ]
         )
 
-    html_parts.extend(["</ul></div></section>"])
+    html_parts.extend(["</ul></div>"])
+
+    if has_more_rows:
+        html_parts.extend(
+            [
+                "<details class='cluster-more'>",
+                "<summary>See more...</summary>",
+                (
+                    f"<div id='{escape(full_map_id)}' class='cluster-map full-cluster-map' "
+                    f"role='img' aria-label='Full map for {escape(cluster_label)} rollout cluster'></div>"
+                ),
+                (
+                    f"<div class='table-wrap cluster-table-wrap full-cluster-table' "
+                    f"role='region' aria-labelledby='{escape(heading_id)}' tabindex='0'>"
+                ),
+                "<table class='cluster-detail-table'>",
+                f"<caption class='sr-only'>Full rollout order for {escape(cluster_label)}.</caption>",
+                "<thead><tr><th scope='col'>Rank</th><th scope='col'>Status</th><th scope='col'>Name</th><th scope='col'>Type</th><th scope='col'>Est. New Reach</th><th scope='col'>Unlocks</th><th scope='col'>Connects to now</th><th scope='col'>Location EN</th><th scope='col'>Location RU</th><th scope='col'>Maps</th></tr></thead>",
+                "<tbody>",
+            ]
+        )
+        for row in cluster_rows:
+            html_parts.extend(_detail_table_row_html(row))
+        html_parts.extend(
+            [
+                "</tbody></table></div>",
+                "<div class='cluster-cards full-cluster-cards'>",
+                "<ul class='cluster-card-list'>",
+            ]
+        )
+        for row in cluster_rows:
+            html_parts.extend(_detail_card_html(row))
+        html_parts.extend(["</ul></div>", "</details>"])
+
+    html_parts.append("</section>")
 
     return html_parts
+
+
+def _detail_table_row_html(row: Mapping[str, object]) -> list[str]:
+    """Render one desktop detail row."""
+
+    row_classes = _row_classes(row)
+    node_label = str(row["display_name"])
+    blocked_reason = str(row["blocked_reason"]).strip()
+    rank_text = _rank_text(row)
+
+    return [
+        f"<tr class='{escape(row_classes)}'>",
+        f"<td><span class='sr-only'>Rank </span>{escape(rank_text)}</td>",
+        (
+            "<td>"
+            f"<span class='pill {escape(str(row['rollout_status']))}' "
+            f"aria-label='Rollout status {escape(str(row['rollout_status']))}'>"
+            f"{escape(str(row['rollout_status']))}</span></td>"
+        ),
+        "<th scope='row' class='name-header'>"
+        f"<div class='node-title'>{escape(node_label)}</div>"
+        + (
+            f"<div class='node-subtitle blocked-note'>{escape(blocked_reason)}</div>"
+            if blocked_reason
+            else ""
+        )
+        + "</th>",
+        f"<td><div class='node-subtitle'>{escape(str(row['display_type']))}</div></td>",
+        f"<td>{escape(str(row['impact_people_est']))}</td>",
+        (
+            "<td>"
+            f"{escape(summarize_connection_list(row['next_connections']))}"
+            f"<div class='node-subtitle'>{escape(str(row['impact_tower_count']))} downstream towers</div>"
+            "</td>"
+        ),
+        f"<td>{escape(str(row['previous_connections']))}</td>",
+        f"<td>{escape(str(row['location_en']))}</td>",
+        f"<td>{escape(str(row['location_ru']))}</td>",
+        "<td class='maps'>"
+        f"{_map_links_html(row, node_label)}"
+        "</td>",
+        "</tr>",
+    ]
+
+
+def _detail_card_html(row: Mapping[str, object]) -> list[str]:
+    """Render one mobile detail card."""
+
+    row_classes = _row_classes(row)
+    node_label = str(row["display_name"])
+    blocked_reason = str(row["blocked_reason"]).strip()
+    rank_text = _rank_text(row)
+
+    return [
+        f"<li class='cluster-card {escape(row_classes)}'>",
+        "<div class='cluster-card-header'>",
+        f"<p class='cluster-rank'>Rank {escape(rank_text)}</p>",
+        (
+            f"<span class='pill {escape(str(row['rollout_status']))}' "
+            f"aria-label='Rollout status {escape(str(row['rollout_status']))}'>"
+            f"{escape(str(row['rollout_status']))}</span>"
+        ),
+        "</div>",
+        f"<h3 class='cluster-card-title'>{escape(node_label)}</h3>",
+        f"<p class='node-subtitle'>{escape(str(row['display_type']))}</p>",
+        (
+            f"<p class='node-subtitle blocked-note'>{escape(blocked_reason)}</p>"
+            if blocked_reason
+            else ""
+        ),
+        "<dl class='cluster-card-grid'>",
+        "<div><dt>Est. New Reach</dt>"
+        f"<dd>{escape(str(row['impact_people_est']))}</dd></div>",
+        "<div><dt>Unlocks</dt>"
+        f"<dd>{escape(summarize_connection_list(row['next_connections'])) or 'None'}</dd></div>",
+        "<div><dt>Downstream towers</dt>"
+        f"<dd>{escape(str(row['impact_tower_count']))}</dd></div>",
+        "<div><dt>Connects to now</dt>"
+        f"<dd>{escape(str(row['previous_connections']) or 'None')}</dd></div>",
+        "<div><dt>Location EN</dt>"
+        f"<dd>{escape(str(row['location_en']))}</dd></div>",
+        "<div><dt>Location RU</dt>"
+        f"<dd>{escape(str(row['location_ru']))}</dd></div>",
+        "</dl>",
+        f"<div class='maps'>{_map_links_html(row, node_label)}</div>",
+        "</li>",
+    ]
 
 
 def _map_links_html(row: Mapping[str, object], node_label: str) -> str:

@@ -385,9 +385,24 @@ if (!payloadEl || !window.maplibregl) {
     type: 'FeatureCollection',
     features: seedMqttLinkFeatures,
   };
-  const clusterByMapId = new Map(payload.clusters.map((cluster) => [cluster.map_id, cluster]));
-  const clusterCollectionsByMapId = new Map(payload.clusters.map((cluster) => {
-    const clusterFeatures = features.filter((feature) => feature.properties.cluster_key === cluster.cluster_key);
+  const clusterMapTargets = payload.clusters.flatMap((cluster) => ([
+    { ...cluster, map_id: cluster.map_id },
+    ...(cluster.full_map_id ? [{ ...cluster, map_id: cluster.full_map_id }] : []),
+  ]));
+  const clusterByMapId = new Map(clusterMapTargets.map((cluster) => [cluster.map_id, cluster]));
+  const clusterCollectionsByMapId = new Map(clusterMapTargets.map((cluster) => {
+    const container = document.getElementById(cluster.map_id);
+    const maxRankText = container ? container.dataset.maxRank : '';
+    const maxRank = maxRankText === undefined || maxRankText === '' ? null : Number(maxRankText);
+    const clusterFeatures = features.filter((feature) => (
+      feature.properties.cluster_key === cluster.cluster_key
+      && (
+        maxRank === null
+        || feature.properties.installed
+        || Number(feature.properties.cluster_install_rank) <= maxRank
+      )
+    ));
+    const includedTowerIds = new Set(clusterFeatures.map((feature) => feature.properties.tower_id));
 
     return [
       cluster.map_id,
@@ -399,13 +414,28 @@ if (!payloadEl || !window.maplibregl) {
         },
         clusterRoutes: {
           type: 'FeatureCollection',
-          features: routeFeatures.filter((feature) => feature.properties.cluster_key === cluster.cluster_key),
+          features: routeFeatures.filter((feature) => (
+            feature.properties.cluster_key === cluster.cluster_key
+            && (
+              maxRank === null
+              || Number(feature.properties.cluster_install_rank) <= maxRank
+            )
+          )),
         },
         clusterContext: {
           type: 'FeatureCollection',
           features: contextFeatures.filter((feature) => (
-            feature.properties.from_cluster_key === cluster.cluster_key
-            || feature.properties.to_cluster_key === cluster.cluster_key
+            (
+              feature.properties.from_cluster_key === cluster.cluster_key
+              || feature.properties.to_cluster_key === cluster.cluster_key
+            )
+            && (
+              maxRank === null
+              || (
+                includedTowerIds.has(feature.properties.from_tower_id)
+                && includedTowerIds.has(feature.properties.to_tower_id)
+              )
+            )
           )),
         },
         clusterBounds: {
@@ -482,7 +512,7 @@ if (!payloadEl || !window.maplibregl) {
     return rect.bottom >= -preloadMargin && rect.top <= window.innerHeight + preloadMargin;
   };
   const syncVisibleClusterMaps = () => {
-    payload.clusters.forEach((cluster) => {
+    clusterMapTargets.forEach((cluster) => {
       if (!prefersLazyClusterMaps() || clusterIsNearViewport(cluster)) {
         mountClusterMap(cluster);
         return;
@@ -500,7 +530,7 @@ if (!payloadEl || !window.maplibregl) {
   };
   const initializeClusterMaps = () => {
     if (!prefersLazyClusterMaps() || !window.IntersectionObserver) {
-      payload.clusters.forEach((cluster) => mountClusterMap(cluster));
+      clusterMapTargets.forEach((cluster) => mountClusterMap(cluster));
       return;
     }
 
@@ -522,7 +552,7 @@ if (!payloadEl || !window.maplibregl) {
       threshold: 0.01,
     });
 
-    payload.clusters.forEach((cluster) => {
+    clusterMapTargets.forEach((cluster) => {
       const container = document.getElementById(cluster.map_id);
       if (!container) return;
       mountClusterObserver.observe(container);
