@@ -100,14 +100,14 @@ class PipelineRegressionTest(unittest.TestCase):
             "Safe placement restart should reseed route bootstrap without truncating or recreating the LOS cache table.",
         )
         self.assertIn(
-            "psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_population_anchor_contract.sql",
+            'PGOPTIONS="${PGOPTIONS:-} -c statement_timeout=0" psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_population_anchor_contract.sql',
             placement_restart_text,
-            "Safe placement restart should contract soft population anchors after routing and before final visibility refresh.",
+            "Safe placement restart should contract soft population anchors after routing with statement_timeout=0 because component checks can run longer than the interactive default.",
         )
         self.assertIn(
-            "psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_generated_pair_contract.sql",
+            'PGOPTIONS="${PGOPTIONS:-} -c statement_timeout=0" psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_generated_pair_contract.sql',
             placement_restart_text,
-            "Safe placement restart should contract generated tower pairs after population-anchor cleanup and before final visibility refresh.",
+            "Safe placement restart should contract generated tower pairs with statement_timeout=0 after population-anchor cleanup and before final visibility refresh.",
         )
         self.assertIn(
             "scripts/mesh_tower_wiggle_configured.sh",

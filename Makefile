@@ -572,24 +572,24 @@ db/procedure/mesh_route_cluster_slim_current: procedures/mesh_route_cluster_slim
 	touch db/procedure/mesh_route_cluster_slim_current
 
 db/procedure/mesh_population_anchor_contract: procedures/mesh_population_anchor_contract.sql scripts/assert_mesh_towers_single_los_component.sql db/procedure/mesh_route_cluster_slim db/table/mesh_pipeline_settings | db/procedure ## Contract soft population anchors when generated route towers preserve cached LOS neighbors
-	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_population_anchor_contract.sql
+	PGOPTIONS="$${PGOPTIONS:-} -c statement_timeout=0" psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_population_anchor_contract.sql
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 	touch db/procedure/mesh_population_anchor_contract
 
 db/procedure/mesh_population_anchor_contract_current: procedures/mesh_population_anchor_contract.sql scripts/assert_mesh_towers_single_los_component.sql | db/procedure ## Contract soft population anchors on current towers without replaying route stages
-	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_population_anchor_contract.sql
+	PGOPTIONS="$${PGOPTIONS:-} -c statement_timeout=0" psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_population_anchor_contract.sql
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 	touch db/procedure/mesh_population_anchor_contract
 	touch db/procedure/mesh_population_anchor_contract_current
 
 db/procedure/mesh_generated_pair_contract: procedures/mesh_generated_pair_contract.sql scripts/assert_mesh_towers_single_los_component.sql db/procedure/mesh_population_anchor_contract db/table/mesh_pipeline_settings | db/procedure ## Contract close generated tower pairs when one H3 preserves their combined cached LOS role
-	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_generated_pair_contract.sql
+	PGOPTIONS="$${PGOPTIONS:-} -c statement_timeout=0" psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_generated_pair_contract.sql
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 	touch db/procedure/mesh_generated_pair_contract
 
 
 db/procedure/mesh_generated_pair_contract_current: procedures/mesh_generated_pair_contract.sql scripts/assert_mesh_towers_single_los_component.sql | db/procedure ## Contract generated tower pairs on current towers without replaying route stages
-	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_generated_pair_contract.sql
+	PGOPTIONS="$${PGOPTIONS:-} -c statement_timeout=0" psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_generated_pair_contract.sql
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 	touch db/procedure/mesh_generated_pair_contract
 	touch db/procedure/mesh_generated_pair_contract_current
