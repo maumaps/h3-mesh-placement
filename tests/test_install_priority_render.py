@@ -228,6 +228,73 @@ class InstallPriorityRenderTests(unittest.TestCase):
             msg=f"Overview phase 1 should include all planned neighbor joins, got clusters {cluster_payload!r}",
         )
 
+    def test_overview_connect_cutoff_ignores_redundant_late_cluster_edge(self) -> None:
+        """Overview connect mode should use the connector tree, not every visible cluster pair."""
+
+        rows = [
+            {
+                "tower_id": 1,
+                "cluster_key": "seed:a",
+                "cluster_label": "A",
+                "cluster_install_rank": 0,
+                "installed": True,
+                "inter_cluster_neighbor_ids": [],
+            },
+            {
+                "tower_id": 2,
+                "cluster_key": "seed:a",
+                "cluster_label": "A",
+                "cluster_install_rank": 1,
+                "installed": False,
+                "inter_cluster_neighbor_ids": [20],
+            },
+            {
+                "tower_id": 3,
+                "cluster_key": "seed:a",
+                "cluster_label": "A",
+                "cluster_install_rank": 25,
+                "installed": False,
+                "inter_cluster_neighbor_ids": [30],
+            },
+            {
+                "tower_id": 20,
+                "cluster_key": "seed:b",
+                "cluster_label": "B",
+                "cluster_install_rank": 0,
+                "installed": True,
+                "inter_cluster_neighbor_ids": [],
+            },
+            {
+                "tower_id": 21,
+                "cluster_key": "seed:b",
+                "cluster_label": "B",
+                "cluster_install_rank": 4,
+                "installed": False,
+                "inter_cluster_neighbor_ids": [30],
+            },
+            {
+                "tower_id": 30,
+                "cluster_key": "seed:c",
+                "cluster_label": "C",
+                "cluster_install_rank": 0,
+                "installed": True,
+                "inter_cluster_neighbor_ids": [],
+            },
+        ]
+
+        cluster_payload = dedupe_clusters(rows)
+        cluster_a = next(
+            cluster
+            for cluster in cluster_payload
+            if cluster["cluster_key"] == "seed:a"
+        )
+
+        self.assertEqual(
+            cluster_a["connect_max_rank"],
+            1,
+            msg=f"Overview phase 1 should exclude redundant late direct edges once the connector tree already links the clusters, got clusters {cluster_payload!r}",
+        )
+
     def test_install_priority_edge_assertion_finds_missing_predecessors(self) -> None:
         """CSV predecessor validation should flag route steps without visible edges."""
 

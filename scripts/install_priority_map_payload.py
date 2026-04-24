@@ -4,8 +4,33 @@ Payload-shaping helpers for the installer-priority MapLibre HTML.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import re
 from typing import Mapping, Sequence
+
+
+@dataclass(frozen=True)
+class _ClusterConnectorEdge:
+    """One inter-cluster edge candidate for overview phase-one filtering."""
+
+    left_cluster_key: str
+    right_cluster_key: str
+    left_rank: int
+    right_rank: int
+    left_tower_id: int
+    right_tower_id: int
+
+    @property
+    def later_rank(self) -> int:
+        """Rank when both endpoint clusters have reached this connector."""
+
+        return max(self.left_rank, self.right_rank)
+
+    @property
+    def summed_rank(self) -> int:
+        """Small tie-breaker for connector-tree ordering."""
+
+        return self.left_rank + self.right_rank
 
 
 def dedupe_clusters(
@@ -39,17 +64,18 @@ def dedupe_clusters(
 def _connect_max_rank_by_cluster(
     normalized_rows: Sequence[Mapping[str, object]],
 ) -> dict[str, int]:
-    """Find the last rank needed to touch every planned neighboring cluster."""
+    """Find the last rank needed to join the cluster connector tree."""
 
     rows_by_tower_id = {
         int(row["tower_id"]): row
         for row in normalized_rows
     }
     planned_ranks_by_cluster: dict[str, list[int]] = {}
-    connector_ranks_by_cluster: dict[str, dict[str, int]] = {}
+    best_edge_by_cluster_pair: dict[tuple[str, str], _ClusterConnectorEdge] = {}
 
     for row in normalized_rows:
         cluster_key = str(row["cluster_key"])
+        tower_id = int(row["tower_id"])
         rank = _optional_rank(row.get("cluster_install_rank"))
 
         if rank is not None and not bool(row.get("installed")):
@@ -67,14 +93,41 @@ def _connect_max_rank_by_cluster(
             if neighbor_cluster_key == cluster_key:
                 continue
 
-            connector_ranks = connector_ranks_by_cluster.setdefault(
-                cluster_key,
-                {},
+            neighbor_rank = _optional_rank(neighbor_row.get("cluster_install_rank"))
+            if neighbor_rank is None:
+                neighbor_rank = 0
+            edge = _normalize_connector_edge(
+                left_cluster_key=cluster_key,
+                right_cluster_key=neighbor_cluster_key,
+                left_rank=rank,
+                right_rank=neighbor_rank,
+                left_tower_id=tower_id,
+                right_tower_id=int(neighbor_id),
             )
-            connector_ranks[neighbor_cluster_key] = max(
-                rank,
-                connector_ranks.get(neighbor_cluster_key, -1),
+            pair_key = (
+                edge.left_cluster_key,
+                edge.right_cluster_key,
             )
+            if (
+                pair_key not in best_edge_by_cluster_pair
+                or _connector_tree_score(edge) < _connector_tree_score(
+                    best_edge_by_cluster_pair[pair_key],
+                )
+            ):
+                best_edge_by_cluster_pair[pair_key] = edge
+
+    connector_tree_edges = _minimum_connector_tree(
+        cluster_keys={str(row["cluster_key"]) for row in normalized_rows},
+        edges=best_edge_by_cluster_pair.values(),
+    )
+    connector_ranks_by_cluster: dict[str, list[int]] = {}
+    for edge in connector_tree_edges:
+        connector_ranks_by_cluster.setdefault(edge.left_cluster_key, []).append(
+            edge.left_rank,
+        )
+        connector_ranks_by_cluster.setdefault(edge.right_cluster_key, []).append(
+            edge.right_rank,
+        )
 
     connect_max_rank_by_cluster: dict[str, int] = {}
     for row in normalized_rows:
@@ -82,16 +135,87 @@ def _connect_max_rank_by_cluster(
         if cluster_key in connect_max_rank_by_cluster:
             continue
 
-        connector_ranks = connector_ranks_by_cluster.get(cluster_key, {})
+        connector_ranks = connector_ranks_by_cluster.get(cluster_key, [])
         planned_ranks = planned_ranks_by_cluster.get(cluster_key, [])
         if connector_ranks:
-            connect_max_rank_by_cluster[cluster_key] = max(connector_ranks.values())
+            connect_max_rank_by_cluster[cluster_key] = max(connector_ranks)
         elif planned_ranks:
             connect_max_rank_by_cluster[cluster_key] = min(planned_ranks)
         else:
             connect_max_rank_by_cluster[cluster_key] = 0
 
     return connect_max_rank_by_cluster
+
+
+def _normalize_connector_edge(
+    *,
+    left_cluster_key: str,
+    right_cluster_key: str,
+    left_rank: int,
+    right_rank: int,
+    left_tower_id: int,
+    right_tower_id: int,
+) -> _ClusterConnectorEdge:
+    """Keep edge orientation stable for pair de-duplication."""
+
+    if (right_cluster_key, right_tower_id) < (left_cluster_key, left_tower_id):
+        return _ClusterConnectorEdge(
+            left_cluster_key=right_cluster_key,
+            right_cluster_key=left_cluster_key,
+            left_rank=right_rank,
+            right_rank=left_rank,
+            left_tower_id=right_tower_id,
+            right_tower_id=left_tower_id,
+        )
+
+    return _ClusterConnectorEdge(
+        left_cluster_key=left_cluster_key,
+        right_cluster_key=right_cluster_key,
+        left_rank=left_rank,
+        right_rank=right_rank,
+        left_tower_id=left_tower_id,
+        right_tower_id=right_tower_id,
+    )
+
+
+def _connector_tree_score(edge: _ClusterConnectorEdge) -> tuple[int, int, int, int]:
+    """Prefer the earliest connector that grows the overview phase-one tree."""
+
+    return (
+        edge.later_rank,
+        edge.summed_rank,
+        edge.left_tower_id,
+        edge.right_tower_id,
+    )
+
+
+def _minimum_connector_tree(
+    *,
+    cluster_keys: set[str],
+    edges: Sequence[_ClusterConnectorEdge],
+) -> list[_ClusterConnectorEdge]:
+    """Return the minimum-rank connector tree across reachable clusters."""
+
+    parent = {cluster_key: cluster_key for cluster_key in cluster_keys}
+
+    def find(cluster_key: str) -> str:
+        while parent[cluster_key] != cluster_key:
+            parent[cluster_key] = parent[parent[cluster_key]]
+            cluster_key = parent[cluster_key]
+
+        return cluster_key
+
+    tree_edges: list[_ClusterConnectorEdge] = []
+    for edge in sorted(edges, key=_connector_tree_score):
+        left_root = find(edge.left_cluster_key)
+        right_root = find(edge.right_cluster_key)
+        if left_root == right_root:
+            continue
+
+        parent[right_root] = left_root
+        tree_edges.append(edge)
+
+    return tree_edges
 
 
 def _optional_rank(value: object) -> int | None:
