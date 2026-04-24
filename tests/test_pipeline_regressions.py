@@ -255,6 +255,28 @@ class PipelineRegressionTest(unittest.TestCase):
             "db/raw/initial_nodes must not skip importing just because mesh_initial_nodes already exists, otherwise refreshed seeds never reach Postgres.",
         )
 
+    def test_initial_nodes_insert_seed_and_mqtt_towers(self) -> None:
+        """Imported MQTT nodes are installed infrastructure and must enter mesh_towers."""
+        initial_nodes_sql = (REPO_ROOT / "tables/mesh_initial_nodes_h3_r8.sql").read_text()
+
+        self.assertIn(
+            "where source in ('seed', 'mqtt')",
+            initial_nodes_sql,
+            msg=(
+                "mesh_initial_nodes_h3_r8 should insert both curated seeds and "
+                "reachable MQTT nodes into mesh_towers so MQTT participates in "
+                f"visibility and rollout planning; SQL was {initial_nodes_sql!r}"
+            ),
+        )
+        self.assertNotIn(
+            "from mesh_initial_nodes_h3_r8\nwhere source = 'seed'",
+            initial_nodes_sql,
+            msg=(
+                "mesh_initial_nodes_h3_r8 must not drop MQTT nodes from "
+                f"mesh_towers before the rollout graph is built; SQL was {initial_nodes_sql!r}"
+            ),
+        )
+
     def test_osm_merge_target_overwrites_existing_mid_pbf(self) -> None:
         """OSM merge refresh should succeed when the merged PBF already exists."""
         makefile_text = (REPO_ROOT / "Makefile").read_text()

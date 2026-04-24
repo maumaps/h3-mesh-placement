@@ -312,11 +312,14 @@ if (!payloadEl || !window.maplibregl) {
     featureCollection.features.forEach((feature) => {
       const markerEl = document.createElement('div');
       const source = String(feature.properties.source || '').toLowerCase();
-      markerEl.className = `order-marker ${source === 'mqtt' ? 'planned' : 'installed'} overview`;
+      markerEl.className = `order-marker seed-mqtt-marker ${source === 'mqtt' ? 'planned' : 'installed'} overview`;
       markerEl.textContent = source === 'mqtt' ? 'm' : 's';
       markerEl.title = `${feature.properties.name} (${feature.properties.country_name || feature.properties.country_code || 'unknown'})`;
+      markerEl.tabIndex = 0;
+      markerEl.setAttribute('role', 'button');
+      markerEl.setAttribute('aria-label', markerEl.title);
 
-      new maplibregl.Marker({ element: markerEl, anchor: 'center' })
+      const marker = new maplibregl.Marker({ element: markerEl, anchor: 'center' })
         .setLngLat(feature.geometry.coordinates)
         .setPopup(
           new maplibregl.Popup({ offset: 12 }).setHTML(`
@@ -326,6 +329,13 @@ if (!payloadEl || !window.maplibregl) {
           `)
         )
         .addTo(map);
+      markerEl.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') {
+          return;
+        }
+        event.preventDefault();
+        marker.togglePopup();
+      });
     });
   };
 

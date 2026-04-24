@@ -1236,6 +1236,21 @@ class InstallPriorityRenderTests(unittest.TestCase):
             msg="Reachable overview points should be labeled with m/s markers on the map.",
         )
         self.assertIn(
+            "order-marker seed-mqtt-marker",
+            html_text,
+            msg="Reachable overview seed/MQTT markers should have a dedicated class so they can receive pointer events without blocking rollout order labels.",
+        )
+        self.assertIn(
+            ".order-marker.seed-mqtt-marker{pointer-events:auto;cursor:pointer;}",
+            html_text,
+            msg="Reachable overview seed/MQTT markers should be clickable while regular rollout order markers remain click-through.",
+        )
+        self.assertIn(
+            "markerEl.tabIndex = 0;",
+            html_text,
+            msg="Reachable overview seed/MQTT markers should be keyboard-focusable for opening their popups.",
+        )
+        self.assertIn(
             "[41.58, 41.68]",
             html_text,
             msg="HTML handout should preserve the exporter-provided cluster polygon coordinates instead of rebuilding generic rectangles in the browser.",

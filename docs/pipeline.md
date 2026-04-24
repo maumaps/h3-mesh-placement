@@ -43,7 +43,8 @@ Use `make data/out/install_priority_reviewed` when you want the installer handou
 The key stage order is:
 - Import sources → merge curated seeds with the optional Liam Cottle snapshot → import `mesh_initial_nodes`.
 - Derive boundary/roads/population/buildings/elevation layers → build `mesh_surface_h3_r8`.
-- Seed towers (`mesh_initial_nodes_h3_r8` → `mesh_towers`).
+- Seed and MQTT towers (`mesh_initial_nodes_h3_r8` → `mesh_towers`).
+  MQTT imports are treated as already-installed infrastructure so visibility, routing, and the installer handout use them as graph roots instead of drawing them only as overview markers.
 - Apply configured coarse backbone anchors (`mesh_coarse_grid`); the checked-in config currently disables this stage and removes stale `source = 'coarse'` towers on restart.
 - Apply configured population anchors (`mesh_population`); the checked-in config clusters the full serviceable demand field, mixes existing towers in as heavy anchors, drops already-anchored clusters, and keeps up to 7 `source = 'population'` anchors.
 - Snapshot `data/out/install_priority.csv` into `data/in/install_priority_bootstrap.csv`, merge in `data/in/install_priority_bootstrap_manual.csv`, current placed towers including configured population anchors, nearest placeable OSM peaks, and explicit nearest links from disconnected coarse clusters toward other placed towers, then load bootstrap LOS pairs (`mesh_route_bootstrap_pairs`).

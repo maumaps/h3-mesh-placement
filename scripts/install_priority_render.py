@@ -291,6 +291,7 @@ def render_html_document(
         ".map-note{margin:10px 0 0;color:#55606d;font-size:0.92rem;line-height:1.45;}",
         ".map-fallback{display:none;padding:12px 0;color:#6d5f50;font-size:0.95rem;}",
         ".order-marker{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:700 11px/1 'Trebuchet MS','Segoe UI',sans-serif;color:#fff;border:2px solid rgba(255,255,255,0.95);box-shadow:0 1px 6px rgba(0,0,0,0.25);pointer-events:none;}",
+        ".order-marker.seed-mqtt-marker{pointer-events:auto;cursor:pointer;}",
         ".order-marker.overview{width:18px;height:18px;font-size:10px;}",
         ".order-marker.cluster{width:12px;height:12px;font-size:7px;border-width:1px;box-shadow:0 1px 3px rgba(0,0,0,0.18);}",
         ".order-marker.installed{background:#27548a;}",
