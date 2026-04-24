@@ -859,6 +859,16 @@ class PipelineRegressionTest(unittest.TestCase):
             makefile_text,
             "Installer handout export should refresh from current DB state without forcing raw-import marker chains.",
         )
+        self.assertIn(
+            "data/out/install_priority_edges_checked: scripts/assert_install_priority_edges.py data/out/install_priority.csv | data/out",
+            makefile_text,
+            "Installer handout checks should provide a post-export target that verifies CSV predecessor links against current visibility edges.",
+        )
+        self.assertIn(
+            "scripts/assert_install_priority_edges.py",
+            makefile_text,
+            "Installer-priority Python tests should rerun when the post-export edge assertion changes.",
+        )
         self.assertNotIn(
             "data/out/install_priority.html: scripts/export_install_priority.py scripts/install_priority_cluster_bounds.py scripts/install_priority_cluster_helpers.py scripts/install_priority_connectors.py scripts/install_priority_enrichment.py scripts/install_priority_geocoder.py scripts/install_priority_graph.py scripts/install_priority_graph_support.py scripts/install_priority_lib.py scripts/install_priority_map_payload.py scripts/install_priority_maplibre.py scripts/install_priority_points.py scripts/install_priority_render.py scripts/install_priority_sources.py db/table/mesh_towers",
             makefile_text,

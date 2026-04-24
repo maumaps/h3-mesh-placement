@@ -8,6 +8,10 @@ from scripts.export_install_priority import (
     build_output_row,
     choose_primary_previous_tower_id,
 )
+from scripts.assert_install_priority_edges import (
+    missing_primary_previous_edges,
+    read_primary_previous_pairs,
+)
 from scripts.install_priority_cluster_bounds import (
     fetch_cluster_bound_features,
 )
@@ -26,6 +30,44 @@ from scripts.install_priority_lib import (
 
 class InstallPriorityRenderTests(unittest.TestCase):
     """Verify display labels, output rows, and HTML rendering."""
+
+    def test_install_priority_edge_assertion_finds_missing_predecessors(self) -> None:
+        """CSV predecessor validation should flag route steps without visible edges."""
+
+        missing_edges = missing_primary_previous_edges(
+            [(10, 1), (11, 10), (12, 11)],
+            {tuple(sorted(pair)) for pair in [(10, 1), (12, 11)]},
+        )
+
+        self.assertEqual(
+            missing_edges,
+            [(11, 10)],
+            msg=f"Predecessor validation should report only CSV links absent from visible edges, got {missing_edges!r}",
+        )
+
+    def test_install_priority_edge_assertion_reads_nonempty_predecessors(self) -> None:
+        """CSV predecessor validation should ignore installed seed rows without predecessors."""
+
+        import tempfile
+        from pathlib import Path
+
+        csv_text = (
+            "tower_id,primary_previous_tower_id,display_name\n"
+            "1,,Installed Seed\n"
+            "2,1,Route 2\n"
+            "3,2,Route 3\n"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            csv_path = Path(tmpdir) / "install_priority.csv"
+            csv_path.write_text(csv_text, encoding="utf-8")
+
+            pairs = read_primary_previous_pairs(csv_path)
+
+        self.assertEqual(
+            pairs,
+            [(2, 1), (3, 2)],
+            msg=f"CSV predecessor parser should keep only rows with primary_previous_tower_id, got {pairs!r}",
+        )
 
     def test_reachable_seed_mqtt_overview_uses_los_cache_against_live_towers(self) -> None:
         """Overview M/S markers should come from LOS reachability, not only mesh_visibility_edges rows."""

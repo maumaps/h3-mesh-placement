@@ -434,7 +434,7 @@ db/test/mesh_tower_wiggle: tests/mesh_tower_wiggle.sql procedures/mesh_tower_wig
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_tower_wiggle.sql
 	touch db/test/mesh_tower_wiggle
 
-db/test/install_priority_py: tests/test_install_priority.py tests/test_install_priority_mobile.py tests/test_install_priority_render.py scripts/export_install_priority.py scripts/install_priority_cluster_bounds.py scripts/install_priority_cluster_helpers.py scripts/install_priority_connectors.py scripts/install_priority_enrichment.py scripts/install_priority_geocoder.py scripts/install_priority_graph.py scripts/install_priority_graph_support.py scripts/install_priority_lib.py scripts/install_priority_map_payload.py scripts/install_priority_maplibre.py scripts/install_priority_points.py scripts/install_priority_render.py scripts/install_priority_sources.py | db/test ## Run installer-priority Python unit tests
+db/test/install_priority_py: tests/test_install_priority.py tests/test_install_priority_mobile.py tests/test_install_priority_render.py scripts/assert_install_priority_edges.py scripts/export_install_priority.py scripts/install_priority_cluster_bounds.py scripts/install_priority_cluster_helpers.py scripts/install_priority_connectors.py scripts/install_priority_enrichment.py scripts/install_priority_geocoder.py scripts/install_priority_graph.py scripts/install_priority_graph_support.py scripts/install_priority_lib.py scripts/install_priority_map_payload.py scripts/install_priority_maplibre.py scripts/install_priority_points.py scripts/install_priority_render.py scripts/install_priority_sources.py | db/test ## Run installer-priority Python unit tests
 	python -m unittest discover -s tests -p 'test_install_priority*.py'
 	touch db/test/install_priority_py
 
@@ -631,6 +631,10 @@ data/out/install_priority.html: scripts/export_install_priority.py scripts/insta
 
 data/out/install_priority.csv: data/out/install_priority.html | data/out ## Ensure installer-priority CSV exists after export
 	test -f data/out/install_priority.csv
+
+data/out/install_priority_edges_checked: scripts/assert_install_priority_edges.py data/out/install_priority.csv | data/out ## Verify installer-priority predecessor links exist in current visibility graph
+	python scripts/assert_install_priority_edges.py --csv-input data/out/install_priority.csv
+	touch data/out/install_priority_edges_checked
 
 data/out/visuals/mesh_surface.png: scripts/render_mapnik.py mapnik/styles/mesh_style.xml db/procedure/mesh_route_bridge | data/out/visuals ## Render static mesh surface map
 	python scripts/render_mapnik.py --output data/out/visuals/mesh_surface.png
