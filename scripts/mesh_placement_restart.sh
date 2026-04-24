@@ -26,11 +26,18 @@ fi
 restart_stamp="$(date -u +%Y%m%dT%H%M%SZ)_$$"
 tower_backup="mesh_towers_restart_backup_${restart_stamp}"
 surface_backup="mesh_surface_h3_r8_restart_backup_${restart_stamp}"
+restart_stage="initializing"
 
 restore_restart_snapshot() {
     status=$?
 
     if [ "${status}" -ne 0 ]; then
+        if [ "${restart_stage}" = "final_redundancy_assert" ] && [ "${MESH_PLACEMENT_RESTART_KEEP_FAILED:-}" = "1" ]; then
+            echo ">> Placement restart reached final redundancy assert; preserving failed final state for diagnostics" >&2
+            psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "drop table if exists ${tower_backup}; drop table if exists ${surface_backup};" >/dev/null || true
+            exit "${status}"
+        fi
+
         echo ">> Placement restart failed; restoring mesh_towers and surface metrics from ${tower_backup}" >&2
         psql --no-psqlrc --set=ON_ERROR_STOP=1 <<SQL
 begin;
@@ -134,6 +141,7 @@ psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_route_manual_redundancy.s
 echo ">> Refreshing visibility diagnostics after tower wiggle"
 psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_visibility_edges_refresh.sql
 psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
+restart_stage="final_redundancy_assert"
 psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_visibility_no_bridges.sql
 
 trap - EXIT

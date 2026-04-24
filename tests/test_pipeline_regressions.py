@@ -1675,6 +1675,21 @@ class PipelineRegressionTest(unittest.TestCase):
             restart_text,
             "mesh_placement_restart should disable the rollback trap after all stages finish successfully.",
         )
+        self.assertIn(
+            'restart_stage="final_redundancy_assert"',
+            restart_text,
+            "mesh_placement_restart should label the final bridge/cut-node assertion separately for resumable diagnostics.",
+        )
+        self.assertIn(
+            'MESH_PLACEMENT_RESTART_KEEP_FAILED:-',
+            restart_text,
+            "mesh_placement_restart should expose an explicit opt-in for preserving the fully computed final state when only the final redundancy assertion fails.",
+        )
+        self.assertLess(
+            restart_text.index('restart_stage="final_redundancy_assert"'),
+            restart_text.index("scripts/assert_mesh_visibility_no_bridges.sql"),
+            "mesh_placement_restart should mark the final redundancy assertion before running it so the failure trap can distinguish it from earlier unsafe failures.",
+        )
 
 
     def test_sql_fixtures_shadow_precious_tables_before_destructive_setup(self) -> None:
