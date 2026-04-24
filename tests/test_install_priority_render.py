@@ -1191,6 +1191,26 @@ class InstallPriorityRenderTests(unittest.TestCase):
             msg="HTML handout should expose fullscreen controls for overview and cluster maps.",
         )
         self.assertIn(
+            "esriWorldImagery",
+            html_text,
+            msg="HTML handout should include a satellite raster basemap source for field terrain inspection.",
+        )
+        self.assertIn(
+            "openTopoMap",
+            html_text,
+            msg="HTML handout should include a terrain raster basemap source for ridge and relief inspection.",
+        )
+        self.assertIn(
+            "new BasemapControl()",
+            html_text,
+            msg="HTML handout should expose the basemap switcher on overview and cluster maps.",
+        )
+        self.assertIn(
+            ".basemap-control button.active,.basemap-control button[aria-pressed='true']",
+            html_text,
+            msg="Basemap switcher buttons should have a visible active state.",
+        )
+        self.assertIn(
             "Earliest cluster connector",
             html_text,
             msg="HTML handout should explain that dashed connector lines show the earliest cluster corridor used for phase-one cutoff.",

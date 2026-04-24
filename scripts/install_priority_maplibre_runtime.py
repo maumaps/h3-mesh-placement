@@ -28,6 +28,24 @@ if (!payloadEl || !window.maplibregl) {
         tileSize: 256,
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
       },
+      esriWorldImagery: {
+        type: 'raster',
+        tiles: [
+          'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        ],
+        tileSize: 256,
+        attribution: 'Tiles &copy; Esri',
+      },
+      openTopoMap: {
+        type: 'raster',
+        tiles: [
+          'https://a.tile.opentopomap.org/{z}/{x}/{y}.png',
+          'https://b.tile.opentopomap.org/{z}/{x}/{y}.png',
+          'https://c.tile.opentopomap.org/{z}/{x}/{y}.png',
+        ],
+        tileSize: 256,
+        attribution: 'Map data &copy; OpenStreetMap contributors, SRTM | Map style &copy; OpenTopoMap',
+      },
     },
     layers: [
       {
@@ -41,6 +59,22 @@ if (!payloadEl || !window.maplibregl) {
         id: 'carto-voyager',
         type: 'raster',
         source: 'cartoVoyager',
+      },
+      {
+        id: 'esri-world-imagery',
+        type: 'raster',
+        source: 'esriWorldImagery',
+        layout: {
+          visibility: 'none',
+        },
+      },
+      {
+        id: 'open-topo-map',
+        type: 'raster',
+        source: 'openTopoMap',
+        layout: {
+          visibility: 'none',
+        },
       },
     ],
   };
@@ -66,6 +100,55 @@ if (!payloadEl || !window.maplibregl) {
     zoom,
     attributionControl: false,
   });
+  const basemapLayerIds = ['carto-voyager', 'esri-world-imagery', 'open-topo-map'];
+  const basemapOptions = [
+    { id: 'carto-voyager', label: 'Map' },
+    { id: 'esri-world-imagery', label: 'Satellite' },
+    { id: 'open-topo-map', label: 'Terrain' },
+  ];
+  const setBasemap = (map, layerId) => {
+    basemapLayerIds.forEach((candidateLayerId) => {
+      if (!map.getLayer(candidateLayerId)) return;
+
+      map.setLayoutProperty(
+        candidateLayerId,
+        'visibility',
+        candidateLayerId === layerId ? 'visible' : 'none',
+      );
+    });
+  };
+  class BasemapControl {
+    onAdd(map) {
+      this.map = map;
+      this.container = document.createElement('div');
+      this.container.className = 'maplibregl-ctrl maplibregl-ctrl-group basemap-control';
+
+      basemapOptions.forEach((option) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = option.label;
+        button.dataset.basemapLayer = option.id;
+        button.className = option.id === basemapOptions[0].id ? 'active' : '';
+        button.setAttribute('aria-pressed', option.id === basemapOptions[0].id ? 'true' : 'false');
+        button.addEventListener('click', () => {
+          setBasemap(map, option.id);
+          this.container.querySelectorAll('button').forEach((candidate) => {
+            const selected = candidate.dataset.basemapLayer === option.id;
+            candidate.classList.toggle('active', selected);
+            candidate.setAttribute('aria-pressed', selected ? 'true' : 'false');
+          });
+        });
+        this.container.appendChild(button);
+      });
+
+      return this.container;
+    }
+
+    onRemove() {
+      this.container.parentNode.removeChild(this.container);
+      this.map = undefined;
+    }
+  }
   const safeOverlayStep = (stepName, callback) => {
     try { callback(); } catch (error) { console.warn(`Install priority overlay step failed: ${stepName}`, error); }
   };
@@ -645,6 +728,7 @@ if (!payloadEl || !window.maplibregl) {
 
     activeClusterMaps.set(cluster.map_id, clusterMap);
     container.dataset.mapMounted = 'true';
+    clusterMap.addControl(new BasemapControl(), 'top-left');
     clusterMap.addControl(new maplibregl.FullscreenControl(), 'top-right');
     clusterMap.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
     runOnStyleReady(clusterMap, () => {
@@ -816,6 +900,7 @@ if (!payloadEl || !window.maplibregl) {
   };
 
   overviewMap = new maplibregl.Map({ ...mapOptions('overview-map', [43.5, 41.8], 6) });
+  overviewMap.addControl(new BasemapControl(), 'top-left');
   overviewMap.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), 'top-right');
   overviewMap.addControl(new maplibregl.FullscreenControl(), 'top-right');
   overviewMap.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
