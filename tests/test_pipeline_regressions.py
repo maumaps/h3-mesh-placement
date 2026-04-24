@@ -131,6 +131,11 @@ class PipelineRegressionTest(unittest.TestCase):
             "Tower wiggle wrapper should allow PostgreSQL parallel query workers so one safe sequential wiggle pass can still use several CPU cores.",
         )
         self.assertIn(
+            "-c statement_timeout=0",
+            (REPO_ROOT / "scripts" / "mesh_tower_wiggle_configured.sh").read_text(),
+            "Tower wiggle workers should disable statement_timeout because advisory-lock waits and surface-distance refreshes can exceed interactive defaults.",
+        )
+        self.assertIn(
             "parallel --line-buffer --halt soon,fail=1",
             (REPO_ROOT / "scripts" / "mesh_tower_wiggle_configured.sh").read_text(),
             "Tower wiggle wrapper should use GNU parallel workers when configured so candidate scoring can occupy the remote CPU pool.",

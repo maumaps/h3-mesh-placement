@@ -18,7 +18,7 @@ reset=true
 
 if [ "${parallel_workers}" -gt 0 ]; then
     echo ">> Tower wiggle enabling up to ${parallel_workers} PostgreSQL parallel worker(s) per heavy query"
-    export PGOPTIONS="${PGOPTIONS:-} -c max_parallel_workers_per_gather=${parallel_workers} -c parallel_setup_cost=0 -c parallel_tuple_cost=0.001 -c min_parallel_table_scan_size=0 -c min_parallel_index_scan_size=0"
+    export PGOPTIONS="${PGOPTIONS:-} -c statement_timeout=0 -c max_parallel_workers_per_gather=${parallel_workers} -c parallel_setup_cost=0 -c parallel_tuple_cost=0.001 -c min_parallel_table_scan_size=0 -c min_parallel_index_scan_size=0"
 fi
 
 if [ "${parallel_workers}" -gt 1 ]; then
