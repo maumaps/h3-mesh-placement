@@ -19,6 +19,8 @@ declare
     -- space much faster than many tiny batches.
     default_candidate_batch constant integer := 512;
     candidate_batch integer;
+    worker_count integer;
+    worker_index integer;
     candidate_count integer;
     blocked_node_count integer;
     path_row_count integer;
@@ -52,6 +54,22 @@ begin
         nullif(current_setting('mesh.cluster_slim_candidate_batch', true), '')::integer,
         default_candidate_batch
     );
+    worker_count := greatest(
+        coalesce(
+            nullif(current_setting('mesh.cluster_slim_worker_count', true), '')::integer,
+            1
+        ),
+        1
+    );
+    worker_index := coalesce(
+        nullif(current_setting('mesh.cluster_slim_worker_index', true), '')::integer,
+        0
+    );
+    if worker_index < 0 or worker_index >= worker_count then
+        raise exception 'Cluster slim worker index % is outside worker count %',
+            worker_index,
+            worker_count;
+    end if;
     if to_regclass('mesh_route_nodes') is null then
         raise notice 'mesh_route_nodes table missing, skipping cluster slimming';
         return;
@@ -286,12 +304,15 @@ begin
         from ranked_candidates rc
         join mesh_route_nodes sn on sn.h3 = rc.source_h3
         join mesh_route_nodes tn on tn.h3 = rc.target_h3
-        where rc.pair_id <= candidate_batch;
+        where rc.pair_id <= candidate_batch * worker_count
+          and (rc.pair_id - 1) % worker_count = worker_index;
 
         get diagnostics candidate_count = ROW_COUNT;
 
-        raise notice 'Cluster slim iteration % queued % candidate pair(s) in %.1f s',
+        raise notice 'Cluster slim iteration % worker %/% queued % candidate pair(s) in %.1f s',
             iteration_number,
+            worker_index + 1,
+            worker_count,
             candidate_count,
             extract(epoch from clock_timestamp() - stage_started_at);
 

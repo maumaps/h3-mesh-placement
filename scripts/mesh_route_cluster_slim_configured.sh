@@ -17,13 +17,28 @@ echo ">> Clearing previous cluster-slim towers and failures"
 psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "delete from mesh_towers where source = 'cluster_slim'; truncate mesh_route_cluster_slim_failures;"
 
 max_iters="${SLIM_ITERATIONS:-$(pg_setting_int cluster_slim_iterations)}"
+worker_count="${SLIM_PARALLEL_WORKERS:-1}"
+if [ "${worker_count}" -lt 1 ]; then
+    echo ">> SLIM_PARALLEL_WORKERS must be at least 1, got ${worker_count}" >&2
+    exit 1
+fi
 iter=0
 
 while :; do
     iter=$((iter + 1))
     echo ">> Cluster slim iteration ${iter}"
     before_progress="$(psql --no-psqlrc --set=ON_ERROR_STOP=1 -At -c "select count(*) from mesh_route_cluster_slim_failures;")"
-    promoted="$(PGOPTIONS="${PGOPTIONS:-} -c statement_timeout=0" psql --no-psqlrc --set=ON_ERROR_STOP=1 -At -c "call mesh_route_cluster_slim(${iter}, null);")"
+    if [ "${worker_count}" -gt 1 ]; then
+        echo ">> Cluster slim iteration ${iter} running ${worker_count} candidate shard worker(s)"
+        promoted_output="$(
+            seq 0 "$((worker_count - 1))" \
+                | parallel --line-buffer --halt soon,fail=1 \
+                    bash scripts/mesh_route_cluster_slim_worker.sh "${iter}" "${worker_count}" {}
+        )"
+        promoted="$(printf '%s\n' "${promoted_output}" | awk 'NF { total += $1 } END { print total + 0 }')"
+    else
+        promoted="$(bash scripts/mesh_route_cluster_slim_worker.sh "${iter}" 1 0)"
+    fi
     promoted="${promoted:-0}"
     after_progress="$(psql --no-psqlrc --set=ON_ERROR_STOP=1 -At -c "select count(*) from mesh_route_cluster_slim_failures;")"
 

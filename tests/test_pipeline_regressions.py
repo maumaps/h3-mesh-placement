@@ -455,12 +455,12 @@ class PipelineRegressionTest(unittest.TestCase):
             "mesh_route_bridge should consume the materialized route graph marker without forcing another LOS cache batch when towers are recalculated from a completed cache.",
         )
         self.assertIn(
-            "db/procedure/mesh_route_cluster_slim: procedures/mesh_route_cluster_slim.sql scripts/mesh_route_cluster_slim_configured.sh scripts/assert_mesh_towers_single_los_component.sql db/table/mesh_route_cluster_slim_failures db/procedure/mesh_route_bridge db/procedure/fill_mesh_los_cache_ready",
+            "db/procedure/mesh_route_cluster_slim: procedures/mesh_route_cluster_slim.sql scripts/mesh_route_cluster_slim_configured.sh scripts/mesh_route_cluster_slim_worker.sh scripts/assert_mesh_towers_single_los_component.sql db/table/mesh_route_cluster_slim_failures db/procedure/mesh_route_bridge db/procedure/fill_mesh_los_cache_ready",
             makefile_text,
             "mesh_route_cluster_slim should share the same cache-ready marker so downstream tower recalculation does not restart LOS cache preparation.",
         )
         self.assertIn(
-            "db/procedure/mesh_route_cluster_slim_current: procedures/mesh_route_cluster_slim.sql scripts/mesh_route_cluster_slim_configured.sh scripts/assert_mesh_towers_single_los_component.sql db/table/mesh_route_cluster_slim_failures",
+            "db/procedure/mesh_route_cluster_slim_current: procedures/mesh_route_cluster_slim.sql scripts/mesh_route_cluster_slim_configured.sh scripts/mesh_route_cluster_slim_worker.sh scripts/assert_mesh_towers_single_los_component.sql db/table/mesh_route_cluster_slim_failures",
             makefile_text,
             "mesh_route_cluster_slim_current should run only the current-state slim stage without pulling route bridge, LOS cache staging, or base imports into a safe resume.",
         )
@@ -812,6 +812,8 @@ class PipelineRegressionTest(unittest.TestCase):
     def test_mesh_route_cluster_slim_wrapper_continues_after_logged_attempts(self) -> None:
         """Cluster slim should continue after logged non-promoting attempts."""
         wrapper_text = (REPO_ROOT / "scripts" / "mesh_route_cluster_slim_configured.sh").read_text()
+        procedure_text = (REPO_ROOT / "procedures" / "mesh_route_cluster_slim.sql").read_text()
+        makefile_text = (REPO_ROOT / "Makefile").read_text()
 
         self.assertIn(
             "before_progress=",
@@ -827,6 +829,31 @@ class PipelineRegressionTest(unittest.TestCase):
             '[ "${promoted}" -eq 0 ] && [ "${after_progress}" -le "${before_progress}" ]',
             wrapper_text,
             "Cluster-slim wrapper should converge only when no towers were promoted and no candidate-log progress was made.",
+        )
+        self.assertIn(
+            "SLIM_PARALLEL_WORKERS",
+            wrapper_text,
+            "Cluster-slim wrapper should let remote runs shard candidate evaluation across several PostgreSQL workers.",
+        )
+        self.assertIn(
+            "parallel --line-buffer --halt soon,fail=1",
+            wrapper_text,
+            "Cluster-slim wrapper should use GNU parallel so candidate shards can occupy multiple CPU cores.",
+        )
+        self.assertIn(
+            "mesh.cluster_slim_worker_count",
+            procedure_text,
+            "Cluster-slim procedure should read the worker count GUC to route only its shard of ranked candidates.",
+        )
+        self.assertIn(
+            "(rc.pair_id - 1) % worker_count = worker_index",
+            procedure_text,
+            "Cluster-slim procedure should partition ranked candidate pairs deterministically across workers.",
+        )
+        self.assertIn(
+            "scripts/mesh_route_cluster_slim_worker.sh",
+            makefile_text,
+            "Cluster-slim Make targets should depend on the worker script so remote resume picks up parallel execution changes.",
         )
 
     def test_mesh_tower_wiggle_defers_refresh(self) -> None:
