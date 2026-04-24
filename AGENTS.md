@@ -7,6 +7,8 @@ Make/Remote safety: Over SSH, never use `make -B`.
 Make/Remote safety: `make -n` is a hard gate, not a preview. If dry-run shows unexpected prerequisites or commands, do not run `make`; fix the target or use a narrower resume path.
 Make/Remote safety: For seed/import/visibility/handout refreshes, never let `make` recreate `mesh_towers`, `mesh_surface_h3_r8`, OSM imports, GEBCO imports, or LOS cache unless the user explicitly asked for a full rebuild.
 Make/Remote safety: After any interrupted remote `make`, immediately verify row counts in `mesh_towers` and `mesh_visibility_edges` before continuing.
+Make/Remote safety: Treat installation-plan and handout artifacts as remote-DB artifacts unless the user explicitly asks for a local scratch export.
+Make/Remote safety: Before showing or opening a generated installation-plan HTML/CSV, verify the source DB name and row counts against the current calculation DB; if local and remote counts differ, build on remote, copy the artifact back, and open the copied remote artifact.
 Make: Do not use `.PHONY` targets; use real file/directory targets and correct marker handling instead.
 Make/Debugging: If a multi-hour iterated calculation times out after hours, do not restart it from scratch.
 Make/Debugging: Use `make -n`, inspect the SQL/procedures, and design a safe resume step that continues from where it stopped.

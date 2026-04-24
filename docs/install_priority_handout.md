@@ -8,9 +8,11 @@ Instead of one country-wide “next best tower”, it computes one next step per
 This lets one team walk out from Batumi while another team walks out from Tbilisi without waiting for a single shared queue.
 The HTML output is the primary field artifact and stays as a single file with an interactive overview map plus mini maps per cluster.
 The overview map highlights the current next node in each cluster with an order badge.
+The overview map opens in `Connect clusters` mode so it shows only the rollout prefix needed to connect neighboring queues.
+Its `Improve coverage` mode shows the full later plan for hop reduction and local coverage review.
 Each cluster mini map shows the local install order directly on the nodes and draws a follow line from each step back to its chosen predecessor.
 By default, each cluster section shows the order prefix through the currently known connector points to neighboring clusters.
-Later rows and the full unfiltered cluster map stay in a `See more...` disclosure so the field view starts with the route needed to join nearby rollout queues.
+Each cluster section has two tabs: `Connect clusters` for that connector-first field route, and `Improve coverage` for the full later queue that reduces hops and fills local coverage.
 Dashed context lines show the cheapest visible connector between each pair of rollout clusters.
 Cluster bounds on the maps are generated as Voronoi cells around all tower points and then merged by `cluster_key`, so the outlines reflect which part of the current tower field is closest to each rollout queue.
 The Voronoi cells are clipped to a geodesic buffer around the full point cloud using the widest nearest-neighbor spacing in real meters, so outer edges do not depend on degree padding or Web Mercator assumptions.
@@ -81,15 +83,18 @@ On narrow screens the summary table remains horizontally scrollable, while each 
 Solid lines show the recommended rollout path inside each cluster.
 Dashed local lines on cluster mini maps show additional already-reachable same-cluster predecessors that were not chosen as the primary install edge.
 This keeps links such as Komzpa to a later Batumi-cluster tower visible even when another predecessor is used for the ranked route line.
-The default per-cluster table and mini map stop at the last current connector point; opening `See more...` reveals the full list and a full cluster map for later coverage work.
-The overview map shows every rollout number plus the merged Voronoi outline around each cluster’s current extent.
+The default `Connect clusters` per-cluster table and mini map stop at the last current connector point.
+The `Improve coverage` tab reveals the full list and a full cluster map for later hop-reduction and coverage work.
+The overview map has the same `Connect clusters` and `Improve coverage` modes as the cluster detail sections.
+Its default connector mode hides later local-improvement rows so the first screen emphasizes how rollout queues meet.
+The full coverage mode shows every rollout number plus the merged Voronoi outline around each cluster’s current extent.
 Dashed gray lines show the cheapest visible connector between rollout clusters.
 Those links are context only and do not drive the install order itself.
 The same overview now overlays reachable seed and MQTT import points as `s` and `m` markers.
 For those `s`/`m` points, every unique undirected direct visible link from the live visibility graph is drawn as a thin context line so imported backbone candidates can be inspected without changing the rollout queue itself.
 On the mini maps, those connector lines and large outer Voronoi edges no longer stretch the viewport away from the local cluster geometry.
 `blocked` means the tower belongs to that rollout queue, yet there is still no visible path from any installed seed to that tower.
-The basemap uses the public OpenFreeMap `liberty` style so the handout does not depend on referrer-gated access to OpenStreetMap standard tiles.
+The basemap uses a simple OpenStreetMap raster tile style so the forwarded handout does not depend on MapLibre vector style, glyph, or sprite loading.
 `maplibre-gl.js` and `maplibre-gl.css` are now vendored and inlined into the generated HTML, so a forwarded Telegram file does not need to fetch the MapLibre runtime from a CDN before it can draw the maps.
 The map bootstrap now re-attaches overlays even when the basemap style is already cached and isolates per-layer failures, which makes the single HTML file more reliable when it is forwarded directly in mobile in-app browsers such as Telegram.
 The same bootstrap now exposes `window.__installPriorityMaps` for phone-side debugging, which makes it possible to inspect which mini maps are currently mounted when a mobile browser drops overlays.

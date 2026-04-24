@@ -81,6 +81,10 @@ def render_cluster_section(
     table_region_id = f"{cluster_dom_id}-table"
     cards_region_id = f"{cluster_dom_id}-cards"
     full_map_id = f"{cluster_dom_id}-full"
+    connect_tab_id = f"{cluster_dom_id}-connect-tab"
+    coverage_tab_id = f"{cluster_dom_id}-coverage-tab"
+    connect_panel_id = f"{cluster_dom_id}-connect-panel"
+    coverage_panel_id = f"{cluster_dom_id}-coverage-panel"
     compact_rows = [
         row
         for row in cluster_rows
@@ -90,7 +94,6 @@ def render_cluster_section(
             and int(row["cluster_install_rank"]) <= compact_max_rank
         )
     ]
-    has_more_rows = len(compact_rows) < len(cluster_rows)
     html_parts = [
         "<section class='cluster' aria-labelledby='{heading_id}'>".format(
             heading_id=escape(heading_id)
@@ -104,6 +107,23 @@ def render_cluster_section(
             "but they still need a visible path from an installed seed before they can be installed.</p>"
             if blocked_count
             else ""
+        ),
+        "<div class='cluster-view-tabs' role='tablist' "
+        f"aria-label='Views for {escape(cluster_label)} rollout cluster'>",
+        (
+            f"<button type='button' id='{escape(connect_tab_id)}' "
+            "class='cluster-view-tab active' role='tab' aria-selected='true' "
+            f"aria-controls='{escape(connect_panel_id)}'>Connect clusters</button>"
+        ),
+        (
+            f"<button type='button' id='{escape(coverage_tab_id)}' "
+            "class='cluster-view-tab' role='tab' aria-selected='false' "
+            f"aria-controls='{escape(coverage_panel_id)}'>Improve coverage</button>"
+        ),
+        "</div>",
+        (
+            f"<div id='{escape(connect_panel_id)}' class='cluster-view-panel active' "
+            f"role='tabpanel' aria-labelledby='{escape(connect_tab_id)}'>"
         ),
         (
             f"<div id='{escape(cluster_dom_id)}' class='cluster-map' "
@@ -215,38 +235,39 @@ def render_cluster_section(
         )
 
     html_parts.extend(["</ul></div>"])
-
-    if has_more_rows:
-        html_parts.extend(
-            [
-                "<details class='cluster-more'>",
-                "<summary>See more...</summary>",
-                (
-                    f"<div id='{escape(full_map_id)}' class='cluster-map full-cluster-map' "
-                    f"role='img' aria-label='Full map for {escape(cluster_label)} rollout cluster'></div>"
-                ),
-                (
-                    f"<div class='table-wrap cluster-table-wrap full-cluster-table' "
-                    f"role='region' aria-labelledby='{escape(heading_id)}' tabindex='0'>"
-                ),
-                "<table class='cluster-detail-table'>",
-                f"<caption class='sr-only'>Full rollout order for {escape(cluster_label)}.</caption>",
-                "<thead><tr><th scope='col'>Rank</th><th scope='col'>Status</th><th scope='col'>Name</th><th scope='col'>Type</th><th scope='col'>Est. New Reach</th><th scope='col'>Unlocks</th><th scope='col'>Connects to now</th><th scope='col'>Location EN</th><th scope='col'>Location RU</th><th scope='col'>Maps</th></tr></thead>",
-                "<tbody>",
-            ]
-        )
-        for row in cluster_rows:
-            html_parts.extend(_detail_table_row_html(row))
-        html_parts.extend(
-            [
-                "</tbody></table></div>",
-                "<div class='cluster-cards full-cluster-cards'>",
-                "<ul class='cluster-card-list'>",
-            ]
-        )
-        for row in cluster_rows:
-            html_parts.extend(_detail_card_html(row))
-        html_parts.extend(["</ul></div>", "</details>"])
+    html_parts.extend(
+        [
+            "</div>",
+            (
+                f"<div id='{escape(coverage_panel_id)}' class='cluster-view-panel' "
+                f"role='tabpanel' aria-labelledby='{escape(coverage_tab_id)}' hidden>"
+            ),
+            (
+                f"<div id='{escape(full_map_id)}' class='cluster-map full-cluster-map' "
+                f"role='img' aria-label='Full map for {escape(cluster_label)} rollout cluster'></div>"
+            ),
+            (
+                f"<div class='table-wrap cluster-table-wrap full-cluster-table' "
+                f"role='region' aria-labelledby='{escape(heading_id)}' tabindex='0'>"
+            ),
+            "<table class='cluster-detail-table'>",
+            f"<caption class='sr-only'>Full rollout order for {escape(cluster_label)}.</caption>",
+            "<thead><tr><th scope='col'>Rank</th><th scope='col'>Status</th><th scope='col'>Name</th><th scope='col'>Type</th><th scope='col'>Est. New Reach</th><th scope='col'>Unlocks</th><th scope='col'>Connects to now</th><th scope='col'>Location EN</th><th scope='col'>Location RU</th><th scope='col'>Maps</th></tr></thead>",
+            "<tbody>",
+        ]
+    )
+    for row in cluster_rows:
+        html_parts.extend(_detail_table_row_html(row))
+    html_parts.extend(
+        [
+            "</tbody></table></div>",
+            "<div class='cluster-cards full-cluster-cards'>",
+            "<ul class='cluster-card-list'>",
+        ]
+    )
+    for row in cluster_rows:
+        html_parts.extend(_detail_card_html(row))
+    html_parts.extend(["</ul></div>", "</div>"])
 
     html_parts.append("</section>")
 

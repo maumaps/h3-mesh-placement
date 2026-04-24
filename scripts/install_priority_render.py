@@ -258,6 +258,10 @@ def render_html_document(
         ".legend i{display:inline-block;width:10px;height:10px;border-radius:50%;}",
         ".legend .line-sample{width:18px;height:0;border-radius:0;background:transparent;border-top:3px dashed #7a8694;}",
         ".legend .bounds-sample{width:18px;height:10px;border-radius:3px;background:rgba(139,94,60,0.08);border:2px solid rgba(139,94,60,0.7);}",
+        ".overview-view-tabs{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 12px;}",
+        ".overview-view-tab{appearance:none;border:1px solid #cfd8df;background:#f7f9fb;color:#17324d;border-radius:8px;padding:8px 12px;font:700 0.92rem/1.2 'Trebuchet MS','Segoe UI',sans-serif;cursor:pointer;}",
+        ".overview-view-tab.active,.overview-view-tab[aria-selected='true']{background:#17324d;color:#fff;border-color:#17324d;}",
+        ".overview-view-tab:focus-visible{outline:3px solid #8fbce8;outline-offset:2px;}",
         ".map-note{margin:10px 0 0;color:#55606d;font-size:0.92rem;line-height:1.45;}",
         ".map-fallback{display:none;padding:12px 0;color:#6d5f50;font-size:0.95rem;}",
         ".order-marker{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:700 11px/1 'Trebuchet MS','Segoe UI',sans-serif;color:#fff;border:2px solid rgba(255,255,255,0.95);box-shadow:0 1px 6px rgba(0,0,0,0.25);pointer-events:none;}",
@@ -277,8 +281,11 @@ def render_html_document(
         ".cluster-card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px;margin:12px 0;}",
         ".cluster-card-grid dt{font-size:0.76rem;text-transform:uppercase;letter-spacing:0.03em;color:#5a6673;}",
         ".cluster-card-grid dd{margin:4px 0 0;line-height:1.4;}",
-        ".cluster-more{margin-top:12px;border-top:1px solid #e6e1d8;padding-top:12px;}",
-        ".cluster-more summary{cursor:pointer;font-weight:700;color:#0d5ea8;}",
+        ".cluster-view-tabs{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 12px;}",
+        ".cluster-view-tab{appearance:none;border:1px solid #cfd8df;background:#f7f9fb;color:#17324d;border-radius:8px;padding:8px 12px;font:700 0.92rem/1.2 'Trebuchet MS','Segoe UI',sans-serif;cursor:pointer;}",
+        ".cluster-view-tab.active,.cluster-view-tab[aria-selected='true']{background:#17324d;color:#fff;border-color:#17324d;}",
+        ".cluster-view-tab:focus-visible{outline:3px solid #8fbce8;outline-offset:2px;}",
+        ".cluster-view-panel[hidden]{display:none;}",
         ".full-cluster-map{margin-top:12px;}",
         ".full-cluster-table{margin-top:12px;}",
         ".sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}",
@@ -299,6 +306,10 @@ def render_html_document(
         "</section>",
         "<section class='map-panel'>",
         "<h2>Overview Map</h2>",
+        "<div class='overview-view-tabs' role='tablist' aria-label='Overview rollout view'>",
+        "<button type='button' class='overview-view-tab active' role='tab' aria-selected='true' data-overview-view='connect'>Connect clusters</button>",
+        "<button type='button' class='overview-view-tab' role='tab' aria-selected='false' data-overview-view='coverage'>Improve coverage</button>",
+        "</div>",
         "<div id='overview-map' class='overview-map' role='img' aria-label='Overview rollout map for all installer clusters'></div>",
         "<div id='map-fallback' class='map-fallback' role='status' aria-live='polite'>Interactive map could not load. The tables below still contain the full handout.</div>",
         "<div class='legend'>",
@@ -368,6 +379,7 @@ def _default_cluster_max_rank(cluster_rows: Sequence[Mapping[str, object]]) -> i
         for row in cluster_rows
         if row.get("cluster_install_rank") not in (None, "")
         and row.get("inter_cluster_neighbor_ids") not in (None, "", [])
+        and not bool(row.get("installed"))
     ]
     if connector_ranks:
         return max(connector_ranks)

@@ -148,9 +148,9 @@ class InstallPriorityMobileTests(unittest.TestCase):
             msg="Cluster point circles should use a smaller radius than overview points in the MapLibre bootstrap.",
         )
         self.assertIn(
-            "addNodeLayers(overviewMap, 'overview-nodes', overviewCollection, 'overview')",
+            "addNodeLayers(overviewMap, 'overview-nodes', initialOverviewCollections.collection, 'overview')",
             html_text,
-            msg="The overview map should still opt into the larger overview marker sizing path.",
+            msg="The overview map should still opt into the larger overview marker sizing path while using the active phase collection.",
         )
         self.assertIn(
             "clusterCollection, 'cluster'",

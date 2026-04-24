@@ -15,7 +15,26 @@ if (!payloadEl || !window.maplibregl) {
 } else {
   const payload = JSON.parse(payloadEl.textContent);
   const rowsByTowerId = new Map(payload.rows.map((row) => [row.tower_id, row]));
-  const styleUrl = 'https://tiles.openfreemap.org/styles/liberty';
+  const styleUrl = {
+    version: 8,
+    sources: {
+      osmStandard: {
+        type: 'raster',
+        tiles: [
+          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        ],
+        tileSize: 256,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      },
+    },
+    layers: [
+      {
+        id: 'osm-standard',
+        type: 'raster',
+        source: 'osmStandard',
+      },
+    ],
+  };
   const features = payload.rows.map((row) => ({
     type: 'Feature',
     geometry: {
@@ -24,6 +43,12 @@ if (!payloadEl || !window.maplibregl) {
     },
     properties: row,
   }));
+  const rankNumber = (value) => {
+    if (value === null || value === undefined || value === '') return null;
+    const parsed = Number(value);
+
+    return Number.isFinite(parsed) ? parsed : null;
+  };
 
   const mapOptions = (container, center, zoom) => ({
     container,
@@ -310,6 +335,8 @@ if (!payloadEl || !window.maplibregl) {
   };
 
   const addOrderMarkers = (map, featureCollection, labelMode) => {
+    const markers = [];
+
     featureCollection.features.forEach((feature) => {
       const properties = feature.properties;
       const label = properties.map_order_label;
@@ -323,10 +350,14 @@ if (!payloadEl || !window.maplibregl) {
       markerEl.className = `order-marker ${statusClass} ${labelMode}`;
       markerEl.textContent = label;
 
-      new maplibregl.Marker({ element: markerEl, anchor: 'center' })
+      const marker = new maplibregl.Marker({ element: markerEl, anchor: 'center' })
         .setLngLat(feature.geometry.coordinates)
         .addTo(map);
+
+      markers.push(marker);
     });
+
+    return markers;
   };
 
   const fitToFeatures = (map, subset) => {
@@ -361,17 +392,55 @@ if (!payloadEl || !window.maplibregl) {
     map.fitBounds(bounds, { padding: 40, maxZoom: 11, duration: 0 });
   };
 
-  const overviewCollection = {
-    type: 'FeatureCollection',
-    features,
+  const overviewConnectCutoffByCluster = new Map(
+    payload.clusters.map((cluster) => [cluster.cluster_key, Number(cluster.connect_max_rank || 0)])
+  );
+
+  const overviewFeatureIsInConnectView = (feature) => {
+    if (feature.properties.installed) return true;
+
+    const rank = rankNumber(feature.properties.cluster_install_rank);
+    const cutoff = overviewConnectCutoffByCluster.get(feature.properties.cluster_key);
+
+    return rank !== null && cutoff !== undefined && rank <= cutoff;
   };
-  const overviewRoutes = {
-    type: 'FeatureCollection',
-    features: routeFeatures,
-  };
-  const overviewContext = {
-    type: 'FeatureCollection',
-    features: contextFeatures,
+  const buildOverviewCollections = (viewMode) => {
+    const overviewFeatures = viewMode === 'coverage'
+      ? features
+      : features.filter(overviewFeatureIsInConnectView);
+    const includedTowerIds = new Set(overviewFeatures.map((feature) => feature.properties.tower_id));
+    const overviewRouteFeatures = viewMode === 'coverage'
+      ? routeFeatures
+      : routeFeatures.filter((feature) => {
+        const rank = rankNumber(feature.properties.cluster_install_rank);
+        const cutoff = overviewConnectCutoffByCluster.get(feature.properties.cluster_key);
+
+        return rank !== null && cutoff !== undefined && rank <= cutoff;
+      });
+    const overviewContextFeatures = viewMode === 'coverage'
+      ? contextFeatures
+      : contextFeatures.filter((feature) => (
+        includedTowerIds.has(feature.properties.from_tower_id)
+        && includedTowerIds.has(feature.properties.to_tower_id)
+      ));
+
+    return {
+      collection: {
+        type: 'FeatureCollection',
+        features: overviewFeatures,
+      },
+      routes: {
+        type: 'FeatureCollection',
+        features: overviewRouteFeatures,
+      },
+      context: {
+        type: 'FeatureCollection',
+        features: overviewContextFeatures,
+      },
+      fitFeatures: overviewRouteFeatures.length
+        ? [...overviewFeatures, ...overviewRouteFeatures]
+        : overviewFeatures,
+    };
   };
   const overviewBounds = {
     type: 'FeatureCollection',
@@ -447,6 +516,7 @@ if (!payloadEl || !window.maplibregl) {
   }));
   const activeClusterMaps = new Map();
   let overviewMap = null;
+  let overviewOrderMarkers = [];
 
   window.__installPriorityMaps = {
     payload,
@@ -454,6 +524,46 @@ if (!payloadEl || !window.maplibregl) {
     clusterByMapId,
     getOverviewMap: () => overviewMap,
     getClusterMap: (mapId) => activeClusterMaps.get(mapId) || null,
+  };
+  const clearOverviewOrderMarkers = () => {
+    overviewOrderMarkers.forEach((marker) => marker.remove());
+    overviewOrderMarkers = [];
+  };
+  const updateOverviewView = (viewMode) => {
+    if (!overviewMap) return;
+
+    const collections = buildOverviewCollections(viewMode);
+    const nodeSource = overviewMap.getSource('overview-nodes');
+    const routeSource = overviewMap.getSource('overview-route-segments');
+    const contextSource = overviewMap.getSource('overview-context-segments');
+
+    if (!nodeSource || !routeSource || !contextSource) return;
+
+    if (nodeSource) nodeSource.setData(collections.collection);
+    if (routeSource) routeSource.setData(collections.routes);
+    if (contextSource) contextSource.setData(collections.context);
+
+    clearOverviewOrderMarkers();
+    overviewOrderMarkers = addOrderMarkers(overviewMap, collections.collection, 'overview');
+    requestAnimationFrame(() => {
+      overviewMap.resize();
+      fitToFeatures(overviewMap, collections.fitFeatures);
+    });
+  };
+  const setupOverviewViewTabs = () => {
+    const tabs = Array.from(document.querySelectorAll('.overview-view-tab'));
+    if (!tabs.length) return;
+
+    tabs.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        tabs.forEach((candidate) => {
+          const selected = candidate === tab;
+          candidate.classList.toggle('active', selected);
+          candidate.setAttribute('aria-selected', selected ? 'true' : 'false');
+        });
+        updateOverviewView(tab.dataset.overviewView || 'connect');
+      });
+    });
   };
 
   const mountClusterMap = (cluster) => {
@@ -485,6 +595,66 @@ if (!payloadEl || !window.maplibregl) {
 
     return clusterMap;
   };
+  const mountClusterMapsInPanel = (panel) => {
+    panel.querySelectorAll('.cluster-map').forEach((container) => {
+      const cluster = clusterByMapId.get(container.id);
+      if (!cluster) return;
+
+      requestAnimationFrame(() => {
+        const clusterMap = mountClusterMap(cluster);
+        if (clusterMap) clusterMap.resize();
+      });
+    });
+  };
+  const setupClusterViewTabs = () => {
+    document.querySelectorAll('.cluster-view-tabs').forEach((tabList) => {
+      const tabs = Array.from(tabList.querySelectorAll('[role="tab"]'));
+      const section = tabList.closest('.cluster');
+      if (!section || !tabs.length) return;
+
+      const activateTab = (selectedTab, focusTab = false) => {
+        tabs.forEach((tab) => {
+          const selected = tab === selectedTab;
+          tab.classList.toggle('active', selected);
+          tab.setAttribute('aria-selected', selected ? 'true' : 'false');
+          tab.tabIndex = selected ? 0 : -1;
+
+          const panelId = tab.getAttribute('aria-controls');
+          const panel = panelId ? document.getElementById(panelId) : null;
+          if (!panel) return;
+
+          panel.hidden = !selected;
+          panel.classList.toggle('active', selected);
+          if (selected) mountClusterMapsInPanel(panel);
+        });
+
+        if (focusTab) selectedTab.focus();
+        syncVisibleClusterMaps();
+      };
+
+      tabs.forEach((tab, index) => {
+        tab.tabIndex = tab.getAttribute('aria-selected') === 'true' ? 0 : -1;
+        tab.addEventListener('click', () => activateTab(tab));
+        tab.addEventListener('keydown', (event) => {
+          const keyMoves = {
+            ArrowLeft: -1,
+            ArrowUp: -1,
+            ArrowRight: 1,
+            ArrowDown: 1,
+          };
+          let nextIndex = index;
+
+          if (event.key === 'Home') nextIndex = 0;
+          if (event.key === 'End') nextIndex = tabs.length - 1;
+          if (event.key in keyMoves) nextIndex = (index + keyMoves[event.key] + tabs.length) % tabs.length;
+          if (nextIndex === index) return;
+
+          event.preventDefault();
+          activateTab(tabs[nextIndex], true);
+        });
+      });
+    });
+  };
   const clusterContainerIsFullscreen = (container) => {
     if (!document.fullscreenElement) return false;
 
@@ -501,6 +671,12 @@ if (!payloadEl || !window.maplibregl) {
     container.innerHTML = '';
     container.dataset.mapMounted = 'false';
   };
+  const clusterContainerIsVisible = (cluster) => {
+    const container = document.getElementById(cluster.map_id);
+    if (!container) return false;
+
+    return container.getClientRects().length > 0;
+  };
   const prefersLazyClusterMaps = () => window.matchMedia('(max-width: 920px)').matches;
   const clusterIsNearViewport = (cluster) => {
     const container = document.getElementById(cluster.map_id);
@@ -513,6 +689,11 @@ if (!payloadEl || !window.maplibregl) {
   };
   const syncVisibleClusterMaps = () => {
     clusterMapTargets.forEach((cluster) => {
+      if (!clusterContainerIsVisible(cluster)) {
+        unmountClusterMap(cluster);
+        return;
+      }
+
       if (!prefersLazyClusterMaps() || clusterIsNearViewport(cluster)) {
         mountClusterMap(cluster);
         return;
@@ -530,7 +711,9 @@ if (!payloadEl || !window.maplibregl) {
   };
   const initializeClusterMaps = () => {
     if (!prefersLazyClusterMaps() || !window.IntersectionObserver) {
-      clusterMapTargets.forEach((cluster) => mountClusterMap(cluster));
+      clusterMapTargets.forEach((cluster) => {
+        if (clusterContainerIsVisible(cluster)) mountClusterMap(cluster);
+      });
       return;
     }
 
@@ -539,7 +722,7 @@ if (!payloadEl || !window.maplibregl) {
         const cluster = clusterByMapId.get(entry.target.id);
         if (!cluster) return;
 
-        if (entry.isIntersecting) {
+        if (entry.isIntersecting && clusterContainerIsVisible(cluster)) {
           mountClusterMap(cluster);
           return;
         }
@@ -574,15 +757,18 @@ if (!payloadEl || !window.maplibregl) {
   overviewMap.addControl(new maplibregl.FullscreenControl(), 'top-right');
   overviewMap.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
   runOnStyleReady(overviewMap, () => {
+    const initialOverviewCollections = buildOverviewCollections('connect');
     safeOverlayStep('overview bounds', () => addClusterBoundLayers(overviewMap, 'overview-cluster-bounds', overviewBounds, 'overview'));
-    safeOverlayStep('overview connectors', () => addContextLayers(overviewMap, 'overview-context-segments', overviewContext, 'overview'));
+    safeOverlayStep('overview connectors', () => addContextLayers(overviewMap, 'overview-context-segments', initialOverviewCollections.context, 'overview'));
     safeOverlayStep('overview seed/mqtt links', () => addSeedMqttLinkLayers(overviewMap, 'overview-seed-mqtt-links', overviewSeedMqttLinks));
-    safeOverlayStep('overview nodes', () => addNodeLayers(overviewMap, 'overview-nodes', overviewCollection, 'overview'));
-    safeOverlayStep('overview routes', () => addRouteLayers(overviewMap, 'overview-route-segments', overviewRoutes, 'overview'));
-    safeOverlayStep('overview order markers', () => addOrderMarkers(overviewMap, overviewCollection, 'overview'));
+    safeOverlayStep('overview nodes', () => addNodeLayers(overviewMap, 'overview-nodes', initialOverviewCollections.collection, 'overview'));
+    safeOverlayStep('overview routes', () => addRouteLayers(overviewMap, 'overview-route-segments', initialOverviewCollections.routes, 'overview'));
     safeOverlayStep('overview seed/mqtt markers', () => addSeedMqttMarkers(overviewMap, overviewSeedMqtt));
-    requestAnimationFrame(() => { overviewMap.resize(); fitToFeatures(overviewMap, features); });
+    safeOverlayStep('overview order markers', () => { overviewOrderMarkers = addOrderMarkers(overviewMap, initialOverviewCollections.collection, 'overview'); });
+    requestAnimationFrame(() => { overviewMap.resize(); fitToFeatures(overviewMap, initialOverviewCollections.fitFeatures); });
   });
+  setupOverviewViewTabs();
+  setupClusterViewTabs();
   initializeClusterMaps();
 }
 """

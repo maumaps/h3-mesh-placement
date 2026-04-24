@@ -27,14 +27,16 @@ from scripts.install_priority_lib import (
     format_location_description,
     render_html_document,
 )
+from scripts.install_priority_map_payload import dedupe_clusters
+from scripts.install_priority_render import _default_cluster_max_rank
 from scripts.install_priority_render_sections import render_cluster_section
 
 
 class InstallPriorityRenderTests(unittest.TestCase):
     """Verify display labels, output rows, and HTML rendering."""
 
-    def test_cluster_section_hides_late_rows_behind_see_more(self) -> None:
-        """Cluster sections should default to connector-prefix rows and expose the rest on demand."""
+    def test_cluster_section_splits_connector_and_coverage_tabs(self) -> None:
+        """Cluster sections should default to connector-prefix rows and expose the full coverage view."""
 
         base_row = {
             "cluster_key": "seed:1",
@@ -92,20 +94,138 @@ class InstallPriorityRenderTests(unittest.TestCase):
             html_text,
             msg=f"Compact cluster map should carry the rank cutoff for MapLibre filtering, got HTML {html_text!r}",
         )
+        self.assertEqual(
+            html_text.count("data-max-rank='1'"),
+            1,
+            msg=f"Only the compact map should carry the rank cutoff; the full map must stay unfiltered, got HTML {html_text!r}",
+        )
         self.assertIn(
+            "role='tablist'",
+            html_text,
+            msg=f"Cluster section should expose the two rollout views as accessible tabs, got HTML {html_text!r}",
+        )
+        self.assertIn(
+            "Connect clusters",
+            html_text,
+            msg=f"Default rollout tab should describe the cluster-connection phase, got HTML {html_text!r}",
+        )
+        self.assertIn(
+            "Improve coverage",
+            html_text,
+            msg=f"Full rollout tab should describe the later hop-reduction phase, got HTML {html_text!r}",
+        )
+        self.assertIn(
+            "role='tabpanel'",
+            html_text,
+            msg=f"Cluster section should wrap each view in a tab panel, got HTML {html_text!r}",
+        )
+        self.assertIn(
+            "hidden",
+            html_text,
+            msg=f"Full coverage panel should stay hidden until selected, got HTML {html_text!r}",
+        )
+        self.assertNotIn(
             "See more...",
             html_text,
-            msg=f"Late rollout rows should move behind an explicit disclosure, got HTML {html_text!r}",
+            msg=f"Cluster section should use top tabs instead of the old disclosure affordance, got HTML {html_text!r}",
         )
         self.assertIn(
             "cluster-map-seed-1-full",
             html_text,
-            msg=f"Disclosure should include a full unfiltered cluster map, got HTML {html_text!r}",
+            msg=f"Coverage tab should include a full unfiltered cluster map, got HTML {html_text!r}",
         )
         self.assertIn(
             "Later ridge",
             html_text,
-            msg=f"Full disclosure content should still retain late rollout rows, got HTML {html_text!r}",
+            msg=f"Coverage tab content should still retain late rollout rows, got HTML {html_text!r}",
+        )
+
+    def test_connect_view_cutoff_ignores_installed_cluster_links(self) -> None:
+        """Installed seed/MQTT links should not hide the first planned step in a cluster."""
+
+        rows = [
+            {
+                "cluster_install_rank": 0,
+                "installed": True,
+                "inter_cluster_neighbor_ids": [20],
+            },
+            {
+                "cluster_install_rank": 1,
+                "installed": False,
+                "inter_cluster_neighbor_ids": [],
+            },
+            {
+                "cluster_install_rank": 2,
+                "installed": False,
+                "inter_cluster_neighbor_ids": [],
+            },
+        ]
+
+        compact_max_rank = _default_cluster_max_rank(rows)
+
+        self.assertEqual(
+            compact_max_rank,
+            1,
+            msg=f"Installed inter-cluster links should not make the connect view stop at rank 0, got cutoff {compact_max_rank} for rows {rows!r}",
+        )
+
+    def test_overview_connect_cutoff_reaches_every_planned_neighbor(self) -> None:
+        """Overview connect mode should stop at the last planned neighbor join, not the first."""
+
+        rows = [
+            {
+                "tower_id": 1,
+                "cluster_key": "seed:a",
+                "cluster_label": "A",
+                "cluster_install_rank": 0,
+                "installed": True,
+                "inter_cluster_neighbor_ids": [],
+            },
+            {
+                "tower_id": 2,
+                "cluster_key": "seed:a",
+                "cluster_label": "A",
+                "cluster_install_rank": 1,
+                "installed": False,
+                "inter_cluster_neighbor_ids": [20],
+            },
+            {
+                "tower_id": 3,
+                "cluster_key": "seed:a",
+                "cluster_label": "A",
+                "cluster_install_rank": 4,
+                "installed": False,
+                "inter_cluster_neighbor_ids": [30],
+            },
+            {
+                "tower_id": 20,
+                "cluster_key": "seed:b",
+                "cluster_label": "B",
+                "cluster_install_rank": 0,
+                "installed": True,
+                "inter_cluster_neighbor_ids": [],
+            },
+            {
+                "tower_id": 30,
+                "cluster_key": "seed:c",
+                "cluster_label": "C",
+                "cluster_install_rank": 0,
+                "installed": True,
+                "inter_cluster_neighbor_ids": [],
+            },
+        ]
+
+        cluster_payload = dedupe_clusters(rows)
+        cluster_a = next(
+            cluster
+            for cluster in cluster_payload
+            if cluster["cluster_key"] == "seed:a"
+        )
+
+        self.assertEqual(
+            cluster_a["connect_max_rank"],
+            4,
+            msg=f"Overview phase 1 should include all planned neighbor joins, got clusters {cluster_payload!r}",
         )
 
     def test_install_priority_edge_assertion_finds_missing_predecessors(self) -> None:
@@ -742,14 +862,44 @@ class InstallPriorityRenderTests(unittest.TestCase):
             msg="HTML handout should not depend on external MapLibre JS or CSS URLs because mobile content:// viewers can refuse those requests.",
         )
         self.assertIn(
-            "tiles.openfreemap.org/styles/liberty",
+            "tile.openstreetmap.org",
             html_text,
-            msg="HTML handout should use a basemap style that does not depend on referrer-based tile access.",
+            msg="HTML handout should use a visible raster basemap so forwarded files do not depend on vector style and sprite loading.",
         )
         self.assertIn(
             "overview-map",
             html_text,
             msg="HTML handout should include the overview map container.",
+        )
+        self.assertIn(
+            "class='overview-view-tabs'",
+            html_text,
+            msg="HTML handout should expose the rollout phase switch on the overview map.",
+        )
+        self.assertIn(
+            "data-overview-view='connect'",
+            html_text,
+            msg="Overview map should default to the cluster-connection phase view.",
+        )
+        self.assertIn(
+            "data-overview-view='coverage'",
+            html_text,
+            msg="Overview map should expose the full coverage-improvement phase view.",
+        )
+        self.assertIn(
+            "overviewConnectCutoffByCluster",
+            html_text,
+            msg="Overview map runtime should read the exporter-provided connector-prefix cutoff used by cluster mini maps.",
+        )
+        self.assertIn(
+            "cluster.connect_max_rank",
+            html_text,
+            msg="Overview connect mode should use the explicit per-cluster cutoff instead of recomputing the first connector in JavaScript.",
+        )
+        self.assertIn(
+            "updateOverviewView",
+            html_text,
+            msg="Overview map runtime should switch sources and order markers when the phase tab changes.",
         )
         self.assertIn(
             "cluster-map-seed-1",
@@ -760,6 +910,11 @@ class InstallPriorityRenderTests(unittest.TestCase):
             "clusterMapTargets",
             html_text,
             msg="HTML handout should mount both compact and full cluster map containers from one payload.",
+        )
+        self.assertIn(
+            "setupClusterViewTabs",
+            html_text,
+            msg="HTML handout should switch cluster maps through explicit rollout phase tabs.",
         )
         self.assertIn(
             "dataset.maxRank",
@@ -835,6 +990,11 @@ class InstallPriorityRenderTests(unittest.TestCase):
             "addSeedMqttMarkers",
             html_text,
             msg="HTML handout should render dedicated m/s map markers for reachable seed and MQTT points.",
+        )
+        self.assertLess(
+            html_text.index("addSeedMqttMarkers(overviewMap, overviewSeedMqtt)"),
+            html_text.index("overviewOrderMarkers = addOrderMarkers(overviewMap, initialOverviewCollections.collection, 'overview')"),
+            msg="Overview rollout order markers should be added after seed/MQTT markers so planned ranks stay visible on top.",
         )
         self.assertIn(
             "addSeedMqttLinkLayers",
