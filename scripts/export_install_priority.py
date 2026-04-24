@@ -364,7 +364,7 @@ def export_rows(
             if connector_summaries:
                 blocked_reason = (
                     "No visible path from an installed seed yet. "
-                    "Cheapest cluster connector: "
+                    "Earliest cluster connector: "
                     f"{summarize_connector_summaries(connector_summaries)}."
                 )
             elif visible_neighbor_cluster_summaries:

@@ -1153,9 +1153,9 @@ class InstallPriorityRenderTests(unittest.TestCase):
             msg="HTML handout should expose fullscreen controls for overview and cluster maps.",
         )
         self.assertIn(
-            "Cheapest cluster connector",
+            "Earliest cluster connector",
             html_text,
-            msg="HTML handout should explain that dashed connector lines show the cheapest cluster corridor.",
+            msg="HTML handout should explain that dashed connector lines show the earliest cluster corridor used for phase-one cutoff.",
         )
         self.assertIn(
             "Cluster bounds",

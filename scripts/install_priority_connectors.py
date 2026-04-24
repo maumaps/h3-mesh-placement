@@ -36,7 +36,7 @@ def select_inter_cluster_connectors(
     plan_rows: Sequence[PlanRow],
     adjacency: Mapping[int, Mapping[int, float]],
 ) -> list[InterClusterConnector]:
-    """Select the cheapest seed-to-seed connector for every cluster pair."""
+    """Select the earliest visible connector for every cluster pair."""
 
     row_by_tower_id = {
         plan_row.tower_id: plan_row
@@ -145,7 +145,7 @@ def _connector_score(
     *,
     seed_distances_by_cluster: Mapping[str, Mapping[int, float]],
 ) -> tuple[float, float, float, float, int, int]:
-    """Score connectors by RF proxy first, then total seed-to-seed join cost."""
+    """Score connectors by install phase first, then RF proxy and join cost."""
 
     left_rank = _rank_value(connector.left_rank)
     right_rank = _rank_value(connector.right_rank)
@@ -166,13 +166,13 @@ def _connector_score(
     summed_rank = left_rank + right_rank
 
     return (
+        later_rank,
+        summed_rank,
         connector_edge_priority(
             connector.left_source,
             connector.right_source,
         ),
         total_join_distance,
-        later_rank,
-        summed_rank,
         connector.distance_m,
         connector.left_tower_id,
         connector.right_tower_id,

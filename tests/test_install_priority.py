@@ -607,8 +607,8 @@ class InstallPriorityTests(unittest.TestCase):
             msg=f"Route-derived connector proxy should start both queues on the route corridor instead of the slightly shorter cluster-slim bridge, got next rows {next_rows!r} from rows {plan_rows!r}",
         )
 
-    def test_select_inter_cluster_connectors_uses_lowest_total_join_cost(self) -> None:
-        """Inter-cluster context should highlight the cheapest seed-to-seed join corridor."""
+    def test_select_inter_cluster_connectors_uses_earliest_join_rank(self) -> None:
+        """Inter-cluster context should stop phase one at the first visible join."""
 
         towers_by_id = {
             1: TowerRecord(1, "seed", 41.60, 41.70, "Batumi", True, country_code="ge", country_name="Georgia"),
@@ -642,8 +642,8 @@ class InstallPriorityTests(unittest.TestCase):
 
         self.assertEqual(
             {connector.left_tower_id, connector.right_tower_id},
-            {4, 13},
-            msg=f"Connector overlay should use the lowest total seed-to-seed join cost, got {connector!r} from rows {plan_rows!r}",
+            {3, 12},
+            msg=f"Connector overlay should use the earliest ranked inter-cluster join so phase one does not include later cosmetic links, got {connector!r} from rows {plan_rows!r}",
         )
 
     def test_select_inter_cluster_connectors_includes_cross_country_pairs(self) -> None:

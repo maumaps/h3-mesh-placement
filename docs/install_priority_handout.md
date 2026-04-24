@@ -14,7 +14,7 @@ The phase switch is styled as a two-option control above the overview map and re
 Each cluster mini map shows the local install order directly on the nodes and draws a follow line from each step back to its chosen predecessor.
 By default, each cluster section shows the order prefix through the currently known connector points to neighboring clusters.
 Each cluster section has two tabs: `Connect clusters` for that connector-first field route, and `Improve coverage` for the full later queue that reduces hops and fills local coverage.
-Dashed context lines show the cheapest visible connector between each pair of rollout clusters.
+Dashed context lines show the earliest visible connector between each pair of rollout clusters.
 Cluster bounds on the maps are generated as Voronoi cells around all tower points and then merged by `cluster_key`, so the outlines reflect which part of the current tower field is closest to each rollout queue.
 The Voronoi cells are clipped to a geodesic buffer around the full point cloud using the widest nearest-neighbor spacing in real meters, so outer edges do not depend on degree padding or Web Mercator assumptions.
 Every map includes a fullscreen toggle for field use on smaller screens.
@@ -89,7 +89,7 @@ The `Improve coverage` tab reveals the full list and a full cluster map for late
 The overview map has the same `Connect clusters` and `Improve coverage` modes as the cluster detail sections.
 Its default connector mode hides later local-improvement rows so the first screen emphasizes how rollout queues meet.
 The full coverage mode shows every rollout number plus the merged Voronoi outline around each cluster’s current extent.
-Dashed gray lines show the cheapest visible connector between rollout clusters.
+Dashed gray lines show the earliest visible connector between rollout clusters.
 Those links are context only and do not drive the install order itself.
 The same overview now overlays reachable seed and MQTT import points as `s` and `m` markers.
 For those `s`/`m` points, every unique undirected direct visible link from the live visibility graph is drawn as a thin context line so imported backbone candidates can be inspected without changing the rollout queue itself.

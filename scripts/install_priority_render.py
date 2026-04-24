@@ -322,9 +322,9 @@ def render_html_document(
         "<span><i style='background:#d97706'></i>Next suggested node</span>",
         "<span><i style='background:#4b8b3b'></i>Planned node</span>",
         "<span><i class='bounds-sample'></i>Cluster bounds</span>",
-        "<span><i class='line-sample'></i>Cheapest cluster connector</span>",
+        "<span><i class='line-sample'></i>Earliest cluster connector</span>",
         "</div>",
-        "<p class='map-note'>The overview map now shows every local order badge and an outline around each rollout cluster. Mini maps show the same order directly on the nodes. Follow the solid line from the installed seed toward rank 1, then 2, then onward. Dashed gray lines show the cheapest visible connector between rollout clusters. Use the fullscreen button when a team needs to inspect one route in detail.</p>",
+        "<p class='map-note'>The overview map now shows every local order badge and an outline around each rollout cluster. Mini maps show the same order directly on the nodes. Follow the solid line from the installed seed toward rank 1, then 2, then onward. Dashed gray lines show the earliest visible connector between rollout clusters. Use the fullscreen button when a team needs to inspect one route in detail.</p>",
         "</section>",
     ]
     html_parts.extend(render_summary_section(summary_rows))
