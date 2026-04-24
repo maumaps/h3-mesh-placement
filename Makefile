@@ -225,6 +225,10 @@ db/table/mesh_initial_nodes_h3_r8: tables/mesh_initial_nodes_h3_r8.sql db/raw/in
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/mesh_initial_nodes_h3_r8.sql
 	touch db/table/mesh_initial_nodes_h3_r8
 
+db/procedure/mesh_initial_nodes_h3_r8_current: tables/mesh_initial_nodes_h3_r8.sql | db/procedure ## Re-apply current seed/MQTT towers without replaying imports
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/mesh_initial_nodes_h3_r8.sql
+	touch db/procedure/mesh_initial_nodes_h3_r8_current
+
 db/table/mesh_surface_domain_h3_r8: tables/mesh_surface_domain_h3_r8.sql db/table/georgia_convex_hull | db/table ## Build convex hull H3 domain
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/mesh_surface_domain_h3_r8.sql
 	touch db/table/mesh_surface_domain_h3_r8

@@ -277,6 +277,26 @@ class PipelineRegressionTest(unittest.TestCase):
             ),
         )
 
+    def test_initial_nodes_current_target_does_not_replay_imports(self) -> None:
+        """Safe MQTT repair should not replay OSM or raw seed imports."""
+        makefile_text = (REPO_ROOT / "Makefile").read_text()
+
+        self.assertIn(
+            "db/procedure/mesh_initial_nodes_h3_r8_current: tables/mesh_initial_nodes_h3_r8.sql | db/procedure ## Re-apply current seed/MQTT towers without replaying imports",
+            makefile_text,
+            msg="Makefile should expose a narrow current-state target for re-applying seed/MQTT towers without upstream imports.",
+        )
+        self.assertIn(
+            "\tpsql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/mesh_initial_nodes_h3_r8.sql\n\ttouch db/procedure/mesh_initial_nodes_h3_r8_current",
+            makefile_text,
+            msg="The current seed/MQTT target should only run the H3 projection SQL and mark its own resume target.",
+        )
+        self.assertNotIn(
+            "db/procedure/mesh_initial_nodes_h3_r8_current: tables/mesh_initial_nodes_h3_r8.sql db/raw/initial_nodes",
+            makefile_text,
+            msg="The current seed/MQTT target must not depend on raw imports, because geocint already has the imported table.",
+        )
+
     def test_osm_merge_target_overwrites_existing_mid_pbf(self) -> None:
         """OSM merge refresh should succeed when the merged PBF already exists."""
         makefile_text = (REPO_ROOT / "Makefile").read_text()
