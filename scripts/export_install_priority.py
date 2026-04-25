@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import math
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -141,17 +142,39 @@ def summarize_connector_summaries(
 def choose_primary_previous_tower_id(
     plan_row,
     rank_by_tower_id: dict[int, int | None],
+    towers_by_id: dict[int, Any] | None = None,
 ) -> int | str:
     """Pick the previous node that best represents the rollout corridor on the map."""
 
     if not plan_row.previous_connection_ids:
         return ""
 
-    def predecessor_score(tower_id: int) -> tuple[int, int]:
+    def predecessor_distance_m(tower_id: int) -> float:
+        if not towers_by_id:
+            return float("inf")
+        current_tower = towers_by_id.get(plan_row.tower_id)
+        previous_tower = towers_by_id.get(tower_id)
+        if not current_tower or not previous_tower:
+            return float("inf")
+
+        current_lat = math.radians(current_tower.lat)
+        previous_lat = math.radians(previous_tower.lat)
+        delta_lat = previous_lat - current_lat
+        delta_lon = math.radians(previous_tower.lon - current_tower.lon)
+        haversine = (
+            math.sin(delta_lat / 2) ** 2
+            + math.cos(current_lat)
+            * math.cos(previous_lat)
+            * math.sin(delta_lon / 2) ** 2
+        )
+
+        return 2 * 6_371_000 * math.asin(math.sqrt(haversine))
+
+    def predecessor_score(tower_id: int) -> tuple[float, int, int]:
         rank = rank_by_tower_id.get(tower_id)
         rank_value = -1 if rank is None else rank
 
-        return (rank_value, -tower_id)
+        return (-predecessor_distance_m(tower_id), rank_value, -tower_id)
 
     return max(
         plan_row.previous_connection_ids,
@@ -389,6 +412,7 @@ def export_rows(
                 "primary_previous_tower_id": choose_primary_previous_tower_id(
                     plan_row,
                     rank_by_tower_id,
+                    towers_by_id,
                 ),
                 "previous_connection_ids": list(plan_row.previous_connection_ids),
                 "inter_cluster_neighbor_ids": connector_metadata[

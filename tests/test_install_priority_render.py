@@ -854,6 +854,49 @@ class InstallPriorityRenderTests(unittest.TestCase):
             msg=f"Primary map predecessor should prefer the latest earlier rollout step, got {primary_previous_tower_id!r} for row {plan_row!r}",
         )
 
+    def test_choose_primary_previous_tower_id_prefers_nearest_visible_backlink(self) -> None:
+        """Map route segments should draw the nearest direct predecessor when several are visible."""
+
+        plan_row = PlanRow(
+            cluster_key="ge:seed:1",
+            cluster_label="Georgia / Batumi",
+            cluster_install_rank=5,
+            is_next_for_cluster=False,
+            rollout_status="planned",
+            installed=False,
+            tower_id=74,
+            label="route #74",
+            source="route",
+            impact_score=0,
+            impact_tower_count=0,
+            next_unlock_count=0,
+            backlink_count=2,
+            previous_connection_ids=(61, 73),
+            next_connection_ids=(),
+            lon=41.61,
+            lat=41.71,
+        )
+        towers_by_id = {
+            61: TowerRecord(61, "seed", 41.60, 41.70, "near seed", True),
+            73: TowerRecord(73, "route", 42.60, 42.70, "latest far route", False),
+            74: TowerRecord(74, "route", 41.61, 41.71, "route #74", False),
+        }
+
+        primary_previous_tower_id = choose_primary_previous_tower_id(
+            plan_row,
+            {
+                61: 0,
+                73: 4,
+            },
+            towers_by_id,
+        )
+
+        self.assertEqual(
+            primary_previous_tower_id,
+            61,
+            msg=f"Primary map predecessor should use the nearest visible backlink to avoid zigzag route lines, got {primary_previous_tower_id!r} for row {plan_row!r}",
+        )
+
     def test_build_display_name_prefers_place_road_and_hides_raw_numbering(self) -> None:
         """Human display names should be location-first instead of raw source-number labels."""
 
