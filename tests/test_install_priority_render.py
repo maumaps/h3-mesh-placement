@@ -559,6 +559,44 @@ class InstallPriorityRenderTests(unittest.TestCase):
             msg=f"Predecessor order validation should reject planned rows without predecessors, got {invalid_references!r}",
         )
 
+    def test_install_priority_edge_assertion_allows_installed_backbone_links(self) -> None:
+        """CSV predecessor validation should allow same-rank links between installed roots."""
+
+        rows = [
+            {
+                "tower_id": "1",
+                "cluster_key": "seed:1",
+                "cluster_install_rank": "0",
+                "primary_previous_tower_id": "2",
+                "installed": "true",
+                "rollout_status": "installed",
+            },
+            {
+                "tower_id": "2",
+                "cluster_key": "seed:1",
+                "cluster_install_rank": "0",
+                "primary_previous_tower_id": "1",
+                "installed": "true",
+                "rollout_status": "installed",
+            },
+            {
+                "tower_id": "3",
+                "cluster_key": "seed:1",
+                "cluster_install_rank": "1",
+                "primary_previous_tower_id": "1",
+                "installed": "false",
+                "rollout_status": "next",
+            },
+        ]
+
+        invalid_references = invalid_primary_previous_order(rows)
+
+        self.assertEqual(
+            invalid_references,
+            [],
+            msg=f"Installed seed/MQTT backbone links are map context, not install-order regressions, got {invalid_references!r}",
+        )
+
     def test_reachable_seed_mqtt_overview_uses_los_cache_against_live_towers(self) -> None:
         """Overview M/S markers should come from LOS reachability, not only mesh_visibility_edges rows."""
 

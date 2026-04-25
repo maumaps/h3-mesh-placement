@@ -146,6 +146,10 @@ def invalid_primary_previous_order(rows: list[dict[str, str]]) -> list[str]:
             continue
 
         previous_rank = int(previous_row["cluster_install_rank"])
+        installed = str(row.get("installed") or "").strip().lower()
+        if tower_rank == 0 and installed == "true":
+            continue
+
         if previous_rank >= tower_rank:
             invalid_references.append(
                 f"{tower_id}->{previous_tower_id}: predecessor rank {previous_rank} "
