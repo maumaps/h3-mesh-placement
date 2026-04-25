@@ -1342,6 +1342,21 @@ class InstallPriorityRenderTests(unittest.TestCase):
             msg="Basemap switcher buttons should have a visible active state.",
         )
         self.assertIn(
+            ".basemap-control{display:flex;overflow:hidden;width:auto;max-width:none;}",
+            html_text,
+            msg="Basemap switcher should override MapLibre control sizing so Map/Satellite/Terrain labels do not overlap.",
+        )
+        self.assertIn(
+            "min-width:42px;height:30px",
+            html_text,
+            msg="Basemap switcher buttons should reserve enough space for text labels instead of inheriting square icon-button sizing.",
+        )
+        self.assertIn(
+            "white-space:nowrap;",
+            html_text,
+            msg="Basemap switcher labels should stay readable inside the control instead of wrapping into the map.",
+        )
+        self.assertIn(
             "Earliest cluster connector",
             html_text,
             msg="HTML handout should explain that dashed connector lines show the earliest cluster corridor used for phase-one cutoff.",
