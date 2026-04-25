@@ -526,6 +526,41 @@ class InstallPriorityTests(unittest.TestCase):
             msg=f"Batumi queue should choose the cluster-joining boundary node before the higher-reach internal node, got next rows {next_rows!r} from rows {plan_rows!r}",
         )
 
+    def test_build_cluster_plan_walks_toward_connector_in_nearest_steps(self) -> None:
+        """Connector rollout should not jump to a far boundary when closer connector-path steps exist."""
+
+        towers_by_id = {
+            1: TowerRecord(1, "seed", 41.60, 41.70, "Batumi", True, country_code="ge", country_name="Georgia"),
+            2: TowerRecord(2, "route", 41.61, 41.71, "near step", False, people_estimate=100, country_code="ge", country_name="Georgia"),
+            3: TowerRecord(3, "route", 41.62, 41.72, "middle step", False, people_estimate=100, country_code="ge", country_name="Georgia"),
+            4: TowerRecord(4, "route", 41.63, 41.73, "far boundary", False, people_estimate=100, country_code="ge", country_name="Georgia"),
+            10: TowerRecord(10, "seed", 42.10, 42.20, "Tbilisi", True, country_code="ge", country_name="Georgia"),
+            11: TowerRecord(11, "route", 42.11, 42.21, "peer boundary", False, people_estimate=100, country_code="ge", country_name="Georgia"),
+        }
+        adjacency = build_adjacency(
+            [
+                (1, 2, 1000.0),
+                (2, 3, 1000.0),
+                (3, 4, 1000.0),
+                (1, 4, 90000.0),
+                (10, 11, 100000.0),
+                (4, 11, 1000.0),
+            ]
+        )
+
+        plan_rows = build_cluster_plan(towers_by_id, adjacency)
+        batumi_rows_by_rank = {
+            row.cluster_install_rank: row.tower_id
+            for row in plan_rows
+            if row.cluster_label == "Batumi"
+        }
+
+        self.assertEqual(
+            [batumi_rows_by_rank[rank] for rank in (1, 2, 3)],
+            [2, 3, 4],
+            msg=f"Connector-oriented rollout should walk through near visible steps instead of drawing one long zigzag jump to the boundary, got rows {plan_rows!r}",
+        )
+
     def test_build_cluster_plan_can_choose_cross_country_cluster_join(self) -> None:
         """Cross-country joins should still be eligible once no same-country join beats them."""
 

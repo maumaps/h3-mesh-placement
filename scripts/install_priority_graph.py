@@ -454,7 +454,7 @@ def _plan_seed_cluster(
             )
             break
 
-        best_choice: tuple[tuple[int, int, float, int, int, int, int, int], int, tuple[int, ...], tuple[int, ...]] | None = None
+        best_choice: tuple[tuple[int, float, int, float, int, int, int, int, int, int], int, tuple[int, ...], tuple[int, ...]] | None = None
 
         for tower_id in sorted(frontier_ids):
             # Keep explicit backlinks so the handout can say what this node reaches now.
@@ -464,6 +464,12 @@ def _plan_seed_cluster(
                     for neighbor_id in adjacency.get(tower_id, {})
                     if neighbor_id in active_ids
                 )
+            )
+            # Grow the field route from the current backbone by the shortest
+            # next visible step before considering less local impact tie-breakers.
+            nearest_active_distance_m = min(
+                adjacency[tower_id][neighbor_id]
+                for neighbor_id in previous_connection_ids
             )
 
             # Impact counts the downstream frontier size, while the main score is an
@@ -517,6 +523,7 @@ def _plan_seed_cluster(
 
             choice_score = (
                 connector_reachable,
+                -nearest_active_distance_m,
                 connector_hops,
                 connector_distance,
                 connector_cluster_count,
@@ -550,8 +557,8 @@ def _plan_seed_cluster(
                 tower_id=chosen_tower.tower_id,
                 label=chosen_tower.label,
                 source=chosen_tower.source,
-                impact_score=best_choice[0][4],
-                impact_tower_count=best_choice[0][5],
+                impact_score=best_choice[0][5],
+                impact_tower_count=best_choice[0][6],
                 next_unlock_count=len(next_connection_ids),
                 backlink_count=len(previous_connection_ids),
                 previous_connection_ids=previous_connection_ids,
@@ -594,7 +601,7 @@ def _plan_detached_cluster(
             if any(neighbor_id in active_detached_ids for neighbor_id in adjacency.get(tower_id, {}))
         }
         candidate_ids = frontier_ids or remaining_ids
-        best_choice: tuple[tuple[int, int, int, int, int], int, tuple[int, ...], tuple[int, ...]] | None = None
+        best_choice: tuple[tuple[int, float, int, int, int, int], int, tuple[int, ...], tuple[int, ...]] | None = None
 
         for tower_id in sorted(candidate_ids):
             previous_connection_ids = tuple(
@@ -603,6 +610,16 @@ def _plan_detached_cluster(
                     for neighbor_id in adjacency.get(tower_id, {})
                     if neighbor_id in active_detached_ids
                 )
+            )
+            # Detached islands use the same local-growth rule once their first
+            # node establishes a temporary backbone for the rest of the island.
+            nearest_active_distance_m = (
+                min(
+                    adjacency[tower_id][neighbor_id]
+                    for neighbor_id in previous_connection_ids
+                )
+                if previous_connection_ids
+                else float("inf")
             )
             unlocked_component_ids = component_members(
                 start_id=tower_id,
@@ -628,6 +645,7 @@ def _plan_detached_cluster(
             )
             choice_score = (
                 len(previous_connection_ids),
+                -nearest_active_distance_m,
                 impact_people_est,
                 len(unlocked_component_ids),
                 SOURCE_PRIORITY.get(towers_by_id[tower_id].source, 0),
