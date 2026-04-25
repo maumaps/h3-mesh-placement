@@ -743,6 +743,7 @@ if (!payloadEl || !window.maplibregl) {
   }));
   const activeClusterMaps = new Map();
   const maxActiveClusterMaps = 4;
+  const prefersLazyClusterMaps = () => window.matchMedia('(max-width: 920px)').matches;
   let overviewMap = null;
   let overviewOrderMarkers = [];
 
@@ -769,7 +770,6 @@ if (!payloadEl || !window.maplibregl) {
     return document.fullscreenElement === container || container.contains(document.fullscreenElement);
   };
   const unmountClusterMapById = (mapId) => {
-    const cluster = clusterByMapId.get(mapId);
     const container = document.getElementById(mapId);
     const clusterMap = activeClusterMaps.get(mapId);
 
@@ -783,6 +783,7 @@ if (!payloadEl || !window.maplibregl) {
     return true;
   };
   const enforceClusterMapLimit = (preferredMapId = '') => {
+    if (!prefersLazyClusterMaps()) return;
     if (activeClusterMaps.size <= maxActiveClusterMaps) return;
 
     Array.from(activeClusterMaps.keys()).forEach((mapId) => {
@@ -951,6 +952,13 @@ if (!payloadEl || !window.maplibregl) {
     return rect.bottom >= -preloadMargin && rect.top <= window.innerHeight + preloadMargin;
   };
   const syncVisibleClusterMaps = () => {
+    if (!prefersLazyClusterMaps()) {
+      clusterMapTargets.forEach((cluster) => {
+        if (clusterContainerIsVisible(cluster)) mountClusterMap(cluster);
+      });
+      return;
+    }
+
     clusterMapTargets.forEach((cluster) => {
       if (!clusterContainerIsVisible(cluster)) {
         unmountClusterMap(cluster);
@@ -974,8 +982,17 @@ if (!payloadEl || !window.maplibregl) {
     return mountClusterMap(cluster);
   };
   const initializeClusterMaps = () => {
-    if (!window.IntersectionObserver) {
+    if (!window.IntersectionObserver || !prefersLazyClusterMaps()) {
       syncVisibleClusterMaps();
+      setTimeout(syncVisibleClusterMaps, 250);
+      window.addEventListener('resize', syncVisibleClusterMaps);
+      window.addEventListener('orientationchange', syncVisibleClusterMaps);
+      window.addEventListener('focus', syncVisibleClusterMaps);
+      window.addEventListener('pageshow', syncVisibleClusterMaps);
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') syncVisibleClusterMaps();
+      });
+      document.addEventListener('fullscreenchange', syncVisibleClusterMaps);
       return;
     }
 

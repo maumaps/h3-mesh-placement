@@ -223,6 +223,21 @@ class InstallPriorityMobileTests(unittest.TestCase):
             msg="Cluster-map lazy mounting should activate only on narrow screens where mobile Chrome is most likely to run out of rendering resources.",
         )
         self.assertIn(
+            "if (!prefersLazyClusterMaps()) return;",
+            html_text,
+            msg="The WebGL context cap should apply only on mobile-sized screens so desktop reports do not silently remove visible mini maps.",
+        )
+        self.assertIn(
+            "if (!prefersLazyClusterMaps()) {",
+            html_text,
+            msg="Wide reports should use an eager cluster-map sync path instead of the mobile offscreen unmounting behavior.",
+        )
+        self.assertIn(
+            "if (clusterContainerIsVisible(cluster)) mountClusterMap(cluster);",
+            html_text,
+            msg="The wide-screen sync path should mount every visible cluster map so overview and detail embeds do not appear blank.",
+        )
+        self.assertIn(
             "new IntersectionObserver((entries) => {",
             html_text,
             msg="Cluster mini maps should be lazily mounted with IntersectionObserver so offscreen maps do not all initialize at once on phones.",

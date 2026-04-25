@@ -1208,10 +1208,15 @@ class InstallPriorityRenderTests(unittest.TestCase):
             html_text,
             msg="HTML handout should unmount older offscreen cluster maps when too many MapLibre contexts are active.",
         )
-        self.assertNotIn(
-            "!prefersLazyClusterMaps()",
+        self.assertIn(
+            "if (!prefersLazyClusterMaps()) {",
             html_text,
-            msg="Desktop reports should also lazy-mount cluster maps instead of eagerly creating every WebGL context.",
+            msg="Desktop reports should eagerly mount visible cluster maps so the opened handout does not show blank detail embeds.",
+        )
+        self.assertIn(
+            "if (!prefersLazyClusterMaps()) return;",
+            html_text,
+            msg="The active WebGL map cap should remain scoped to narrow mobile screens where browser context loss is the real constraint.",
         )
         self.assertIn(
             "setupClusterViewTabs",
