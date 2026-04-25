@@ -1347,7 +1347,7 @@ class InstallPriorityRenderTests(unittest.TestCase):
             msg="Basemap switcher should override MapLibre control sizing so Map/Satellite/Terrain labels do not overlap.",
         )
         self.assertIn(
-            "min-width:42px;height:30px",
+            "min-width:64px;height:30px",
             html_text,
             msg="Basemap switcher buttons should reserve enough space for text labels instead of inheriting square icon-button sizing.",
         )
