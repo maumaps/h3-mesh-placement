@@ -214,6 +214,41 @@ class InstallPriorityTests(unittest.TestCase):
             msg=f"MQTT row should belong to one of the seed-created clusters, got row {mqtt_rows[0]!r}",
         )
 
+    def test_build_cluster_plan_does_not_start_from_disconnected_mqtt(self) -> None:
+        """Disconnected installed MQTT should not act as a free active root for rollout ordering."""
+
+        towers_by_id = {
+            1: TowerRecord(1, "seed", 41.60, 41.70, "Batumi", True),
+            2: TowerRecord(2, "mqtt", 42.00, 42.00, "disconnected mqtt", True),
+            3: TowerRecord(3, "route", 42.01, 42.01, "behind mqtt", False, people_estimate=5000),
+            4: TowerRecord(4, "route", 41.61, 41.71, "seed frontier", False, people_estimate=100),
+        }
+        adjacency = build_adjacency(
+            [
+                (1, 4, 1000.0),
+                (2, 3, 1000.0),
+            ]
+        )
+
+        plan_rows = build_cluster_plan(towers_by_id, adjacency)
+        next_row = next(row for row in plan_rows if row.is_next_for_cluster)
+        planned_tower_ids = {
+            row.tower_id
+            for row in plan_rows
+            if not row.installed
+        }
+
+        self.assertEqual(
+            next_row.tower_id,
+            4,
+            msg=f"Rollout should start from the seed-connected frontier, not from a disconnected MQTT island, got rows {plan_rows!r}",
+        )
+        self.assertNotIn(
+            3,
+            planned_tower_ids,
+            msg=f"Nodes reachable only from a disconnected MQTT island should not be scheduled until the seed-side graph reaches that island, got rows {plan_rows!r}",
+        )
+
     def test_build_cluster_plan_prefers_more_people_even_if_route_exists(self) -> None:
         """Impact is now estimated people reach, so a higher-reach cluster node can beat a route node."""
 

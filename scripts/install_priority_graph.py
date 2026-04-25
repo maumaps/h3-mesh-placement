@@ -377,7 +377,11 @@ def _plan_seed_cluster(
         for tower_id in cluster_tower_ids
         if towers_by_id[tower_id].installed
     }
-    active_ids = set(installed_ids)
+    active_ids = _installed_ids_connected_to_seed(
+        cluster_seed_ids=cluster_seed_ids,
+        installed_ids=installed_ids,
+        adjacency=adjacency,
+    )
     remaining_ids = set(cluster_tower_ids) - active_ids
     plan_rows: list[PlanRow] = []
 
@@ -441,17 +445,6 @@ def _plan_seed_cluster(
         }
 
         if not frontier_ids:
-            plan_rows.extend(
-                _plan_detached_cluster(
-                    towers_by_id=towers_by_id,
-                    cluster_key=cluster_key,
-                    cluster_label=cluster_label,
-                    adjacency=adjacency,
-                    tower_ids=tuple(sorted(remaining_ids)),
-                    start_rank=rank,
-                    first_candidate=first_candidate,
-                )
-            )
             break
 
         best_choice: tuple[tuple[int, float, int, float, int, int, int, int, int, int], int, tuple[int, ...], tuple[int, ...]] | None = None
@@ -546,6 +539,11 @@ def _plan_seed_cluster(
         assert best_choice is not None, "Frontier selection unexpectedly produced no candidate."
         _, chosen_id, previous_connection_ids, next_connection_ids = best_choice
         chosen_tower = towers_by_id[chosen_id]
+        if chosen_tower.installed:
+            active_ids.add(chosen_id)
+            remaining_ids.remove(chosen_id)
+            continue
+
         plan_rows.append(
             PlanRow(
                 cluster_key=cluster_key,
@@ -573,6 +571,37 @@ def _plan_seed_cluster(
         first_candidate = False
 
     return plan_rows
+
+
+def _installed_ids_connected_to_seed(
+    *,
+    cluster_seed_ids: Sequence[int],
+    installed_ids: set[int],
+    adjacency: Mapping[int, Mapping[int, float]],
+) -> set[int]:
+    """Return installed nodes already connected to this seed through installed links."""
+
+    active_ids: set[int] = set()
+    queue = [
+        seed_id
+        for seed_id in sorted(cluster_seed_ids)
+        if seed_id in installed_ids
+    ]
+
+    while queue:
+        tower_id = queue.pop(0)
+        if tower_id in active_ids:
+            continue
+
+        active_ids.add(tower_id)
+        queue.extend(
+            neighbor_id
+            for neighbor_id in sorted(adjacency.get(tower_id, {}))
+            if neighbor_id in installed_ids
+            and neighbor_id not in active_ids
+        )
+
+    return active_ids
 
 
 def _plan_detached_cluster(
