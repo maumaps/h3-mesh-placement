@@ -428,40 +428,52 @@ begin
         into needed_claim_count
         from mesh_route_cluster_slim_claim_needed;
 
-        with inserted as (
-            insert into mesh_route_cluster_slim_claims (
-                iteration_label,
-                claim_h3,
-                source_id,
-                target_id,
-                worker_index,
-                claim_stage
+        begin
+            -- Keep only the short shared-claim mutation serialized.
+            -- Expensive pgRouting stays parallel after this block releases.
+            perform pg_advisory_lock(hashtext('mesh_route_cluster_slim_claims_write'));
+
+            with inserted as (
+                insert into mesh_route_cluster_slim_claims (
+                    iteration_label,
+                    claim_h3,
+                    source_id,
+                    target_id,
+                    worker_index,
+                    claim_stage
+                )
+                select
+                    iteration_number,
+                    needed.claim_h3,
+                    candidate_pair.source_id,
+                    candidate_pair.target_id,
+                    p_worker_index,
+                    'approx'
+                from mesh_route_cluster_slim_claim_needed needed
+                -- Parallel workers can overlap on many coarse buckets.
+                -- Insert claims in deterministic index order before ON CONFLICT.
+                order by needed.claim_h3
+                on conflict (iteration_label, claim_h3) do nothing
+                returning 1
             )
-            select
-                iteration_number,
-                needed.claim_h3,
-                candidate_pair.source_id,
-                candidate_pair.target_id,
-                p_worker_index,
-                'approx'
-            from mesh_route_cluster_slim_claim_needed needed
-            -- Parallel workers can overlap on many coarse buckets.
-            -- Insert claims in deterministic index order so PostgreSQL does not
-            -- deadlock while checking the shared (iteration_label, claim_h3) key.
-            order by needed.claim_h3
-            on conflict (iteration_label, claim_h3) do nothing
-            returning 1
-        )
-        select count(*)
-        into inserted_claim_count
-        from inserted;
+            select count(*)
+            into inserted_claim_count
+            from inserted;
+
+            if inserted_claim_count <> needed_claim_count then
+                delete from mesh_route_cluster_slim_claims claims
+                where claims.iteration_label = iteration_number
+                  and claims.source_id = candidate_pair.source_id
+                  and claims.target_id = candidate_pair.target_id;
+            end if;
+
+            perform pg_advisory_unlock(hashtext('mesh_route_cluster_slim_claims_write'));
+        exception when others then
+            perform pg_advisory_unlock(hashtext('mesh_route_cluster_slim_claims_write'));
+            raise;
+        end;
 
         if inserted_claim_count <> needed_claim_count then
-            delete from mesh_route_cluster_slim_claims claims
-            where claims.iteration_label = iteration_number
-              and claims.source_id = candidate_pair.source_id
-              and claims.target_id = candidate_pair.target_id;
-
             update mesh_route_cluster_slim_candidate_queue q
             set status = 'claim_conflict',
                 reason = format('approx claim conflict: inserted %s of %s r%s bucket(s)', inserted_claim_count, needed_claim_count, claim_resolution)
@@ -628,48 +640,59 @@ begin
               and claims.target_id = best_pair.target_id
         );
 
-        with inserted as (
-            insert into mesh_route_cluster_slim_claims (
-                iteration_label,
-                claim_h3,
-                source_id,
-                target_id,
-                worker_index,
-                claim_stage
+        begin
+            -- Exact path claims touch the same shared unique H3 bucket key as
+            -- approximate claims, so this short write section is serialized too.
+            perform pg_advisory_lock(hashtext('mesh_route_cluster_slim_claims_write'));
+
+            with inserted as (
+                insert into mesh_route_cluster_slim_claims (
+                    iteration_label,
+                    claim_h3,
+                    source_id,
+                    target_id,
+                    worker_index,
+                    claim_stage
+                )
+                select
+                    iteration_number,
+                    needed.claim_h3,
+                    best_pair.source_id,
+                    best_pair.target_id,
+                    p_worker_index,
+                    'exact'
+                from mesh_route_cluster_slim_claim_needed needed
+                where not exists (
+                    select 1
+                    from mesh_route_cluster_slim_claims own_claim
+                    where own_claim.iteration_label = iteration_number
+                      and own_claim.claim_h3 = needed.claim_h3
+                      and own_claim.source_id = best_pair.source_id
+                      and own_claim.target_id = best_pair.target_id
+                )
+                -- Keep exact claims in the same unique-index order as approximate claims.
+                order by needed.claim_h3
+                on conflict (iteration_label, claim_h3) do nothing
+                returning 1
             )
-            select
-                iteration_number,
-                needed.claim_h3,
-                best_pair.source_id,
-                best_pair.target_id,
-                p_worker_index,
-                'exact'
-            from mesh_route_cluster_slim_claim_needed needed
-            where not exists (
-                select 1
-                from mesh_route_cluster_slim_claims own_claim
-                where own_claim.iteration_label = iteration_number
-                  and own_claim.claim_h3 = needed.claim_h3
-                  and own_claim.source_id = best_pair.source_id
-                  and own_claim.target_id = best_pair.target_id
-            )
-            -- Keep exact claims in the same unique-index order as approximate
-            -- claims; otherwise two workers can wait on each other's speculative
-            -- insertion locks for adjacent H3 buckets.
-            order by needed.claim_h3
-            on conflict (iteration_label, claim_h3) do nothing
-            returning 1
-        )
-        select count(*)
-        into inserted_claim_count
-        from inserted;
+            select count(*)
+            into inserted_claim_count
+            from inserted;
+
+            if inserted_claim_count <> needed_claim_count then
+                delete from mesh_route_cluster_slim_claims claims
+                where claims.iteration_label = iteration_number
+                  and claims.source_id = best_pair.source_id
+                  and claims.target_id = best_pair.target_id;
+            end if;
+
+            perform pg_advisory_unlock(hashtext('mesh_route_cluster_slim_claims_write'));
+        exception when others then
+            perform pg_advisory_unlock(hashtext('mesh_route_cluster_slim_claims_write'));
+            raise;
+        end;
 
         if inserted_claim_count <> needed_claim_count then
-            delete from mesh_route_cluster_slim_claims claims
-            where claims.iteration_label = iteration_number
-              and claims.source_id = best_pair.source_id
-              and claims.target_id = best_pair.target_id;
-
             update mesh_route_cluster_slim_candidate_queue q
             set status = 'exact_claim_conflict',
                 reason = format('exact claim conflict: inserted %s of %s extra r%s bucket(s)', inserted_claim_count, needed_claim_count, claim_resolution)
