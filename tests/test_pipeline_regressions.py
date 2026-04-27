@@ -2129,6 +2129,16 @@ class PipelineRegressionTest(unittest.TestCase):
             "Auto redundancy should derive the same bridge edges that the review gate reports.",
         )
         self.assertIn(
+            "articulation_report as",
+            redundancy_sql,
+            "Auto redundancy should also derive cut nodes because a graph can have articulation towers after bridge edges are repaired.",
+        )
+        self.assertIn(
+            "cut_candidates as",
+            redundancy_sql,
+            "Auto redundancy should add anchors across opposite sides of a cut node, not only around bridge edges.",
+        )
+        self.assertIn(
             "join mesh_los_cache source_link",
             redundancy_sql,
             "Auto redundancy should use cached positive-clearance LOS from the source endpoint to candidate anchors.",
