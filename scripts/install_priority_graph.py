@@ -447,7 +447,7 @@ def _plan_seed_cluster(
         if not frontier_ids:
             break
 
-        best_choice: tuple[tuple[int, float, int, float, int, int, int, int, int, int], int, tuple[int, ...], tuple[int, ...]] | None = None
+        best_choice: tuple[tuple[int, float, int, int, float, int, int, int, int, int, int], int, tuple[int, ...], tuple[int, ...]] | None = None
 
         for tower_id in sorted(frontier_ids):
             # Keep explicit backlinks so the handout can say what this node reaches now.
@@ -486,8 +486,12 @@ def _plan_seed_cluster(
                 adjacency=adjacency,
             )
             connector_reachable = 1 if connector_path is not None else 0
-            connector_hops = -connector_path[0] if connector_path else -10**6
-            connector_distance = -connector_path[1] if connector_path else float("-inf")
+            total_connector_hops = -(connector_path[0] + 1) if connector_path else -10**6
+            total_connector_distance = (
+                -(nearest_active_distance_m + connector_path[1])
+                if connector_path
+                else float("-inf")
+            )
             connector_cluster_count = len(
                 {
                     cluster_by_tower_id[neighbor_id]
@@ -516,10 +520,10 @@ def _plan_seed_cluster(
 
             choice_score = (
                 connector_reachable,
-                -nearest_active_distance_m,
-                connector_hops,
-                connector_distance,
+                total_connector_distance,
+                total_connector_hops,
                 connector_cluster_count,
+                -nearest_active_distance_m,
                 impact_people_est,
                 unlocked_component_size,
                 len(next_connection_ids),

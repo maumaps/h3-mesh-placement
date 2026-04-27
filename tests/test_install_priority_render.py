@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import unittest
 
@@ -26,6 +27,7 @@ from scripts.install_priority_lib import (
     render_html_document,
 )
 from scripts.install_priority_map_payload import dedupe_clusters
+from scripts.install_priority_map_payload import filter_overview_seed_mqtt_points
 from scripts.install_priority_map_payload import phase_one_connector_features
 from scripts.install_priority_render import _cluster_map_aspect_ratio
 from scripts.install_priority_render import _default_cluster_max_rank
@@ -707,8 +709,8 @@ class InstallPriorityRenderTests(unittest.TestCase):
 
         self.assertEqual(
             points[0]["marker"],
-            "m",
-            msg=f"Reachable MQTT overview rows should survive as m markers, got points {points!r}",
+            "M",
+            msg=f"Reachable MQTT overview rows should survive as M markers, got points {points!r}",
         )
         self.assertEqual(
             links[0]["target_h3"],
@@ -793,6 +795,60 @@ class InstallPriorityRenderTests(unittest.TestCase):
             [point["name"] for point in filtered_points],
             ["Komzpa", "First MQTT", "Far MQTT"],
             msg=f"Nearby MQTT overview points should disappear when a seed or earlier MQTT already covers that place, got {filtered_points!r}",
+        )
+
+    def test_overview_context_points_skip_rows_already_rendered_in_main_plan(self) -> None:
+        """Overview seed/MQTT context points should not duplicate rollout rows already on the map."""
+
+        filtered_points = filter_overview_seed_mqtt_points(
+            [
+                {
+                    "lon": 41.651175,
+                    "lat": 41.626359,
+                },
+                {
+                    "lon": 44.700000,
+                    "lat": 40.800000,
+                },
+            ],
+            [
+                {
+                    "h3": "seed-h3",
+                    "name": "Feria 2",
+                    "source": "seed",
+                    "marker": "S",
+                    "lon": 41.651175,
+                    "lat": 41.626359,
+                    "country_code": "ge",
+                    "country_name": "Georgia",
+                },
+                {
+                    "h3": "mqtt-h3",
+                    "name": "Marmarik",
+                    "source": "mqtt",
+                    "marker": "M",
+                    "lon": 44.700000,
+                    "lat": 40.800000,
+                    "country_code": "am",
+                    "country_name": "Armenia",
+                },
+                {
+                    "h3": "unique-h3",
+                    "name": "Unique MQTT",
+                    "source": "mqtt",
+                    "marker": "M",
+                    "lon": 45.100000,
+                    "lat": 41.000000,
+                    "country_code": "ge",
+                    "country_name": "Georgia",
+                },
+            ],
+        )
+
+        self.assertEqual(
+            [point["name"] for point in filtered_points],
+            ["Unique MQTT"],
+            msg=f"Overview context filtering should drop duplicate rollout rows and keep only non-overlapping points, got {filtered_points!r}",
         )
 
     def test_cluster_bound_query_uses_geodesic_buffer_mask_for_voronoi_clip(self) -> None:
@@ -1108,9 +1164,9 @@ class InstallPriorityRenderTests(unittest.TestCase):
                     "h3": "882c2026d7fffff",
                     "name": "Feria 2",
                     "source": "seed",
-                    "marker": "s",
-                    "lon": 41.60,
-                    "lat": 41.70,
+                    "marker": "S",
+                    "lon": float(output_rows[1]["lon"]),
+                    "lat": float(output_rows[1]["lat"]),
                     "country_code": "ge",
                     "country_name": "Georgia",
                 },
@@ -1118,7 +1174,7 @@ class InstallPriorityRenderTests(unittest.TestCase):
                     "h3": "882c01da1bfffff",
                     "name": "Yerevan MQTT",
                     "source": "mqtt",
-                    "marker": "m",
+                    "marker": "M",
                     "lon": 44.52,
                     "lat": 40.18,
                     "country_code": "am",
@@ -1442,7 +1498,7 @@ class InstallPriorityRenderTests(unittest.TestCase):
         self.assertIn(
             "addSeedMqttMarkers",
             html_text,
-            msg="HTML handout should render dedicated m/s map markers for reachable seed and MQTT points.",
+            msg="HTML handout should render dedicated S/M map markers for reachable seed and MQTT points.",
         )
         self.assertLess(
             html_text.index("addSeedMqttMarkers(overviewMap, overviewSeedMqtt)"),
@@ -1455,9 +1511,9 @@ class InstallPriorityRenderTests(unittest.TestCase):
             msg="HTML handout should render every direct visible link touching the seed/MQTT overview points.",
         )
         self.assertIn(
-            "markerEl.textContent = source === 'mqtt' ? 'm' : 's';",
+            "markerEl.textContent = source === 'mqtt' ? 'M' : 'S';",
             html_text,
-            msg="Reachable overview points should be labeled with m/s markers on the map.",
+            msg="Reachable overview points should use uppercase S/M labels on the map.",
         )
         self.assertIn(
             "order-marker seed-mqtt-marker",
@@ -1465,14 +1521,24 @@ class InstallPriorityRenderTests(unittest.TestCase):
             msg="Reachable overview seed/MQTT markers should have a dedicated class so they can receive pointer events without blocking rollout order labels.",
         )
         self.assertIn(
-            ".order-marker.seed-mqtt-marker{pointer-events:auto;cursor:pointer;}",
+            "order-marker seed-mqtt-marker installed overview",
             html_text,
-            msg="Reachable overview seed/MQTT markers should be clickable while regular rollout order markers remain click-through.",
+            msg="Reachable overview seed/MQTT markers should render as installed infrastructure rather than planned nodes.",
         )
         self.assertIn(
             "markerEl.tabIndex = 0;",
             html_text,
             msg="Reachable overview seed/MQTT markers should be keyboard-focusable for opening their popups.",
+        )
+        payload_json = html_text.split(
+            "<script id='install-priority-data' type='application/json'>",
+            1,
+        )[1].split("</script>", 1)[0]
+        payload = json.loads(payload_json)
+        self.assertEqual(
+            [point["name"] for point in payload["mqtt_points"]],
+            ["Yerevan MQTT"],
+            msg=f"Overview payload should drop the duplicate Feria 2 point already shown in the main rows, got {payload['mqtt_points']!r}",
         )
         self.assertIn(
             "[41.58, 41.68]",

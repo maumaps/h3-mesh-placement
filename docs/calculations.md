@@ -200,6 +200,11 @@ The stage then runs `scripts/assert_mesh_towers_single_los_component.sql`, which
 **Requirement:** If a tower has a known local country code and at least one reachable seed cluster in that same country, the planner must keep it in that same-country queue even when a cross-border seed path is slightly shorter.
 Only when no same-country seed queue is reachable may the planner fall back to the nearest visible cross-border queue.
 This is a hard handout invariant, not a cosmetic preference, and the SQL plan plus tests should both enforce it.
+Phase 1 is the minimal connector prefix.
+It first connects installed roots inside each seed-owned cluster, then evaluates every real visible inter-cluster edge from the current active backbone.
+The planner must stop chasing a neighbor cluster once any active local tower has a visible edge to that neighbor.
+It must not insert local helper or coverage nodes unless they lie on the shortest visible path to an unsatisfied connector endpoint.
+The phase-one ranks inside each cluster are installation order and must stay contiguous with no skipped numbers.
 
 ### Cluster slim (`mesh_route_cluster_slim`)
 **Where:** `procedures/mesh_route_cluster_slim.sql`, `tables/mesh_route_cluster_slim_failures.sql`, `tables/mesh_route_cluster_slim_candidate_queue.sql`, `tables/mesh_route_cluster_slim_claims.sql`.

@@ -63,6 +63,28 @@ def dedupe_clusters(
     return deduped_clusters
 
 
+def filter_overview_seed_mqtt_points(
+    normalized_rows: Sequence[Mapping[str, object]],
+    mqtt_points: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    """Drop overview context points already represented in the main rollout rows."""
+
+    occupied_coordinates = {
+        _point_coordinate_key(row)
+        for row in normalized_rows
+        if row.get("lon") not in (None, "")
+        and row.get("lat") not in (None, "")
+    }
+
+    filtered_points: list[dict[str, object]] = []
+    for point in mqtt_points:
+        if _point_coordinate_key(point) in occupied_coordinates:
+            continue
+        filtered_points.append(dict(point))
+
+    return filtered_points
+
+
 def connect_max_rank_by_cluster_from_rows(
     normalized_rows: Sequence[Mapping[str, object]],
 ) -> dict[str, int]:
@@ -246,6 +268,15 @@ def _optional_rank(value: object) -> int | None:
         return None
 
     return int(value)
+
+
+def _point_coordinate_key(point: Mapping[str, object]) -> tuple[float, float]:
+    """Round coordinates so HTML payload filtering survives float formatting noise."""
+
+    return (
+        round(float(point["lon"]), 6),
+        round(float(point["lat"]), 6),
+    )
 
 
 def _cluster_map_id(cluster_key: str) -> str:

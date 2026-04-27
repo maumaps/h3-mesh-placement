@@ -378,7 +378,7 @@ def fetch_reachable_seed_mqtt_overview(
             "h3": str(h3),
             "name": str(name or "Seed node"),
             "source": str(source),
-            "marker": "m" if str(source) == "mqtt" else "s",
+            "marker": "M" if str(source) == "mqtt" else "S",
             "lon": float(lon),
             "lat": float(lat),
             "country_code": str(country_code or ""),

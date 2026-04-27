@@ -302,6 +302,38 @@ class PipelineRegressionTest(unittest.TestCase):
             "Population anchor contraction should not depend on arbitrary building-count thresholds.",
         )
 
+    def test_install_priority_phase_one_uses_active_connector_candidates(self) -> None:
+        """Phase-one installer order should be SQL-owned and connector-minimal."""
+        plan_text = (REPO_ROOT / "tables" / "mesh_install_priority_plan.sql").read_text()
+        handout_text = (REPO_ROOT / "docs" / "install_priority_handout.md").read_text()
+        calculations_text = (REPO_ROOT / "docs" / "calculations.md").read_text()
+
+        self.assertIn(
+            "install_priority_inter_cluster_connector_candidates",
+            plan_text,
+            "mesh_install_priority_plan should materialize every visible connector candidate before choosing a phase-one endpoint.",
+        )
+        self.assertIn(
+            "connected_neighbor_clusters as",
+            plan_text,
+            "Phase-one SQL should stop chasing a neighbor once the active local backbone already has a visible connector to it.",
+        )
+        self.assertIn(
+            "greatest(left_row.cluster_install_rank, right_row.cluster_install_rank)",
+            plan_text,
+            "Connector metadata should use the earliest actually ranked connector instead of a preselected cheapest fallback.",
+        )
+        self.assertIn(
+            "Phase 1 evaluates every direct visible inter-cluster connector candidate",
+            handout_text,
+            "Installer handout docs should state that phase one evaluates all connector candidates, not a preselected pair.",
+        )
+        self.assertIn(
+            "The phase-one ranks inside each cluster are installation order and must stay contiguous with no skipped numbers.",
+            calculations_text,
+            "Calculation docs should record the no-gap phase-one rank invariant that the SQL assertion enforces.",
+        )
+
     def test_initial_nodes_import_does_not_skip_existing_table(self) -> None:
         """Canonical seed refresh should always reach Postgres on rebuild."""
         makefile_text = (REPO_ROOT / "Makefile").read_text()

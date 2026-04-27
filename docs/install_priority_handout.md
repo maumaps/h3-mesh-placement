@@ -89,14 +89,19 @@ Its default connector mode hides later local-improvement rows so the first scree
 That default connector mode is now driven by the SQL-built `mesh_install_priority_plan` table.
 The table uses pgRouting over the live visibility graph to first merge disconnected installed seed and MQTT roots inside each rollout cluster, then extend from that active local backbone to the earliest reachable connector endpoints for neighboring rollout queues.
 It no longer builds a global minimum tree for phase 1, because that could rank helper nodes ahead of a connector endpoint that was already directly reachable from the active graph.
+Phase 1 evaluates every direct visible inter-cluster connector candidate instead of trusting one preselected cheapest pair.
+A neighboring rollout cluster is satisfied as soon as the active local backbone has any real visible edge to that neighbor cluster.
+Helper nodes may appear in phase 1 only when they lie on the shortest visible path from the active backbone to an unsatisfied connector endpoint.
+Local reach and hop-reduction nodes belong in `Improve coverage`, not in the connector prefix.
 Before routing, the SQL plan suppresses imported MQTT roots within 1 km of a curated seed or an earlier kept MQTT point.
 Those duplicates are removed from both the installer roots and the routing graph so a nearby MQTT alias cannot appear as a separate rank-zero node or an invisible intermediate hop.
 Python presentation code may only render that precomputed order and must not invent a separate routing tree during export.
 The full coverage mode shows every rollout number plus the merged Voronoi outline around each cluster’s current extent.
 Dashed gray lines show the earliest visible connector between rollout clusters.
 Those links are context only and do not drive the install order itself.
-The same overview now overlays reachable seed and MQTT import points as `s` and `m` markers.
-For those `s`/`m` points, every unique undirected direct visible link from the live visibility graph is drawn as a thin context line so imported backbone candidates can be inspected without changing the rollout queue itself.
+The same overview now overlays reachable seed and MQTT import points as uppercase `S` and `M` markers.
+Points that are already shown in the main rollout rows are omitted from that context overlay so the map does not duplicate popups for the same node.
+For those `S`/`M` points, every unique undirected direct visible link from the live visibility graph is drawn as a thin context line so imported backbone candidates can be inspected without changing the rollout queue itself.
 In cluster-focused map views, those connector lines and large outer Voronoi edges no longer stretch the viewport away from the local cluster geometry.
 `blocked` means the tower belongs to that rollout queue, yet there is still no visible path from any installed seed to that tower.
 The basemap uses a simple CARTO Voyager raster tile style so the forwarded handout does not depend on MapLibre vector style, glyph, or sprite loading.

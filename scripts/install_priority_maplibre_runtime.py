@@ -461,8 +461,8 @@ if (!payloadEl || !window.maplibregl) {
     featureCollection.features.forEach((feature) => {
       const markerEl = document.createElement('div');
       const source = String(feature.properties.source || '').toLowerCase();
-      markerEl.className = `order-marker seed-mqtt-marker ${source === 'mqtt' ? 'planned' : 'installed'} overview`;
-      markerEl.textContent = source === 'mqtt' ? 'm' : 's';
+      markerEl.className = 'order-marker seed-mqtt-marker installed overview';
+      markerEl.textContent = source === 'mqtt' ? 'M' : 'S';
       markerEl.title = `${feature.properties.name} (${feature.properties.country_name || feature.properties.country_code || 'unknown'})`;
       markerEl.tabIndex = 0;
       markerEl.setAttribute('role', 'button');

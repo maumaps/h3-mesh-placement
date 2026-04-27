@@ -596,6 +596,43 @@ class InstallPriorityTests(unittest.TestCase):
             msg=f"Connector-oriented rollout should walk through near visible steps instead of drawing one long zigzag jump to the boundary, got rows {plan_rows!r}",
         )
 
+    def test_build_cluster_plan_skips_near_helper_when_connector_endpoint_is_shorter_from_active(self) -> None:
+        """Phase one should not add a local helper when the active backbone already has a shorter connector path."""
+
+        towers_by_id = {
+            1: TowerRecord(1, "seed", 44.70, 41.80, "Tbilisi", True, country_code="ge", country_name="Georgia"),
+            2: TowerRecord(2, "route", 44.71, 41.81, "tbilisi helper", False, people_estimate=5000, country_code="ge", country_name="Georgia"),
+            3: TowerRecord(3, "route", 44.72, 41.82, "tbilisi connector", False, people_estimate=100, country_code="ge", country_name="Georgia"),
+            10: TowerRecord(10, "seed", 44.50, 40.17, "Yerevan", True, country_code="am", country_name="Armenia"),
+            11: TowerRecord(11, "mqtt", 44.69, 40.55, "Tsaghkadzor-01", True, country_code="am", country_name="Armenia"),
+        }
+        adjacency = build_adjacency(
+            [
+                (1, 2, 100.0),
+                (1, 3, 500.0),
+                (2, 3, 1000.0),
+                (10, 11, 100.0),
+                (3, 11, 100.0),
+            ]
+        )
+
+        plan_rows = build_cluster_plan(towers_by_id, adjacency)
+        tbilisi_rows_by_rank = {
+            row.cluster_install_rank: row.tower_id
+            for row in plan_rows
+            if row.cluster_label == "Tbilisi"
+        }
+
+        self.assertEqual(
+            tbilisi_rows_by_rank[1],
+            3,
+            msg=(
+                "Tbilisi phase one should choose the connector endpoint directly visible "
+                "from the active seed instead of a nearby helper with more local reach; "
+                f"got Tbilisi ranks {tbilisi_rows_by_rank!r} from rows {plan_rows!r}"
+            ),
+        )
+
     def test_build_cluster_plan_can_choose_cross_country_cluster_join(self) -> None:
         """Cross-country joins should still be eligible once no same-country join beats them."""
 
@@ -835,6 +872,44 @@ class InstallPriorityTests(unittest.TestCase):
                 frozenset({"Gyumri", "Tbilisi"}),
             },
             msg=f"Connector overlay should include cross-country cluster pairs when they are visible, got {connector_pairs!r} from connectors {connectors!r}",
+        )
+
+    def test_select_inter_cluster_connectors_does_not_invent_missing_direct_pair(self) -> None:
+        """Connector overlay should only render direct visible inter-cluster edges."""
+
+        towers_by_id = {
+            1: TowerRecord(1, "seed", 41.60, 41.70, "Batumi", True, country_code="ge", country_name="Georgia"),
+            2: TowerRecord(2, "route", 41.61, 41.71, "batumi boundary", False, country_code="ge", country_name="Georgia"),
+            10: TowerRecord(10, "seed", 44.70, 41.80, "Tbilisi", True, country_code="ge", country_name="Georgia"),
+            11: TowerRecord(11, "route", 44.69, 41.79, "tbilisi boundary", False, country_code="ge", country_name="Georgia"),
+            20: TowerRecord(20, "seed", 43.85, 40.78, "Gyumri", True, country_code="am", country_name="Armenia"),
+            21: TowerRecord(21, "route", 43.84, 40.79, "gyumri boundary", False, country_code="am", country_name="Armenia"),
+        }
+        adjacency = build_adjacency(
+            [
+                (1, 2, 1000.0),
+                (10, 11, 1000.0),
+                (20, 21, 1000.0),
+                (2, 11, 900.0),
+                (11, 21, 900.0),
+            ]
+        )
+
+        plan_rows = build_cluster_plan(towers_by_id, adjacency)
+        connectors = select_inter_cluster_connectors(plan_rows, adjacency)
+        connector_pairs = {
+            frozenset({connector.left_cluster_label, connector.right_cluster_label})
+            for connector in connectors
+        }
+
+        self.assertNotIn(
+            frozenset({"Batumi", "Gyumri"}),
+            connector_pairs,
+            msg=(
+                "Connector overlay must not draw a Batumi-Gyumri shortcut unless "
+                "a direct visible edge exists between those rollout clusters; "
+                f"got pairs {connector_pairs!r} from connectors {connectors!r}"
+            ),
         )
 
 if __name__ == "__main__":

@@ -366,7 +366,7 @@ def render_html_document(
         "<span><i class='bounds-sample'></i>Cluster bounds</span>",
         "<span><i class='line-sample'></i>Direct visible side link</span>",
         "</div>",
-        "<p class='map-note'>The shared map shows the selected rollout scope and phase. Follow the solid line from the installed seed toward rank 1, then 2, then onward. Dashed gray lines show direct visible side links inside the phase-one tree and the earliest visible connector between rollout clusters. Use the cluster controls below to focus the same map on one rollout queue.</p>",
+        "<p class='map-note'>The shared map shows the selected rollout scope and phase. Reachable seed and MQTT context points appear as uppercase S and M markers, and any point already shown in the main rollout rows is not duplicated there. Follow the solid line from the installed seed toward rank 1, then 2, then onward. Dashed gray lines show direct visible side links inside the phase-one tree and the earliest visible connector between rollout clusters. Use the cluster controls below to focus the same map on one rollout queue.</p>",
         "</section>",
     ]
     html_parts.extend(render_summary_section(summary_rows))

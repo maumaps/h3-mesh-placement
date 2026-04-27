@@ -420,31 +420,59 @@ begin
     create index install_priority_cluster_assignment_cluster_key_idx
         on install_priority_cluster_assignment (cluster_key);
 
-    -- Pick one visible connector per neighboring cluster pair, minimizing current path-to-join cost.
+    -- Materialize every visible inter-cluster connector candidate before phase one.
+    -- The phase-one loop must choose from the active local backbone, because a
+    -- globally cheap connector can still require a needless helper when an
+    -- already-active tower has another real visible join to the same neighbor.
+    create temporary table install_priority_inter_cluster_connector_candidates on commit drop as
+    select
+        least(left_assignment.cluster_key, right_assignment.cluster_key) as left_cluster_key,
+        greatest(left_assignment.cluster_key, right_assignment.cluster_key) as right_cluster_key,
+        case
+            when left_assignment.cluster_key <= right_assignment.cluster_key then edge.source
+            else edge.target
+        end as left_tower_id,
+        case
+            when left_assignment.cluster_key <= right_assignment.cluster_key then edge.target
+            else edge.source
+        end as right_tower_id,
+        case
+            when left_assignment.cluster_key <= right_assignment.cluster_key then left_assignment.total_distance_m
+            else right_assignment.total_distance_m
+        end as left_seed_distance_m,
+        case
+            when left_assignment.cluster_key <= right_assignment.cluster_key then right_assignment.total_distance_m
+            else left_assignment.total_distance_m
+        end as right_seed_distance_m,
+        case
+            when left_assignment.cluster_key <= right_assignment.cluster_key then left_assignment.hop_count
+            else right_assignment.hop_count
+        end as left_hop_count,
+        case
+            when left_assignment.cluster_key <= right_assignment.cluster_key then right_assignment.hop_count
+            else left_assignment.hop_count
+        end as right_hop_count,
+        edge.cost as connector_distance_m,
+        left_assignment.total_distance_m
+            + edge.cost
+            + right_assignment.total_distance_m as join_distance_m
+    from install_priority_visible_edges edge
+    join install_priority_cluster_assignment left_assignment
+      on left_assignment.tower_id = edge.source
+    join install_priority_cluster_assignment right_assignment
+      on right_assignment.tower_id = edge.target
+    where left_assignment.cluster_key <> right_assignment.cluster_key;
+
+    create index install_priority_inter_cluster_connector_candidates_left_idx
+        on install_priority_inter_cluster_connector_candidates (left_cluster_key, left_tower_id);
+    create index install_priority_inter_cluster_connector_candidates_right_idx
+        on install_priority_inter_cluster_connector_candidates (right_cluster_key, right_tower_id);
+    create index install_priority_inter_cluster_connector_candidates_pair_idx
+        on install_priority_inter_cluster_connector_candidates (left_cluster_key, right_cluster_key);
+
+    -- Keep one diagnostic connector per pair for compatibility with older
+    -- inspection queries; final map metadata is rebuilt from ranked rows later.
     create temporary table install_priority_inter_cluster_connectors on commit drop as
-    with connector_candidates as (
-        select
-            least(left_assignment.cluster_key, right_assignment.cluster_key) as left_cluster_key,
-            greatest(left_assignment.cluster_key, right_assignment.cluster_key) as right_cluster_key,
-            case
-                when left_assignment.cluster_key <= right_assignment.cluster_key then edge.source
-                else edge.target
-            end as left_tower_id,
-            case
-                when left_assignment.cluster_key <= right_assignment.cluster_key then edge.target
-                else edge.source
-            end as right_tower_id,
-            edge.cost as connector_distance_m,
-            left_assignment.total_distance_m
-                + edge.cost
-                + right_assignment.total_distance_m as join_distance_m
-        from install_priority_visible_edges edge
-        join install_priority_cluster_assignment left_assignment
-          on left_assignment.tower_id = edge.source
-        join install_priority_cluster_assignment right_assignment
-          on right_assignment.tower_id = edge.target
-        where left_assignment.cluster_key <> right_assignment.cluster_key
-    )
     select distinct on (left_cluster_key, right_cluster_key)
         left_cluster_key,
         right_cluster_key,
@@ -452,10 +480,12 @@ begin
         right_tower_id,
         connector_distance_m,
         join_distance_m
-    from connector_candidates
+    from install_priority_inter_cluster_connector_candidates
     order by
         left_cluster_key,
         right_cluster_key,
+        greatest(left_hop_count, right_hop_count),
+        left_hop_count + right_hop_count,
         join_distance_m,
         connector_distance_m,
         left_tower_id,
@@ -611,21 +641,40 @@ begin
             else
                 execute format(
                     $sql$
-                    with local_connectors as (
+                    with connected_neighbor_clusters as (
+                        select distinct
+                            connector.right_cluster_key as neighbor_cluster_key
+                        from install_priority_inter_cluster_connector_candidates connector
+                        where connector.left_cluster_key = %2$L
+                          and connector.left_tower_id = any(%1$L::integer[])
+                        union
+                        select distinct
+                            connector.left_cluster_key as neighbor_cluster_key
+                        from install_priority_inter_cluster_connector_candidates connector
+                        where connector.right_cluster_key = %2$L
+                          and connector.right_tower_id = any(%1$L::integer[])
+                    ),
+                    local_connectors as (
                         select
                             connector.right_cluster_key as neighbor_cluster_key,
                             connector.left_tower_id as local_tower_id,
                             connector.connector_distance_m
-                        from install_priority_inter_cluster_connectors connector
+                        from install_priority_inter_cluster_connector_candidates connector
+                        left join connected_neighbor_clusters connected_neighbor
+                          on connected_neighbor.neighbor_cluster_key = connector.right_cluster_key
                         where connector.left_cluster_key = %2$L
+                          and connected_neighbor.neighbor_cluster_key is null
                           and not connector.left_tower_id = any(%1$L::integer[])
                         union all
                         select
                             connector.left_cluster_key as neighbor_cluster_key,
                             connector.right_tower_id as local_tower_id,
                             connector.connector_distance_m
-                        from install_priority_inter_cluster_connectors connector
+                        from install_priority_inter_cluster_connector_candidates connector
+                        left join connected_neighbor_clusters connected_neighbor
+                          on connected_neighbor.neighbor_cluster_key = connector.left_cluster_key
                         where connector.right_cluster_key = %2$L
+                          and connected_neighbor.neighbor_cluster_key is null
                           and not connector.right_tower_id = any(%1$L::integer[])
                     ),
                     pending_endpoints as (
@@ -636,6 +685,10 @@ begin
                         from local_connectors
                         group by neighbor_cluster_key, local_tower_id
                     ),
+                    target_endpoints as (
+                        select array_agg(local_tower_id::bigint order by local_tower_id) as local_tower_ids
+                        from pending_endpoints
+                    ),
                     endpoint_paths as (
                         select
                             paths.start_vid::integer as start_tower_id,
@@ -644,10 +697,15 @@ begin
                             pending_endpoints.connector_distance_m,
                             max(paths.agg_cost)::double precision as total_cost,
                             max(paths.path_seq)::integer as hop_count
-                        from pgr_dijkstra(
+                        from (
+                            select local_tower_ids
+                            from target_endpoints
+                            where local_tower_ids is not null
+                        ) as target_endpoints
+                        cross join lateral pgr_dijkstra(
                             'select id, source, target, cost, reverse_cost from install_priority_cluster_edges where cluster_key = ''%2$s''',
                             %1$L::bigint[],
-                            (select array_agg(local_tower_id::bigint order by local_tower_id) from pending_endpoints),
+                            target_endpoints.local_tower_ids,
                             false
                         ) as paths
                         join pending_endpoints
@@ -1049,6 +1107,32 @@ begin
         union all
         select * from phase_two_rows
     ),
+    ranked_connectors as (
+        select distinct on (
+            candidate.left_cluster_key,
+            candidate.right_cluster_key
+        )
+            candidate.left_cluster_key,
+            candidate.right_cluster_key,
+            candidate.left_tower_id,
+            candidate.right_tower_id,
+            candidate.connector_distance_m,
+            candidate.join_distance_m
+        from install_priority_inter_cluster_connector_candidates candidate
+        join all_rows left_row
+          on left_row.tower_id = candidate.left_tower_id
+        join all_rows right_row
+          on right_row.tower_id = candidate.right_tower_id
+        order by
+            candidate.left_cluster_key,
+            candidate.right_cluster_key,
+            greatest(left_row.cluster_install_rank, right_row.cluster_install_rank),
+            left_row.cluster_install_rank + right_row.cluster_install_rank,
+            candidate.connector_distance_m,
+            candidate.join_distance_m,
+            candidate.left_tower_id,
+            candidate.right_tower_id
+    ),
     connector_metadata as (
         select
             endpoint.tower_id,
@@ -1059,7 +1143,7 @@ begin
                 left_tower_id as tower_id,
                 right_tower_id as neighbor_id,
                 right_cluster.cluster_label || ' via ' || right_tower.label || ' (Tower ' || right_tower_id::text || ')' as summary
-            from install_priority_inter_cluster_connectors connector
+            from ranked_connectors connector
             join install_priority_cluster_assignment right_cluster on right_cluster.tower_id = connector.right_tower_id
             join install_priority_towers right_tower on right_tower.tower_id = connector.right_tower_id
             union all
@@ -1067,7 +1151,7 @@ begin
                 right_tower_id as tower_id,
                 left_tower_id as neighbor_id,
                 left_cluster.cluster_label || ' via ' || left_tower.label || ' (Tower ' || left_tower_id::text || ')' as summary
-            from install_priority_inter_cluster_connectors connector
+            from ranked_connectors connector
             join install_priority_cluster_assignment left_cluster on left_cluster.tower_id = connector.left_tower_id
             join install_priority_towers left_tower on left_tower.tower_id = connector.left_tower_id
         ) as endpoint

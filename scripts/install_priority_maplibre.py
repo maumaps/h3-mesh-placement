@@ -11,6 +11,7 @@ from typing import Mapping, Sequence
 from scripts.install_priority_map_payload import (
     dedupe_clusters,
     fallback_cluster_bound_features,
+    filter_overview_seed_mqtt_points,
     phase_one_connector_features,
 )
 from scripts.install_priority_maplibre_runtime import build_map_script
@@ -96,7 +97,10 @@ def render_map_assets(
             normalized_rows,
         ),
         "phase_one_tower_ids": list(phase_one_tower_ids or []),
-        "mqtt_points": list(mqtt_points or []),
+        "mqtt_points": filter_overview_seed_mqtt_points(
+            normalized_rows,
+            mqtt_points or [],
+        ),
         "seed_mqtt_links": list(seed_mqtt_links or []),
     }
     map_payload_json = json.dumps(map_payload, ensure_ascii=False).replace("</", "<\\/")
