@@ -29,6 +29,7 @@ from scripts.install_priority_lib import (
 from scripts.install_priority_map_payload import dedupe_clusters
 from scripts.install_priority_map_payload import filter_overview_seed_mqtt_points
 from scripts.install_priority_map_payload import phase_one_connector_features
+from scripts.install_priority_maplibre_runtime import build_map_script
 from scripts.install_priority_render import _cluster_map_aspect_ratio
 from scripts.install_priority_render import _default_cluster_max_rank
 from scripts.install_priority_render import _map_aspect_ratio
@@ -464,6 +465,32 @@ class InstallPriorityRenderTests(unittest.TestCase):
             phase_one_tower_pairs,
             {frozenset({2, 20}), frozenset({3, 30}), frozenset({21, 30})},
             msg=f"Overview phase 1 should draw every direct inter-cluster connector pair, got features {phase_one_edges!r}",
+        )
+
+    def test_overview_connect_filter_keeps_connector_cutoff_with_phase_one_ids(self) -> None:
+        """Phase-one id payloads should not hide later external connector endpoints."""
+
+        script_text = build_map_script()
+
+        self.assertIn(
+            "if (overviewConnectTowerIds.has(feature.properties.tower_id)) return true;",
+            script_text,
+            msg="Overview connect filtering should include SQL-marked phase-one ids without making that list the only allowed node set.",
+        )
+        self.assertIn(
+            "return rank !== null && cutoff !== undefined && rank <= cutoff;",
+            script_text,
+            msg="Overview connect filtering should still include rows through connect_max_rank so Armenian inter-cluster connector endpoints are visible.",
+        )
+        self.assertNotIn(
+            "if (overviewConnectTowerIds.size) return overviewConnectTowerIds.has(feature.properties.tower_id);",
+            script_text,
+            msg="Overview connect filtering must not short-circuit on phase_one_tower_ids because that can drop external connector endpoints from the map.",
+        )
+        self.assertIn(
+            "includedTowerIds.has(feature.properties.from_tower_id)\n        && includedTowerIds.has(feature.properties.to_tower_id)",
+            script_text,
+            msg="Overview route lines should be filtered by the final included node set, not by the shorter phase_one_tower_ids list.",
         )
 
     def test_overview_connect_cutoff_shows_full_queue_when_connectors_are_absent(self) -> None:
@@ -1386,6 +1413,16 @@ class InstallPriorityRenderTests(unittest.TestCase):
             msg="HTML handout should render route segments so installers can follow the rollout path on the map.",
         )
         self.assertIn(
+            "`${sourceName}-routes-halo`",
+            html_text,
+            msg="Primary rollout route lines should have a halo so phase-one Armenian cluster links stay visible on raster basemaps.",
+        )
+        self.assertIn(
+            "#325b35",
+            html_text,
+            msg="Overview planned rollout links should use a dark enough green to remain readable over the CARTO and terrain basemaps.",
+        )
+        self.assertIn(
             "installedBackboneFeatures",
             html_text,
             msg="HTML handout should build line features between already-installed seed/MQTT backbone nodes.",
@@ -1404,6 +1441,11 @@ class InstallPriorityRenderTests(unittest.TestCase):
             "addContextLayers",
             html_text,
             msg="HTML handout should render dashed context connectors and local side links so neighboring rollout clusters and installed-root joins are easier to understand.",
+        )
+        self.assertIn(
+            "`${sourceName}-context-halo`",
+            html_text,
+            msg="Dashed side links should have a halo so non-primary visible links do not disappear in dense Armenian cluster views.",
         )
         self.assertIn(
             "\"previous_connection_ids\": [1]",

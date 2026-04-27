@@ -304,6 +304,24 @@ if (!payloadEl || !window.maplibregl) {
   const addRouteLayers = (map, sourceName, featureCollection, mapMode) => {
     map.addSource(sourceName, { type: 'geojson', data: featureCollection });
     map.addLayer({
+      id: `${sourceName}-routes-halo`,
+      type: 'line',
+      source: sourceName,
+      layout: {
+        'line-cap': 'round',
+        'line-join': 'round',
+      },
+      paint: {
+        'line-width': [
+          'case',
+          ['==', ['get', 'rollout_status'], 'next'], mapMode === 'cluster' ? 11 : 8,
+          mapMode === 'cluster' ? 8 : 6,
+        ],
+        'line-color': '#ffffff',
+        'line-opacity': 0.82,
+      },
+    });
+    map.addLayer({
       id: `${sourceName}-routes`,
       type: 'line',
       source: sourceName,
@@ -314,24 +332,40 @@ if (!payloadEl || !window.maplibregl) {
       paint: {
         'line-width': [
           'case',
-          ['==', ['get', 'rollout_status'], 'next'], mapMode === 'cluster' ? 8 : 5,
-          mapMode === 'cluster' ? 6 : 3,
+          ['==', ['get', 'rollout_status'], 'next'], mapMode === 'cluster' ? 8 : 5.5,
+          mapMode === 'cluster' ? 5.5 : 3.8,
         ],
         'line-color': [
           'case',
           ['==', ['get', 'rollout_status'], 'next'], mapMode === 'cluster' ? '#c55f0b' : '#d97706',
-          mapMode === 'cluster' ? '#244f7a' : '#5c7c4a',
+          mapMode === 'cluster' ? '#244f7a' : '#325b35',
         ],
         'line-opacity': [
           'case',
           ['==', ['get', 'rollout_status'], 'next'], mapMode === 'cluster' ? 1 : 0.95,
-          mapMode === 'cluster' ? 0.92 : 0.62,
+          mapMode === 'cluster' ? 0.96 : 0.84,
         ],
       },
     });
   };
   const addContextLayers = (map, sourceName, featureCollection, mapMode) => {
     map.addSource(sourceName, { type: 'geojson', data: featureCollection });
+    map.addLayer({
+      id: `${sourceName}-context-halo`,
+      type: 'line',
+      source: sourceName,
+      filter: ['!=', ['get', 'link_kind'], 'phase_one_connector'],
+      layout: {
+        'line-cap': 'round',
+        'line-join': 'round',
+      },
+      paint: {
+        'line-width': mapMode === 'cluster' ? 5.8 : 4.4,
+        'line-color': '#ffffff',
+        'line-opacity': 0.74,
+        'line-dasharray': [2, 1.4],
+      },
+    });
     map.addLayer({
       id: `${sourceName}-context`,
       type: 'line',
@@ -342,9 +376,9 @@ if (!payloadEl || !window.maplibregl) {
         'line-join': 'round',
       },
       paint: {
-        'line-width': mapMode === 'cluster' ? 3 : 2,
-        'line-color': '#7a8694',
-        'line-opacity': mapMode === 'cluster' ? 0.88 : 0.68,
+        'line-width': mapMode === 'cluster' ? 3.2 : 2.4,
+        'line-color': '#5f6f82',
+        'line-opacity': mapMode === 'cluster' ? 0.9 : 0.78,
         'line-dasharray': [2, 1.4],
       },
     });
@@ -602,10 +636,10 @@ if (!payloadEl || !window.maplibregl) {
 
   const overviewFeatureIsInConnectView = (feature) => {
     if (feature.properties.installed) return true;
-    if (overviewConnectTowerIds.size) return overviewConnectTowerIds.has(feature.properties.tower_id);
 
     const rank = rankNumber(feature.properties.cluster_install_rank);
     const cutoff = overviewConnectCutoffByCluster.get(feature.properties.cluster_key);
+    if (overviewConnectTowerIds.has(feature.properties.tower_id)) return true;
 
     return rank !== null && cutoff !== undefined && rank <= cutoff;
   };
@@ -616,19 +650,10 @@ if (!payloadEl || !window.maplibregl) {
     const includedTowerIds = new Set(overviewFeatures.map((feature) => feature.properties.tower_id));
     const overviewRouteFeatures = viewMode === 'coverage'
       ? routeFeatures
-      : routeFeatures.filter((feature) => {
-        if (overviewConnectTowerIds.size) {
-          return (
-            overviewConnectTowerIds.has(feature.properties.from_tower_id)
-            && overviewConnectTowerIds.has(feature.properties.to_tower_id)
-          );
-        }
-
-        const rank = rankNumber(feature.properties.cluster_install_rank);
-        const cutoff = overviewConnectCutoffByCluster.get(feature.properties.cluster_key);
-
-        return rank !== null && cutoff !== undefined && rank <= cutoff;
-      });
+      : routeFeatures.filter((feature) => (
+        includedTowerIds.has(feature.properties.from_tower_id)
+        && includedTowerIds.has(feature.properties.to_tower_id)
+      ));
     const overviewPhaseOneLocalContextFeatures = contextFeatures.filter((feature) => (
       includedTowerIds.has(feature.properties.from_tower_id)
       && includedTowerIds.has(feature.properties.to_tower_id)

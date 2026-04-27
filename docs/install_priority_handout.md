@@ -80,12 +80,15 @@ The HTML file includes a top summary table with one true “next node” per clu
 The summary and detail tables now include captions, scoped headers, and labeled map links so screen readers can follow the same rollout data.
 On narrow screens the summary table remains horizontally scrollable, while each cluster detail section swaps to mobile cards with the same values and links.
 Solid lines show the recommended rollout path inside each cluster.
+Those rollout lines have their own light halo and use a darker planned-link color so regional clusters remain readable over raster map, satellite, and terrain basemaps.
 Dashed local lines in cluster-focused map views show additional already-reachable same-cluster predecessors that were not chosen as the primary install edge.
+Those dashed side links also get a light halo because they are diagnostic links, and losing them visually makes a connected cluster look broken.
 This keeps links such as Komzpa to a later Batumi-cluster tower visible even when another predecessor is used for the ranked route line.
 The default `Connect clusters` per-cluster table and map view stop at the last current connector point.
 The `Improve coverage` tab reveals the full list and switches the shared map to the full cluster queue for later hop-reduction and coverage work.
 The overview map has the same `Connect clusters` and `Improve coverage` modes as the cluster detail sections.
 Its default connector mode hides later local-improvement rows so the first screen emphasizes how rollout queues meet.
+When the SQL phase-one id list is shorter than the connector metadata, the map still keeps every row through the per-cluster `connect_max_rank` cutoff so external connector endpoints and their lines remain visible.
 That default connector mode is now driven by the SQL-built `mesh_install_priority_plan` table.
 The table uses pgRouting over the live visibility graph to first merge disconnected installed seed and MQTT roots inside each rollout cluster, then extend from that active local backbone to the earliest reachable connector endpoints for neighboring rollout queues.
 It no longer builds a global minimum tree for phase 1, because that could rank helper nodes ahead of a connector endpoint that was already directly reachable from the active graph.
