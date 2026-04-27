@@ -2092,6 +2092,26 @@ class PipelineRegressionTest(unittest.TestCase):
             "The tower component invariant must fail the pipeline immediately when connectivity is broken.",
         )
 
+    def test_route_segment_reroute_preserves_global_los_component(self) -> None:
+        """Local two-relay reroutes must not disconnect side towers from the live graph."""
+        reroute_sql = (REPO_ROOT / "procedures" / "mesh_route_segment_reroute.sql").read_text()
+
+        self.assertIn(
+            "hypothetical_towers as materialized",
+            reroute_sql,
+            "mesh_route_segment_reroute should test each proposed move against a hypothetical live tower graph before mutating mesh_towers.",
+        )
+        self.assertIn(
+            "would split the live LOS graph",
+            reroute_sql,
+            "mesh_route_segment_reroute should skip replacements that pass local chain checks but disconnect another tower.",
+        )
+        self.assertIn(
+            "hypothetical_reached_count <> hypothetical_tower_count",
+            reroute_sql,
+            "mesh_route_segment_reroute should compare reachable and total live towers before accepting a relay move.",
+        )
+
     def test_mesh_placement_restart_declares_greedy_iteration_table(self) -> None:
         """The restart wrapper truncates mesh_greedy_iterations, so Make must install that table first."""
         makefile_text = (REPO_ROOT / "Makefile").read_text()

@@ -14,6 +14,8 @@ declare
     generated_sources constant text[] := array['route', 'cluster_slim', 'bridge', 'coarse'];
     chain record;
     replacement record;
+    hypothetical_reached_count integer;
+    hypothetical_tower_count integer;
 begin
     if to_regclass('mesh_pipeline_settings') is null then
         raise notice 'mesh_pipeline_settings missing, skipping route segment reroute';
@@ -285,6 +287,70 @@ begin
         limit 1;
 
         if replacement.left_h3 is null then
+            continue;
+        end if;
+
+        with recursive hypothetical_towers as materialized (
+            -- Check the whole live graph, not just the two-relay chain.
+            -- A relay can be the only cached-LOS bridge for a nearby side
+            -- tower; moving it would pass local chain checks and still split
+            -- the final installation graph.
+            select
+                tower_id,
+                case
+                    when tower_id = chain.left_relay_id then replacement.left_h3
+                    when tower_id = chain.right_relay_id then replacement.right_h3
+                    else h3
+                end as h3
+            from mesh_towers
+        ),
+        visible_edges as materialized (
+            select distinct
+                source_tower.tower_id as source_id,
+                target_tower.tower_id as target_id
+            from hypothetical_towers source_tower
+            join hypothetical_towers target_tower
+              on target_tower.tower_id <> source_tower.tower_id
+            join mesh_los_cache link
+              on link.mast_height_src = mast_height
+             and link.mast_height_dst = mast_height
+             and link.frequency_hz = frequency
+             and link.clearance > 0
+             and link.distance_m <= max_distance
+             and (
+                    (link.src_h3 = source_tower.h3 and link.dst_h3 = target_tower.h3)
+                 or (link.src_h3 = target_tower.h3 and link.dst_h3 = source_tower.h3)
+             )
+        ),
+        start_tower as (
+            select min(tower_id) as tower_id
+            from hypothetical_towers
+        ),
+        reached(tower_id) as (
+            select tower_id
+            from start_tower
+
+            union
+
+            select visible_edges.target_id
+            from reached
+            join visible_edges on visible_edges.source_id = reached.tower_id
+        )
+        select
+            (select count(*) from reached),
+            (select count(*) from hypothetical_towers)
+        into hypothetical_reached_count, hypothetical_tower_count;
+
+        if hypothetical_reached_count <> hypothetical_tower_count then
+            raise notice 'Skipping route segment % -> % via towers %/% because replacement %/% would split the live LOS graph (% of % towers reachable)',
+                chain.left_endpoint_id,
+                chain.right_endpoint_id,
+                chain.left_relay_id,
+                chain.right_relay_id,
+                replacement.left_h3,
+                replacement.right_h3,
+                hypothetical_reached_count,
+                hypothetical_tower_count;
             continue;
         end if;
 
