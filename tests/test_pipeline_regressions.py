@@ -1000,6 +1000,26 @@ class PipelineRegressionTest(unittest.TestCase):
             "Cluster-slim wrapper should run one serial surface-spacing refresh after parallel workers promote towers.",
         )
         self.assertIn(
+            'resume="${SLIM_RESUME:-0}"',
+            wrapper_text,
+            "Cluster-slim wrapper should expose SLIM_RESUME so interrupted remote runs can continue without deleting promoted cluster_slim towers.",
+        )
+        self.assertIn(
+            "Resuming cluster slim without clearing existing cluster-slim towers",
+            wrapper_text,
+            "Cluster-slim resume should announce that it is preserving existing promoted towers before continuing.",
+        )
+        self.assertIn(
+            "select max(iteration_label) as iteration_label",
+            wrapper_text,
+            "Cluster-slim resume should inspect the existing SQL queue to continue from the latest prepared iteration.",
+        )
+        self.assertIn(
+            "latest_done.completed_rows > 0",
+            wrapper_text,
+            "Cluster-slim resume should replay a prepared-but-unfinished iteration instead of skipping it after an SSH timeout.",
+        )
+        self.assertIn(
             "scripts/mesh_route_cluster_slim_worker.sh",
             makefile_text,
             "Cluster-slim Make targets should depend on the worker script so remote resume picks up parallel execution changes.",

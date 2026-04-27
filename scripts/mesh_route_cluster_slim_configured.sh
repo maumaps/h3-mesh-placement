@@ -13,8 +13,14 @@ if [ "${enabled}" != t ]; then
     exit 0
 fi
 
-echo ">> Clearing previous cluster-slim towers, failures, queue, and claims"
-psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "delete from mesh_towers where source = 'cluster_slim'; truncate mesh_route_cluster_slim_failures, mesh_route_cluster_slim_candidate_queue, mesh_route_cluster_slim_claims;"
+resume="${SLIM_RESUME:-0}"
+
+if [ "${resume}" = 1 ]; then
+    echo ">> Resuming cluster slim without clearing existing cluster-slim towers"
+else
+    echo ">> Clearing previous cluster-slim towers, failures, queue, and claims"
+    psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "delete from mesh_towers where source = 'cluster_slim'; truncate mesh_route_cluster_slim_failures, mesh_route_cluster_slim_candidate_queue, mesh_route_cluster_slim_claims;"
+fi
 
 max_iters="${SLIM_ITERATIONS:-$(pg_setting_int cluster_slim_iterations)}"
 default_worker_count="$(nproc 2>/dev/null || printf '1')"
@@ -23,7 +29,39 @@ if [ "${worker_count}" -lt 1 ]; then
     echo ">> SLIM_PARALLEL_WORKERS must be at least 1, got ${worker_count}" >&2
     exit 1
 fi
-iter=0
+if [ "${resume}" = 1 ]; then
+    iter="$(
+        psql --no-psqlrc --set=ON_ERROR_STOP=1 -At <<'SQL'
+with latest_iteration as (
+    -- Replaying the latest prepared-but-unfinished iteration is safe because
+    -- mesh_route_cluster_slim_prepare_iteration deletes only that iteration's
+    -- queue and claims, while preserving already promoted towers and failures.
+    select max(iteration_label) as iteration_label
+    from mesh_route_cluster_slim_candidate_queue
+),
+latest_done as (
+    select count(*) as completed_rows
+    from mesh_route_cluster_slim_candidate_queue queue
+    join latest_iteration latest using (iteration_label)
+    where queue.status = 'completed'
+)
+select greatest(
+    0,
+    case
+        when latest_iteration.iteration_label is null then 0
+        when latest_done.completed_rows > 0 then latest_iteration.iteration_label
+        else latest_iteration.iteration_label - 1
+    end
+)
+from latest_iteration
+cross join latest_done;
+SQL
+    )"
+    iter="${iter:-0}"
+    echo ">> Cluster slim resume will continue from iteration $((iter + 1))"
+else
+    iter=0
+fi
 
 refresh_parallel_spacing() {
     if [ "${worker_count}" -le 1 ] || [ "${promoted}" -le 0 ]; then
