@@ -115,19 +115,43 @@ node_sides as (
       on node_walk.removed_id = articulation_report.removed_id
      and node_walk.tower_id = nodes.tower_id
 ),
+cut_side_representatives as (
+    select
+        ranked_sides.removed_id,
+        ranked_sides.tower_id,
+        ranked_sides.side
+    from (
+        select
+            node_sides.removed_id,
+            node_sides.tower_id,
+            node_sides.side,
+            row_number() over (
+                partition by node_sides.removed_id, node_sides.side
+                order by
+                    ST_Distance(side_tower.centroid_geog, removed_tower.centroid_geog),
+                    node_sides.tower_id
+            ) as side_rank
+        from node_sides
+        join mesh_towers side_tower on side_tower.tower_id = node_sides.tower_id
+        join mesh_towers removed_tower on removed_tower.tower_id = node_sides.removed_id
+    ) ranked_sides
+    where ranked_sides.side_rank <= 8
+),
 cut_pairs as (
     -- Pair towers from opposite sides of each cut node; a backup anchor that
-    -- sees both endpoints removes the articulation dependency.
+    -- sees both endpoints removes the articulation dependency. Limit to the
+    -- nearest representatives from each side so this remains a bounded repair
+    -- step instead of an all-pairs route search.
     select
         articulation_report.removed_id,
         left_side.tower_id as source_id,
         right_side.tower_id as target_id,
         articulation_report.smaller_side_count
     from articulation_report
-    join node_sides left_side
+    join cut_side_representatives left_side
       on left_side.removed_id = articulation_report.removed_id
      and left_side.side = 'reached'
-    join node_sides right_side
+    join cut_side_representatives right_side
       on right_side.removed_id = articulation_report.removed_id
      and right_side.side = 'unreached'
 ),

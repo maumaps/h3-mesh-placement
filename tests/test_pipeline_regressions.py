@@ -2139,6 +2139,16 @@ class PipelineRegressionTest(unittest.TestCase):
             "Auto redundancy should add anchors across opposite sides of a cut node, not only around bridge edges.",
         )
         self.assertIn(
+            "cut_side_representatives as",
+            redundancy_sql,
+            "Auto redundancy should bound cut-node repair to nearby side representatives instead of exploding into an all-pairs search.",
+        )
+        self.assertIn(
+            "where ranked_sides.side_rank <= 8",
+            redundancy_sql,
+            "Auto redundancy should cap per-side cut-node representatives so the repair step stays interactive.",
+        )
+        self.assertIn(
             "join mesh_los_cache source_link",
             redundancy_sql,
             "Auto redundancy should use cached positive-clearance LOS from the source endpoint to candidate anchors.",
