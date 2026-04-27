@@ -38,6 +38,7 @@ Use `make db/procedure/mesh_run_greedy_full` after setting `enable_greedy=true` 
 Use `make db/procedure/mesh_placement_restart` when the database and LOS cache already exist and you only need to replay configured tower placement stages without rebuilding cached tables from stale Make markers.
 Use `make db/procedure/mesh_route_cluster_slim_current` when route bridge has already produced a current route graph and you only need to resume cluster slimming without letting Make replay route bridge or base imports.
 If that cluster-slim target is interrupted after it has already inserted `cluster_slim` towers, rerun it with `SLIM_RESUME=1` so the wrapper preserves existing towers and resumes from the latest prepared iteration instead of clearing the stage.
+Use `make db/procedure/mesh_route_auto_redundancy` after a visibility refresh when the field-review bridge/cut-node gate reports current bridge edges; it inserts cached-LOS backup anchors without replaying the expensive route stages.
 Intermediate targets such as `db/table/osm_for_mesh_placement` or `db/table/mesh_surface_h3_r8` can be executed independently to debug single steps.
 Use `make data/out/install_priority_reviewed` when you want the installer handout after routing or greedy placement with the field-review invariants checked.
 

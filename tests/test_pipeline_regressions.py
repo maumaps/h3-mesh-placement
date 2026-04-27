@@ -2043,6 +2043,7 @@ class PipelineRegressionTest(unittest.TestCase):
             "db/procedure/mesh_population_anchor_contract",
             "db/procedure/mesh_generated_pair_contract",
             "db/procedure/mesh_route_segment_reroute",
+            "db/procedure/mesh_route_auto_redundancy",
             "db/procedure/mesh_route_refresh_visibility",
             "db/procedure/mesh_route",
             "db/procedure/mesh_tower_wiggle",
@@ -2110,6 +2111,37 @@ class PipelineRegressionTest(unittest.TestCase):
             "hypothetical_reached_count <> hypothetical_tower_count",
             reroute_sql,
             "mesh_route_segment_reroute should compare reachable and total live towers before accepting a relay move.",
+        )
+
+    def test_auto_redundancy_repairs_current_bridge_edges_from_cached_los(self) -> None:
+        """Bridge repair should add backup anchors from cached LOS instead of weakening the review gate."""
+        makefile_text = (REPO_ROOT / "Makefile").read_text()
+        redundancy_sql = (REPO_ROOT / "scripts" / "mesh_route_auto_redundancy.sql").read_text()
+
+        self.assertIn(
+            "db/procedure/mesh_route_auto_redundancy: scripts/mesh_route_auto_redundancy.sql scripts/assert_mesh_towers_single_los_component.sql | db/procedure",
+            makefile_text,
+            "Makefile should expose an explicit auto-redundancy stage for current bridge-edge repairs.",
+        )
+        self.assertIn(
+            "bridge_edges as",
+            redundancy_sql,
+            "Auto redundancy should derive the same bridge edges that the review gate reports.",
+        )
+        self.assertIn(
+            "join mesh_los_cache source_link",
+            redundancy_sql,
+            "Auto redundancy should use cached positive-clearance LOS from the source endpoint to candidate anchors.",
+        )
+        self.assertIn(
+            "join mesh_los_cache target_link",
+            redundancy_sql,
+            "Auto redundancy should require candidate anchors to see the target endpoint too, creating a backup path around the bridge.",
+        )
+        self.assertIn(
+            "Auto route redundancy anchors:",
+            redundancy_sql,
+            "Auto redundancy should log how many bridge candidates and anchors it inserted for operator debugging.",
         )
 
     def test_mesh_placement_restart_declares_greedy_iteration_table(self) -> None:

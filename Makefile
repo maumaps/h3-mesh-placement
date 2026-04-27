@@ -628,6 +628,10 @@ db/procedure/mesh_route_manual_redundancy: scripts/mesh_route_manual_redundancy.
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 	touch db/procedure/mesh_route_manual_redundancy
 
+db/procedure/mesh_route_auto_redundancy: scripts/mesh_route_auto_redundancy.sql scripts/assert_mesh_towers_single_los_component.sql | db/procedure ## Insert cached-LOS backup anchors for current bridge edges
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_route_auto_redundancy.sql
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
+	touch db/procedure/mesh_route_auto_redundancy
 
 db/procedure/mesh_route_refresh_visibility: scripts/mesh_visibility_edges_refresh.sql scripts/assert_mesh_towers_single_los_component.sql db/table/mesh_visibility_edges db/procedure/mesh_route_segment_reroute db/procedure/mesh_visibility_edges_refresh | db/procedure ## Rebuild core visibility diagnostics after routing stages
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/mesh_visibility_edges_refresh.sql
