@@ -445,6 +445,10 @@ begin
                 p_worker_index,
                 'approx'
             from mesh_route_cluster_slim_claim_needed needed
+            -- Parallel workers can overlap on many coarse buckets.
+            -- Insert claims in deterministic index order so PostgreSQL does not
+            -- deadlock while checking the shared (iteration_label, claim_h3) key.
+            order by needed.claim_h3
             on conflict (iteration_label, claim_h3) do nothing
             returning 1
         )
@@ -649,6 +653,10 @@ begin
                   and own_claim.source_id = best_pair.source_id
                   and own_claim.target_id = best_pair.target_id
             )
+            -- Keep exact claims in the same unique-index order as approximate
+            -- claims; otherwise two workers can wait on each other's speculative
+            -- insertion locks for adjacent H3 buckets.
+            order by needed.claim_h3
             on conflict (iteration_label, claim_h3) do nothing
             returning 1
         )

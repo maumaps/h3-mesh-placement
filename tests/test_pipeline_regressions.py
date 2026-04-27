@@ -177,6 +177,11 @@ class PipelineRegressionTest(unittest.TestCase):
             "Parallel wiggle workers should serialize graph mutations and component checks after concurrent candidate scoring.",
         )
         self.assertIn(
+            "order by needed.claim_h3\n            on conflict (iteration_label, claim_h3) do nothing",
+            cluster_slim_text,
+            "Parallel cluster-slim workers should insert shared H3 claims in deterministic unique-index order to avoid deadlocks.",
+        )
+        self.assertIn(
             "db/procedure/mesh_tower_wiggle_current",
             makefile_text,
             "Makefile should expose a safe current-wiggle target that does not rebuild route inputs when only local refinement is requested.",
