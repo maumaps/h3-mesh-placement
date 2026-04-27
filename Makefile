@@ -306,7 +306,7 @@ db/test/seed_nodes_py: tests/test_seed_nodes.py scripts/merge_seed_nodes.py | db
 	python -m unittest -q tests/test_seed_nodes.py
 	touch db/test/seed_nodes_py
 
-db/test/pipeline_regressions_py: tests/test_pipeline_regressions.py Makefile procedures/fill_mesh_los_cache.sql docs/calculations.md docs/placement_strategies.md | db/test ## Run pipeline regression unit tests
+db/test/pipeline_regressions_py: tests/test_pipeline_regressions.py Makefile procedures/fill_mesh_los_cache.sql scripts/mesh_route_auto_redundancy.sql docs/calculations.md docs/placement_strategies.md | db/test ## Run pipeline regression unit tests
 	python -m unittest -q tests/test_pipeline_regressions.py
 	touch db/test/pipeline_regressions_py
 

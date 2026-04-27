@@ -276,36 +276,3 @@ set has_tower = true,
     visible_tower_count = null
 from mesh_route_auto_redundancy_inserted inserted
 where surface.h3 = inserted.h3;
-
-with affected_cells as materialized (
-    -- Invalidate only the region that can see the newly inserted backup anchors.
-    select surface.h3, surface.centroid_geog
-    from mesh_surface_h3_r8 surface
-    where exists (
-        select 1
-        from mesh_route_auto_redundancy_inserted inserted
-        join mesh_surface_h3_r8 inserted_surface on inserted_surface.h3 = inserted.h3
-        where ST_DWithin(surface.centroid_geog, inserted_surface.centroid_geog, 100000)
-    )
-),
-recomputed_distances as (
-    -- Keep tower spacing consistent for later wiggle/coverage passes.
-    select
-        affected_cells.h3,
-        min(ST_Distance(affected_cells.centroid_geog, tower.centroid_geog)) as distance_m
-    from affected_cells
-    join mesh_towers tower on true
-    group by affected_cells.h3
-)
-update mesh_surface_h3_r8 surface
-set distance_to_closest_tower = recomputed_distances.distance_m,
-    clearance = null,
-    path_loss = null,
-    visible_population = null,
-    visible_uncovered_population = case
-        when surface.has_tower then 0
-        else null
-    end,
-    visible_tower_count = null
-from recomputed_distances
-where surface.h3 = recomputed_distances.h3;
