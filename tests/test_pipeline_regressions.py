@@ -66,7 +66,7 @@ class PipelineRegressionTest(unittest.TestCase):
             "wiggle_parallel_workers": "8",
             "wiggle_candidate_limit": "256",
             "enable_install_priority_plan": "true",
-            "install_priority_phase1_cost": "distance",
+            "install_priority_phase1_cost": "hop_count",
             "install_priority_phase2_metric": "population",
         }.items():
             self.assertIn(
@@ -324,6 +324,16 @@ class PipelineRegressionTest(unittest.TestCase):
             "mesh_install_priority_plan should materialize every visible connector candidate before choosing a phase-one endpoint.",
         )
         self.assertIn(
+            "install_priority_cluster_phase_one_edges",
+            plan_text,
+            "mesh_install_priority_plan should route phase one over a dedicated hop-first graph instead of reusing distance costs.",
+        )
+        self.assertIn(
+            "1.0 + (cost / 1000000000.0)",
+            plan_text,
+            "Phase-one routing should minimize install count before distance, so direct LOS links beat shorter-distance multi-hop detours.",
+        )
+        self.assertIn(
             "connected_neighbor_clusters as",
             plan_text,
             "Phase-one SQL should stop chasing a neighbor once the active local backbone already has a visible connector to it.",
@@ -342,6 +352,11 @@ class PipelineRegressionTest(unittest.TestCase):
             "The phase-one ranks inside each cluster are installation order and must stay contiguous with no skipped numbers.",
             calculations_text,
             "Calculation docs should record the no-gap phase-one rank invariant that the SQL assertion enforces.",
+        )
+        self.assertIn(
+            "A direct LOS edge from the active backbone to the endpoint wins over a multi-hop shorter-distance route",
+            handout_text,
+            "Installer handout docs should record that phase one minimizes required installs before link-distance polish.",
         )
 
     def test_initial_nodes_import_does_not_skip_existing_table(self) -> None:

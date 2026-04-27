@@ -69,7 +69,7 @@ values
     ('wiggle_parallel_workers', '8'),
     ('wiggle_candidate_limit', '256'),
     ('enable_install_priority_plan', 'true'),
-    ('install_priority_phase1_cost', 'distance'),
+    ('install_priority_phase1_cost', 'hop_count'),
     ('install_priority_phase2_metric', 'population')
 on conflict (setting) do update
 set value = excluded.value,

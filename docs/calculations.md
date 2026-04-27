@@ -203,7 +203,8 @@ This is a hard handout invariant, not a cosmetic preference, and the SQL plan pl
 Phase 1 is the minimal connector prefix.
 It first connects installed roots inside each seed-owned cluster, then evaluates every real visible inter-cluster edge from the current active backbone.
 The planner must stop chasing a neighbor cluster once any active local tower has a visible edge to that neighbor.
-It must not insert local helper or coverage nodes unless they lie on the shortest visible path to an unsatisfied connector endpoint.
+It must not insert local helper or coverage nodes unless they lie on the minimum-hop visible path to an unsatisfied connector endpoint.
+That means a direct visible link from an active tower to a target endpoint beats a two-link route with a lower total distance.
 The phase-one ranks inside each cluster are installation order and must stay contiguous with no skipped numbers.
 
 ### Cluster slim (`mesh_route_cluster_slim`)

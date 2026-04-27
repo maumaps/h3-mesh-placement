@@ -91,7 +91,8 @@ The table uses pgRouting over the live visibility graph to first merge disconnec
 It no longer builds a global minimum tree for phase 1, because that could rank helper nodes ahead of a connector endpoint that was already directly reachable from the active graph.
 Phase 1 evaluates every direct visible inter-cluster connector candidate instead of trusting one preselected cheapest pair.
 A neighboring rollout cluster is satisfied as soon as the active local backbone has any real visible edge to that neighbor cluster.
-Helper nodes may appear in phase 1 only when they lie on the shortest visible path from the active backbone to an unsatisfied connector endpoint.
+Helper nodes may appear in phase 1 only when they lie on the minimum-hop visible path from the active backbone to an unsatisfied connector endpoint.
+A direct LOS edge from the active backbone to the endpoint wins over a multi-hop shorter-distance route, because the first phase is trying to minimize required installs before the rollout queues meet.
 Local reach and hop-reduction nodes belong in `Improve coverage`, not in the connector prefix.
 Before routing, the SQL plan suppresses imported MQTT roots within 1 km of a curated seed or an earlier kept MQTT point.
 Those duplicates are removed from both the installer roots and the routing graph so a nearby MQTT alias cannot appear as a separate rank-zero node or an invisible intermediate hop.

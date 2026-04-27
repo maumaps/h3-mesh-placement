@@ -39,6 +39,7 @@ declare
     cluster_active_ids integer[];
     current_rank integer;
     current_component_count integer;
+    phase_one_cost_mode text;
     chosen_start_tower_id integer;
     chosen_end_tower_id integer;
     chosen_neighbor_cluster_key text;
@@ -56,6 +57,18 @@ begin
     if not enabled then
         raise notice 'Install-priority plan disabled by mesh_pipeline_settings.enable_install_priority_plan';
         return;
+    end if;
+
+    select coalesce((
+        select value
+        from mesh_pipeline_settings
+        where setting = 'install_priority_phase1_cost'
+    ), 'hop_count')
+    into phase_one_cost_mode;
+
+    if phase_one_cost_mode not in ('hop_count', 'distance') then
+        raise exception 'Unsupported install_priority_phase1_cost %, expected hop_count or distance',
+            phase_one_cost_mode;
     end if;
 
     -- Materialize current visible tower graph with stable edge ids for pgRouting.
@@ -517,6 +530,31 @@ begin
     create index install_priority_cluster_edges_target_idx
         on install_priority_cluster_edges (target);
 
+    -- Phase one is an install-order problem, not a radio-shortest-path problem.
+    -- A direct visible edge must beat a two-hop path even when the two shorter
+    -- links have a lower total distance, because the latter asks installers to
+    -- deploy an extra helper before clusters can meet.
+    create temporary table install_priority_cluster_phase_one_edges on commit drop as
+    select
+        cluster_key,
+        id,
+        source,
+        target,
+        case
+            when phase_one_cost_mode = 'hop_count' then 1.0 + (cost / 1000000000.0)
+            else cost
+        end as cost,
+        case
+            when phase_one_cost_mode = 'hop_count' then 1.0 + (reverse_cost / 1000000000.0)
+            else reverse_cost
+        end as reverse_cost
+    from install_priority_cluster_edges;
+
+    create index install_priority_cluster_phase_one_edges_source_idx
+        on install_priority_cluster_phase_one_edges (source);
+    create index install_priority_cluster_phase_one_edges_target_idx
+        on install_priority_cluster_phase_one_edges (target);
+
     -- Build phase one as an install prefix:
     -- first merge disconnected installed roots inside each cluster, then
     -- append the earliest reachable connector endpoints to neighboring
@@ -571,7 +609,7 @@ begin
                         coalesce(component_map.component, active_nodes.tower_id) as component_id
                     from active_nodes
                     left join pgr_connectedComponents(
-                        'select row_number() over (order by source, target) as id, source, target, cost, reverse_cost from install_priority_cluster_edges where cluster_key = ''%2$s'' and source = any(''%1$s''::integer[]) and target = any(''%1$s''::integer[])'
+                        'select row_number() over (order by source, target) as id, source, target, cost, reverse_cost from install_priority_cluster_phase_one_edges where cluster_key = ''%2$s'' and source = any(''%1$s''::integer[]) and target = any(''%1$s''::integer[])'
                     ) as component_map
                       on component_map.node = active_nodes.tower_id
                 )
@@ -603,7 +641,7 @@ begin
                             coalesce(component_map.component, active_nodes.tower_id) as component_id
                         from active_nodes
                         left join pgr_connectedComponents(
-                            'select row_number() over (order by source, target) as id, source, target, cost, reverse_cost from install_priority_cluster_edges where cluster_key = ''%2$s'' and source = any(''%1$s''::integer[]) and target = any(''%1$s''::integer[])'
+                            'select row_number() over (order by source, target) as id, source, target, cost, reverse_cost from install_priority_cluster_phase_one_edges where cluster_key = ''%2$s'' and source = any(''%1$s''::integer[]) and target = any(''%1$s''::integer[])'
                         ) as component_map
                           on component_map.node = active_nodes.tower_id
                     ),
@@ -614,7 +652,7 @@ begin
                             max(paths.agg_cost)::double precision as total_cost,
                             max(paths.path_seq)::integer as hop_count
                         from pgr_dijkstra(
-                            'select id, source, target, cost, reverse_cost from install_priority_cluster_edges where cluster_key = ''%2$s''',
+                            'select id, source, target, cost, reverse_cost from install_priority_cluster_phase_one_edges where cluster_key = ''%2$s''',
                             (select array_agg(tower_id::bigint order by tower_id) from active_nodes),
                             (select array_agg(tower_id::bigint order by tower_id) from active_nodes),
                             false
@@ -703,7 +741,7 @@ begin
                             where local_tower_ids is not null
                         ) as target_endpoints
                         cross join lateral pgr_dijkstra(
-                            'select id, source, target, cost, reverse_cost from install_priority_cluster_edges where cluster_key = ''%2$s''',
+                            'select id, source, target, cost, reverse_cost from install_priority_cluster_phase_one_edges where cluster_key = ''%2$s''',
                             %1$L::bigint[],
                             target_endpoints.local_tower_ids,
                             false
@@ -769,7 +807,7 @@ begin
                             paths.node::integer as tower_id,
                             lag(paths.node::integer) over (order by paths.path_seq) as parent_tower_id
                         from pgr_dijkstra(
-                            'select id, source, target, cost, reverse_cost from install_priority_cluster_edges where cluster_key = ''%1$s''',
+                            'select id, source, target, cost, reverse_cost from install_priority_cluster_phase_one_edges where cluster_key = ''%1$s''',
                             %2$s,
                             %3$s,
                             false
