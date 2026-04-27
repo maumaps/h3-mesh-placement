@@ -200,6 +200,7 @@ def render_html_document(
     cluster_bound_features: Sequence[Mapping[str, object]] | None = None,
     seed_mqtt_points: Sequence[Mapping[str, object]] | None = None,
     seed_mqtt_links: Sequence[Mapping[str, object]] | None = None,
+    phase_one_tower_ids: Sequence[int] | None = None,
 ) -> str:
     """Render a compact, mobile-friendly HTML handout."""
 
@@ -265,7 +266,6 @@ def render_html_document(
         ".cluster h2,.summary h2,.map-panel h2{margin:0 0 10px;font-size:1.3rem;}",
         ".meta{color:#55606d;font-size:0.95rem;margin:6px 0 0;}",
         ".overview-map{aspect-ratio:var(--overview-map-aspect,2.2)/1;min-height:360px;height:auto;border-radius:16px;overflow:hidden;border:1px solid #d8d2c5;}",
-        ".cluster-map{aspect-ratio:var(--cluster-map-aspect,1.6)/1;min-height:220px;height:auto;border-radius:14px;overflow:hidden;border:1px solid #e2ddd3;margin:14px 0 10px;}",
         ".table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:14px;}",
         ".table-wrap:focus-visible,a:focus-visible{outline:3px solid #d97706;outline-offset:3px;}",
         "table{width:100%;border-collapse:collapse;min-width:980px;}",
@@ -300,6 +300,9 @@ def render_html_document(
         ".phase-tab.active,.phase-tab[aria-selected='true']{background:#17324d;color:#fff;border-color:#17324d;box-shadow:0 6px 16px rgba(23,50,77,0.22);}",
         ".phase-tab.active span,.phase-tab[aria-selected='true'] span{color:#dce8f4;}",
         ".phase-tab:focus-visible{outline:3px solid #8fbce8;outline-offset:2px;}",
+        ".map-state{margin:0 0 10px;color:#17324d;font-weight:700;}",
+        ".shared-map-button{appearance:none;border:1px solid #c9d5df;background:#fff;color:#17324d;border-radius:8px;padding:9px 12px;margin:12px 0 10px;font:700 0.92rem/1.2 'Trebuchet MS','Segoe UI',sans-serif;cursor:pointer;box-shadow:0 1px 4px rgba(23,50,77,0.06);}",
+        ".shared-map-button:hover,.shared-map-button:focus-visible{background:#f3f7fb;outline:3px solid #8fbce8;outline-offset:2px;}",
         ".map-note{margin:10px 0 0;color:#55606d;font-size:0.92rem;line-height:1.45;}",
         ".map-fallback{display:none;padding:12px 0;color:#6d5f50;font-size:0.95rem;}",
         ".basemap-control{display:flex;overflow:hidden;width:auto;max-width:none;}",
@@ -326,13 +329,13 @@ def render_html_document(
         ".cluster-card-grid dt{font-size:0.76rem;text-transform:uppercase;letter-spacing:0.03em;color:#5a6673;}",
         ".cluster-card-grid dd{margin:4px 0 0;line-height:1.4;}",
         ".cluster-view-panel[hidden]{display:none;}",
-        ".full-cluster-map{margin-top:12px;}",
+        ".full-cluster-map-button{margin-top:12px;}",
         ".full-cluster-table{margin-top:12px;}",
         ".sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}",
         "a{color:#0d5ea8;text-decoration:none;}",
         "a:hover{text-decoration:underline;}",
         ".maplibregl-popup-content{max-width:280px;font:14px/1.4 'Trebuchet MS','Segoe UI',sans-serif;}",
-        "@media (max-width: 920px){.page{padding:14px}.hero,.summary,.cluster,.map-panel{padding:14px}.hero h1{font-size:1.6rem}.overview-map{min-height:300px}.cluster-map{min-height:220px}.cluster-table-wrap{display:none}.cluster-cards{display:block}}",
+        "@media (max-width: 920px){.page{padding:14px}.hero,.summary,.cluster,.map-panel{padding:14px}.hero h1{font-size:1.6rem}.overview-map{min-height:300px}.cluster-table-wrap{display:none}.cluster-cards{display:block}}",
         "@media (max-width: 640px){.overview-map{min-height:260px}.phase-control{padding:10px}.phase-tabs{grid-template-columns:1fr}.cluster-card{padding:12px}.cluster-card-grid{grid-template-columns:1fr}.legend span{font-size:0.84rem}.summary-table{min-width:680px}}",
         "</style>",
         "</head>",
@@ -353,6 +356,7 @@ def render_html_document(
         "<button type='button' class='overview-view-tab phase-tab' role='tab' aria-selected='false' data-overview-view='coverage'><strong>Phase 2: Improve coverage</strong><span>Show the full later queue for hop reduction and local fill-in.</span></button>",
         "</div>",
         "</div>",
+        "<p id='map-state' class='map-state'>Overview: Connect clusters</p>",
         f"<div id='overview-map' class='overview-map' style='--overview-map-aspect:{overview_map_aspect_ratio:.2f}' role='img' aria-label='Overview rollout map for all installer clusters'></div>",
         "<div id='map-fallback' class='map-fallback' role='status' aria-live='polite'>Interactive map could not load. The tables below still contain the full handout.</div>",
         "<div class='legend'>",
@@ -360,9 +364,9 @@ def render_html_document(
         "<span><i style='background:#d97706'></i>Next suggested node</span>",
         "<span><i style='background:#4b8b3b'></i>Planned node</span>",
         "<span><i class='bounds-sample'></i>Cluster bounds</span>",
-        "<span><i class='line-sample'></i>Earliest cluster connector</span>",
+        "<span><i class='line-sample'></i>Direct visible side link</span>",
         "</div>",
-        "<p class='map-note'>The overview map now shows every local order badge and an outline around each rollout cluster. Mini maps show the same order directly on the nodes. Follow the solid line from the installed seed toward rank 1, then 2, then onward. Dashed gray lines show the earliest visible connector between rollout clusters. Use the fullscreen button when a team needs to inspect one route in detail.</p>",
+        "<p class='map-note'>The shared map shows the selected rollout scope and phase. Follow the solid line from the installed seed toward rank 1, then 2, then onward. Dashed gray lines show direct visible side links inside the phase-one tree and the earliest visible connector between rollout clusters. Use the cluster controls below to focus the same map on one rollout queue.</p>",
         "</section>",
     ]
     html_parts.extend(render_summary_section(summary_rows))
@@ -418,6 +422,7 @@ def render_html_document(
             cluster_bound_features=cluster_bound_features,
             mqtt_points=seed_mqtt_points,
             seed_mqtt_links=seed_mqtt_links,
+            phase_one_tower_ids=phase_one_tower_ids,
         )
     )
     html_parts.extend(["</div>", "</body>", "</html>"])

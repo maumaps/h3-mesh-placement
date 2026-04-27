@@ -77,6 +77,7 @@ def render_map_assets(
     cluster_bound_features: Sequence[Mapping[str, object]] | None = None,
     mqtt_points: Sequence[Mapping[str, object]] | None = None,
     seed_mqtt_links: Sequence[Mapping[str, object]] | None = None,
+    phase_one_tower_ids: Sequence[int] | None = None,
 ) -> list[str]:
     """Return inline script tags needed for the one-file MapLibre handout."""
 
@@ -94,6 +95,7 @@ def render_map_assets(
         "phase_one_connector_edges": phase_one_connector_features(
             normalized_rows,
         ),
+        "phase_one_tower_ids": list(phase_one_tower_ids or []),
         "mqtt_points": list(mqtt_points or []),
         "seed_mqtt_links": list(seed_mqtt_links or []),
     }

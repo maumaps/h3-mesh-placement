@@ -48,6 +48,8 @@ class PipelineRegressionTest(unittest.TestCase):
             "enable_greedy": "false",
             "enable_route_bridge": "true",
             "enable_cluster_slim": "true",
+            "cluster_slim_claim_resolution": "4",
+            "cluster_slim_claim_disk": "1",
             "los_batch_limit": "50000",
             "los_parallel_jobs": "0",
             "min_tower_separation_m": "0",
@@ -63,6 +65,9 @@ class PipelineRegressionTest(unittest.TestCase):
             "enable_wiggle": "true",
             "wiggle_parallel_workers": "8",
             "wiggle_candidate_limit": "256",
+            "enable_install_priority_plan": "true",
+            "install_priority_phase1_cost": "distance",
+            "install_priority_phase2_metric": "population",
         }.items():
             self.assertIn(
                 f"('{setting}', '{value}')",
@@ -149,6 +154,22 @@ class PipelineRegressionTest(unittest.TestCase):
             "for update of q skip locked",
             (REPO_ROOT / "procedures" / "mesh_tower_wiggle.sql").read_text(),
             "Parallel wiggle workers should claim different dirty tower rows instead of evaluating the same tower concurrently.",
+        )
+        cluster_slim_text = (REPO_ROOT / "procedures" / "mesh_route_cluster_slim.sql").read_text()
+        self.assertLess(
+            cluster_slim_text.index("insert into mesh_route_cluster_slim_claims"),
+            cluster_slim_text.index("from pgr_dijkstra("),
+            "Cluster slim should reserve coarse H3 claim buckets before running expensive pgRouting for a candidate.",
+        )
+        self.assertIn(
+            "for update skip locked",
+            cluster_slim_text,
+            "Cluster slim workers should drain a shared SQL queue instead of static pair-id sharding.",
+        )
+        self.assertIn(
+            "h3_cell_to_parent(candidate_pair.source_h3, claim_resolution)",
+            cluster_slim_text,
+            "Cluster slim approximate claims should use configurable coarse H3 parents before routing.",
         )
         self.assertIn(
             "pg_advisory_xact_lock(hashtext('mesh_tower_wiggle_write'))",
@@ -506,12 +527,12 @@ class PipelineRegressionTest(unittest.TestCase):
             "mesh_route_bridge should consume the materialized route graph marker without forcing another LOS cache batch when towers are recalculated from a completed cache.",
         )
         self.assertIn(
-            "db/procedure/mesh_route_cluster_slim: procedures/mesh_route_cluster_slim.sql scripts/mesh_route_cluster_slim_configured.sh scripts/mesh_route_cluster_slim_worker.sh scripts/assert_mesh_towers_single_los_component.sql db/table/mesh_route_cluster_slim_failures db/procedure/mesh_route_bridge db/procedure/fill_mesh_los_cache_ready",
+            "db/procedure/mesh_route_cluster_slim: procedures/mesh_route_cluster_slim.sql scripts/mesh_route_cluster_slim_configured.sh scripts/mesh_route_cluster_slim_worker.sh scripts/assert_mesh_towers_single_los_component.sql db/table/mesh_route_cluster_slim_failures db/table/mesh_route_cluster_slim_candidate_queue db/table/mesh_route_cluster_slim_claims db/procedure/mesh_route_bridge db/procedure/fill_mesh_los_cache_ready",
             makefile_text,
             "mesh_route_cluster_slim should share the same cache-ready marker so downstream tower recalculation does not restart LOS cache preparation.",
         )
         self.assertIn(
-            "db/procedure/mesh_route_cluster_slim_current: procedures/mesh_route_cluster_slim.sql scripts/mesh_route_cluster_slim_configured.sh scripts/mesh_route_cluster_slim_worker.sh scripts/assert_mesh_towers_single_los_component.sql db/table/mesh_route_cluster_slim_failures",
+            "db/procedure/mesh_route_cluster_slim_current: procedures/mesh_route_cluster_slim.sql scripts/mesh_route_cluster_slim_configured.sh scripts/mesh_route_cluster_slim_worker.sh scripts/assert_mesh_towers_single_los_component.sql db/table/mesh_route_cluster_slim_failures db/table/mesh_route_cluster_slim_candidate_queue db/table/mesh_route_cluster_slim_claims",
             makefile_text,
             "mesh_route_cluster_slim_current should run only the current-state slim stage without pulling route bridge, LOS cache staging, or base imports into a safe resume.",
         )
@@ -887,6 +908,16 @@ class PipelineRegressionTest(unittest.TestCase):
             "Cluster-slim wrapper should let remote runs shard candidate evaluation across several PostgreSQL workers.",
         )
         self.assertIn(
+            'default_worker_count="$(nproc 2>/dev/null || printf \'1\')"',
+            wrapper_text,
+            "Cluster-slim wrapper should default to the machine CPU count so remote full recalculation does not silently run the expensive slim stage in one PostgreSQL worker.",
+        )
+        self.assertIn(
+            'worker_count="${SLIM_PARALLEL_WORKERS:-${default_worker_count}}"',
+            wrapper_text,
+            "Cluster-slim wrapper should still allow SLIM_PARALLEL_WORKERS to override the CPU-count default when a narrower diagnostic run is needed.",
+        )
+        self.assertIn(
             "parallel --line-buffer --halt soon,fail=1",
             wrapper_text,
             "Cluster-slim wrapper should use GNU parallel so candidate shards can occupy multiple CPU cores.",
@@ -894,15 +925,15 @@ class PipelineRegressionTest(unittest.TestCase):
         self.assertIn(
             "mesh.cluster_slim_worker_count",
             procedure_text,
-            "Cluster-slim procedure should read the worker count GUC to route only its shard of ranked candidates.",
+            "Cluster-slim procedure should read the worker count GUC for worker diagnostics and parallel-safe refresh decisions.",
         )
         self.assertIn(
-            "(rc.pair_id - 1) % worker_count = worker_index",
+            "for update skip locked",
             procedure_text,
-            "Cluster-slim procedure should partition ranked candidate pairs deterministically across workers.",
+            "Cluster-slim procedure should let workers claim shared queue rows instead of partitioning ranked candidates by pair-id shards.",
         )
         self.assertIn(
-            "if worker_count = 1 then",
+            "if p_worker_count = 1 then",
             procedure_text,
             "Cluster-slim workers should skip wide surface-spacing updates in parallel mode to avoid overlapping update deadlocks.",
         )
@@ -1055,9 +1086,14 @@ class PipelineRegressionTest(unittest.TestCase):
             "Makefile should provide a current generated-pair contraction target that does not replay route stages.",
         )
         self.assertIn(
-            "data/out/install_priority.html: scripts/export_install_priority.py scripts/install_priority_cluster_bounds.py scripts/install_priority_cluster_helpers.py scripts/install_priority_connectors.py scripts/install_priority_enrichment.py scripts/install_priority_geocoder.py scripts/install_priority_graph.py scripts/install_priority_graph_support.py scripts/install_priority_lib.py scripts/install_priority_map_payload.py scripts/install_priority_maplibre.py scripts/install_priority_maplibre_runtime.py scripts/install_priority_maplibre_vendor.py scripts/install_priority_points.py scripts/install_priority_render.py scripts/install_priority_render_sections.py scripts/install_priority_sources.py | data/out",
+            "db/table/mesh_install_priority_plan_current: tables/mesh_install_priority_plan.sql | db/table",
             makefile_text,
-            "Installer handout export should refresh from current DB state and renderer sources without forcing raw-import marker chains.",
+            "Installer handout order should have a narrow current-DB target so report refreshes do not replay raw imports or tower placement.",
+        )
+        self.assertIn(
+            "data/out/install_priority.html: scripts/export_install_priority.py scripts/install_priority_cluster_bounds.py scripts/install_priority_enrichment.py scripts/install_priority_geocoder.py scripts/install_priority_graph.py scripts/install_priority_lib.py scripts/install_priority_map_payload.py scripts/install_priority_maplibre.py scripts/install_priority_maplibre_runtime.py scripts/install_priority_maplibre_vendor.py scripts/install_priority_render.py scripts/install_priority_render_sections.py db/table/mesh_install_priority_plan_current | data/out",
+            makefile_text,
+            "Installer handout export should depend on the precomputed SQL order and presentation sources only.",
         )
         self.assertIn(
             "data/out/install_priority_edges_checked: scripts/assert_install_priority_edges.py data/out/install_priority.csv | data/out",
@@ -1086,6 +1122,11 @@ class PipelineRegressionTest(unittest.TestCase):
             makefile_text,
             "Installer handout export should not depend on db/table markers, because missing remote markers can drag unrelated raw-import rebuild chains before export.",
         )
+        self.assertNotIn(
+            "scripts/install_priority_backbone.py",
+            makefile_text,
+            "The handout Make targets should not reference the removed Python routing shim.",
+        )
         self.assertIn(
             'PGOPTIONS="$${PGOPTIONS:-} -c temp_buffers=256MB -c work_mem=128MB" python scripts/export_install_priority.py --csv-output data/out/install_priority.csv --html-output data/out/install_priority.html',
             makefile_text,
@@ -1096,6 +1137,62 @@ class PipelineRegressionTest(unittest.TestCase):
             wiggle_text,
             "mesh_tower_wiggle should keep fallback tower spacing at 0 so adjacent hex placements stay allowed during wiggle moves.",
         )
+
+    def test_install_priority_order_is_sql_owned(self) -> None:
+        """The exporter should render the SQL plan instead of recomputing graph routes."""
+        plan_sql = (REPO_ROOT / "tables" / "mesh_install_priority_plan.sql").read_text()
+        exporter_text = (REPO_ROOT / "scripts" / "export_install_priority.py").read_text()
+
+        for sql_fragment in (
+            "create table mesh_install_priority_plan",
+            "pgr_dijkstra",
+            "install_priority_phase_one_order",
+            "install_priority_phase_two_order",
+            "install_priority_suppressed_mqtt",
+            "install_priority_countries",
+            "target_tower.country_code = seed_components.country_code",
+            "Field-imported MQTT points can land on top of curated seeds",
+            "hidden installed points as free intermediate graph vertices",
+            "connect_installed_component",
+            "connect_neighbor_cluster",
+            "could not connect installed components inside cluster",
+            "coalesce(phase_one.parent_tower_id, previous_edges.primary_previous_tower_id)",
+            "when target_tower.source = 'seed'",
+            "and routed_costs.root_id = target_seed_component.root_id then 0",
+            "when target_tower.source = 'seed' then target_seed_component.cluster_key",
+            "raise exception 'mesh_install_priority_plan has cluster_install_rank gaps'",
+            "raise exception 'mesh_install_priority_plan split directly visible installed roots across clusters'",
+            "raise exception 'mesh_install_priority_plan has invalid predecessor order or visibility'",
+        ):
+            self.assertIn(
+                sql_fragment,
+                plan_sql,
+                f"mesh_install_priority_plan.sql should own install ordering and invariants; missing {sql_fragment!r}.",
+            )
+
+        self.assertNotIn(
+            "pgr_kruskal",
+            plan_sql,
+            "Phase 1 should no longer build a global minimum tree, because that can rank helper nodes before already-reachable join endpoints.",
+        )
+
+        self.assertIn(
+            "from mesh_install_priority_plan",
+            exporter_text,
+            "Installer export should read the precomputed SQL plan table.",
+        )
+        for python_routing_fragment in (
+            "select_inter_cluster_connectors",
+            "install_priority_backbone",
+            "build_adjacency",
+            "build_cluster_plan",
+            "choose_primary_previous",
+        ):
+            self.assertNotIn(
+                python_routing_fragment,
+                exporter_text,
+                f"Installer export should not recompute routing in Python; found {python_routing_fragment!r}.",
+            )
 
     def test_visibility_bridge_report_is_read_only(self) -> None:
         """Bridge diagnostics should not mutate placement tables while reviewing graph fragility."""
@@ -1928,7 +2025,7 @@ class PipelineRegressionTest(unittest.TestCase):
             "mesh_placement_restart target should remain declared in Makefile.",
         )
         self.assertIn(
-            "db/table/mesh_greedy_iterations | db/procedure",
+            "db/table/mesh_greedy_iterations",
             makefile_text,
             "mesh_placement_restart must depend on db/table/mesh_greedy_iterations because the wrapper truncates that table before replaying route stages.",
         )

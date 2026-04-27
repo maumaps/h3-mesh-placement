@@ -13,11 +13,12 @@ if [ "${enabled}" != t ]; then
     exit 0
 fi
 
-echo ">> Clearing previous cluster-slim towers and failures"
-psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "delete from mesh_towers where source = 'cluster_slim'; truncate mesh_route_cluster_slim_failures;"
+echo ">> Clearing previous cluster-slim towers, failures, queue, and claims"
+psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "delete from mesh_towers where source = 'cluster_slim'; truncate mesh_route_cluster_slim_failures, mesh_route_cluster_slim_candidate_queue, mesh_route_cluster_slim_claims;"
 
 max_iters="${SLIM_ITERATIONS:-$(pg_setting_int cluster_slim_iterations)}"
-worker_count="${SLIM_PARALLEL_WORKERS:-1}"
+default_worker_count="$(nproc 2>/dev/null || printf '1')"
+worker_count="${SLIM_PARALLEL_WORKERS:-${default_worker_count}}"
 if [ "${worker_count}" -lt 1 ]; then
     echo ">> SLIM_PARALLEL_WORKERS must be at least 1, got ${worker_count}" >&2
     exit 1
@@ -72,6 +73,7 @@ SQL
 while :; do
     iter=$((iter + 1))
     echo ">> Cluster slim iteration ${iter}"
+    psql --no-psqlrc --set=ON_ERROR_STOP=1 -c "call mesh_route_cluster_slim_prepare_iteration(${iter});"
     before_progress="$(psql --no-psqlrc --set=ON_ERROR_STOP=1 -At -c "select count(*) from mesh_route_cluster_slim_failures;")"
     if [ "${worker_count}" -gt 1 ]; then
         echo ">> Cluster slim iteration ${iter} running ${worker_count} candidate shard worker(s)"

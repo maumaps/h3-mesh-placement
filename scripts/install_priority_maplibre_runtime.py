@@ -4,7 +4,7 @@ from __future__ import annotations
 
 
 def build_map_script() -> str:
-    """Return the inline MapLibre bootstrap script for overview and mini maps."""
+    """Return the inline MapLibre bootstrap script for the shared report map."""
 
     return """
 const payloadEl = document.getElementById('install-priority-data');
@@ -191,6 +191,8 @@ if (!payloadEl || !window.maplibregl) {
         cluster_key: row.cluster_key,
         rollout_status: row.rollout_status,
         cluster_install_rank: row.cluster_install_rank,
+        from_tower_id: row.tower_id,
+        to_tower_id: previousRow.tower_id,
       },
     }];
   });
@@ -454,6 +456,8 @@ if (!payloadEl || !window.maplibregl) {
     });
   };
   const addSeedMqttMarkers = (map, featureCollection) => {
+    const markers = [];
+
     featureCollection.features.forEach((feature) => {
       const markerEl = document.createElement('div');
       const source = String(feature.properties.source || '').toLowerCase();
@@ -481,7 +485,10 @@ if (!payloadEl || !window.maplibregl) {
         event.preventDefault();
         marker.togglePopup();
       });
+      markers.push(marker);
     });
+
+    return markers;
   };
 
   const addNodeLayers = (map, sourceName, featureCollection, mapMode) => {
@@ -591,9 +598,11 @@ if (!payloadEl || !window.maplibregl) {
   const overviewConnectCutoffByCluster = new Map(
     payload.clusters.map((cluster) => [cluster.cluster_key, Number(cluster.connect_max_rank || 0)])
   );
+  const overviewConnectTowerIds = new Set(payload.phase_one_tower_ids || []);
 
   const overviewFeatureIsInConnectView = (feature) => {
     if (feature.properties.installed) return true;
+    if (overviewConnectTowerIds.size) return overviewConnectTowerIds.has(feature.properties.tower_id);
 
     const rank = rankNumber(feature.properties.cluster_install_rank);
     const cutoff = overviewConnectCutoffByCluster.get(feature.properties.cluster_key);
@@ -608,17 +617,32 @@ if (!payloadEl || !window.maplibregl) {
     const overviewRouteFeatures = viewMode === 'coverage'
       ? routeFeatures
       : routeFeatures.filter((feature) => {
+        if (overviewConnectTowerIds.size) {
+          return (
+            overviewConnectTowerIds.has(feature.properties.from_tower_id)
+            && overviewConnectTowerIds.has(feature.properties.to_tower_id)
+          );
+        }
+
         const rank = rankNumber(feature.properties.cluster_install_rank);
         const cutoff = overviewConnectCutoffByCluster.get(feature.properties.cluster_key);
 
         return rank !== null && cutoff !== undefined && rank <= cutoff;
       });
+    const overviewPhaseOneLocalContextFeatures = contextFeatures.filter((feature) => (
+      includedTowerIds.has(feature.properties.from_tower_id)
+      && includedTowerIds.has(feature.properties.to_tower_id)
+    ));
+    const overviewPhaseOneConnectorFeatures = phaseOneConnectorEdges.features.filter((feature) => (
+      includedTowerIds.has(feature.properties.from_tower_id)
+      && includedTowerIds.has(feature.properties.to_tower_id)
+    ));
     const overviewContextFeatures = viewMode === 'coverage'
       ? contextFeatures
-      : phaseOneConnectorEdges.features.filter((feature) => (
-        includedTowerIds.has(feature.properties.from_tower_id)
-        && includedTowerIds.has(feature.properties.to_tower_id)
-      ));
+      : [
+        ...overviewPhaseOneLocalContextFeatures,
+        ...overviewPhaseOneConnectorFeatures,
+      ];
     const overviewInstalledBackboneFeatures = installedBackboneFeatures.filter((feature) => (
       includedTowerIds.has(feature.properties.from_tower_id)
       && includedTowerIds.has(feature.properties.to_tower_id)
@@ -668,17 +692,14 @@ if (!payloadEl || !window.maplibregl) {
     type: 'FeatureCollection',
     features: payload.phase_one_connector_edges || [],
   };
-  const clusterMapTargets = payload.clusters.flatMap((cluster) => ([
-    { ...cluster, map_id: cluster.map_id },
-    ...(cluster.full_map_id ? [{ ...cluster, map_id: cluster.full_map_id }] : []),
-  ]));
-  const clusterByMapId = new Map(clusterMapTargets.map((cluster) => [cluster.map_id, cluster]));
-  const clusterCollectionsByMapId = new Map(clusterMapTargets.map((cluster) => {
-    const container = document.getElementById(cluster.map_id);
-    const maxRankText = container ? container.dataset.maxRank : '';
-    const maxRank = maxRankText === undefined || maxRankText === '' ? null : Number(maxRankText);
+  const clusterByKey = new Map(payload.clusters.map((cluster) => [cluster.cluster_key, cluster]));
+  const buildClusterCollections = (clusterKey, viewMode) => {
+    const cluster = clusterByKey.get(clusterKey);
+    if (!cluster) return null;
+
+    const maxRank = viewMode === 'coverage' ? null : Number(cluster.connect_max_rank || 0);
     const clusterFeatures = features.filter((feature) => (
-      feature.properties.cluster_key === cluster.cluster_key
+      feature.properties.cluster_key === clusterKey
       && (
         maxRank === null
         || feature.properties.installed
@@ -687,131 +708,91 @@ if (!payloadEl || !window.maplibregl) {
     ));
     const includedTowerIds = new Set(clusterFeatures.map((feature) => feature.properties.tower_id));
 
-    return [
-      cluster.map_id,
-      {
-        clusterFeatures,
-        clusterCollection: {
-          type: 'FeatureCollection',
-          features: clusterFeatures,
-        },
-        clusterRoutes: {
-          type: 'FeatureCollection',
-          features: routeFeatures.filter((feature) => (
-            feature.properties.cluster_key === cluster.cluster_key
-            && (
-              maxRank === null
-              || Number(feature.properties.cluster_install_rank) <= maxRank
-            )
-          )),
-        },
-        clusterContext: {
-          type: 'FeatureCollection',
-          features: contextFeatures.filter((feature) => (
-            (
-              feature.properties.from_cluster_key === cluster.cluster_key
-              || feature.properties.to_cluster_key === cluster.cluster_key
-            )
-            && (
-              maxRank === null
-              || (
-                includedTowerIds.has(feature.properties.from_tower_id)
-                && includedTowerIds.has(feature.properties.to_tower_id)
-              )
-            )
-          )),
-        },
-        clusterInstalledBackbone: {
-          type: 'FeatureCollection',
-          features: installedBackboneFeatures.filter((feature) => (
-            feature.properties.cluster_key === cluster.cluster_key
-            && (
-              maxRank === null
-              || (
-                includedTowerIds.has(feature.properties.from_tower_id)
-                && includedTowerIds.has(feature.properties.to_tower_id)
-              )
-            )
-          )),
-        },
-        clusterBounds: {
-          type: 'FeatureCollection',
-          features: clusterBoundFeatures.filter((feature) => feature.properties.cluster_key === cluster.cluster_key),
-        },
+    return {
+      label: cluster.cluster_label,
+      collection: {
+        type: 'FeatureCollection',
+        features: clusterFeatures,
       },
-    ];
-  }));
-  const activeClusterMaps = new Map();
-  const maxActiveClusterMaps = 4;
-  const prefersLazyClusterMaps = () => window.matchMedia('(max-width: 920px)').matches;
+      routes: {
+        type: 'FeatureCollection',
+        features: routeFeatures.filter((feature) => (
+          feature.properties.cluster_key === clusterKey
+          && (
+            maxRank === null
+            || Number(feature.properties.cluster_install_rank) <= maxRank
+          )
+        )),
+      },
+      context: {
+        type: 'FeatureCollection',
+        features: contextFeatures.filter((feature) => (
+          (
+            feature.properties.from_cluster_key === clusterKey
+            || feature.properties.to_cluster_key === clusterKey
+          )
+          && (
+            maxRank === null
+            || (
+              includedTowerIds.has(feature.properties.from_tower_id)
+              && includedTowerIds.has(feature.properties.to_tower_id)
+            )
+          )
+        )),
+      },
+      installedBackbone: {
+        type: 'FeatureCollection',
+        features: installedBackboneFeatures.filter((feature) => (
+          feature.properties.cluster_key === clusterKey
+          && (
+            maxRank === null
+            || (
+              includedTowerIds.has(feature.properties.from_tower_id)
+              && includedTowerIds.has(feature.properties.to_tower_id)
+            )
+          )
+        )),
+      },
+      bounds: {
+        type: 'FeatureCollection',
+        features: clusterBoundFeatures.filter((feature) => feature.properties.cluster_key === clusterKey),
+      },
+      seedMqttLinks: viewMode === 'coverage' ? overviewSeedMqttLinks : { type: 'FeatureCollection', features: [] },
+      fitFeatures: clusterFeatures.length
+        ? [
+          ...clusterFeatures,
+          ...routeFeatures.filter((feature) => feature.properties.cluster_key === clusterKey),
+        ]
+        : [],
+    };
+  };
   let overviewMap = null;
   let overviewOrderMarkers = [];
+  let seedMqttMarkers = [];
 
   window.__installPriorityMaps = {
     payload,
-    activeClusterMaps,
-    clusterByMapId,
+    clusterByKey,
     getOverviewMap: () => overviewMap,
-    getClusterMap: (mapId) => activeClusterMaps.get(mapId) || null,
   };
   const clearOverviewOrderMarkers = () => {
     overviewOrderMarkers.forEach((marker) => marker.remove());
     overviewOrderMarkers = [];
   };
-  const mapTargetIsVisible = (cluster) => {
-    const container = document.getElementById(cluster.map_id);
-    if (!container) return false;
-
-    return container.getClientRects().length > 0;
-  };
-  const clusterContainerIsFullscreen = (container) => {
-    if (!document.fullscreenElement) return false;
-
-    return document.fullscreenElement === container || container.contains(document.fullscreenElement);
-  };
-  const unmountClusterMapById = (mapId) => {
-    const container = document.getElementById(mapId);
-    const clusterMap = activeClusterMaps.get(mapId);
-
-    if (!container || !clusterMap || clusterContainerIsFullscreen(container)) return false;
-
-    clusterMap.remove();
-    activeClusterMaps.delete(mapId);
-    container.innerHTML = '';
-    container.dataset.mapMounted = 'false';
-
-    return true;
-  };
-  const enforceClusterMapLimit = (preferredMapId = '') => {
-    if (!prefersLazyClusterMaps()) return;
-    if (activeClusterMaps.size <= maxActiveClusterMaps) return;
-
-    Array.from(activeClusterMaps.keys()).forEach((mapId) => {
-      if (activeClusterMaps.size <= maxActiveClusterMaps) return;
-      if (mapId === preferredMapId) return;
-
-      const cluster = clusterByMapId.get(mapId);
-      if (cluster && mapTargetIsVisible(cluster) && clusterIsNearViewport(cluster)) return;
-
-      unmountClusterMapById(mapId);
-    });
-
-    Array.from(activeClusterMaps.keys()).forEach((mapId) => {
-      if (activeClusterMaps.size <= maxActiveClusterMaps) return;
-      if (mapId === preferredMapId) return;
-
-      unmountClusterMapById(mapId);
-    });
-  };
-  const updateOverviewView = (viewMode) => {
+  const updateSharedMap = ({ scope = 'overview', clusterKey = '', viewMode = 'connect' } = {}) => {
     if (!overviewMap) return;
 
-    const collections = buildOverviewCollections(viewMode);
+    const collections = scope === 'cluster'
+      ? buildClusterCollections(clusterKey, viewMode)
+      : buildOverviewCollections(viewMode);
+    if (!collections) return;
+
     const nodeSource = overviewMap.getSource('overview-nodes');
     const routeSource = overviewMap.getSource('overview-route-segments');
     const contextSource = overviewMap.getSource('overview-context-segments');
     const seedMqttLinkSource = overviewMap.getSource('overview-seed-mqtt-links');
     const installedBackboneSource = overviewMap.getSource('overview-installed-backbone');
+    const boundsSource = overviewMap.getSource('overview-cluster-bounds');
 
     if (!nodeSource || !routeSource || !contextSource) return;
 
@@ -820,9 +801,19 @@ if (!payloadEl || !window.maplibregl) {
     if (contextSource) contextSource.setData(collections.context);
     if (seedMqttLinkSource) seedMqttLinkSource.setData(collections.seedMqttLinks);
     if (installedBackboneSource) installedBackboneSource.setData(collections.installedBackbone);
+    if (boundsSource) boundsSource.setData(scope === 'cluster' ? collections.bounds : overviewBounds);
 
     clearOverviewOrderMarkers();
-    overviewOrderMarkers = addOrderMarkers(overviewMap, collections.collection, 'overview');
+    overviewOrderMarkers = addOrderMarkers(overviewMap, collections.collection, scope === 'cluster' ? 'cluster' : 'overview');
+
+    const stateEl = document.getElementById('map-state');
+    if (stateEl) {
+      const phaseLabel = viewMode === 'coverage' ? 'Improve coverage' : 'Connect clusters';
+      stateEl.textContent = scope === 'cluster'
+        ? `${collections.label}: ${phaseLabel}`
+        : `Overview: ${phaseLabel}`;
+    }
+
     requestAnimationFrame(() => {
       overviewMap.resize();
       fitToFeatures(overviewMap, collections.fitFeatures);
@@ -839,54 +830,11 @@ if (!payloadEl || !window.maplibregl) {
           candidate.classList.toggle('active', selected);
           candidate.setAttribute('aria-selected', selected ? 'true' : 'false');
         });
-        updateOverviewView(tab.dataset.overviewView || 'connect');
+        updateSharedMap({ scope: 'overview', viewMode: tab.dataset.overviewView || 'connect' });
       });
     });
   };
 
-  const mountClusterMap = (cluster) => {
-    const container = document.getElementById(cluster.map_id);
-
-    if (!container || activeClusterMaps.has(cluster.map_id)) return activeClusterMaps.get(cluster.map_id) || null;
-
-    const collections = clusterCollectionsByMapId.get(cluster.map_id);
-    if (!collections) return null;
-
-    const { clusterFeatures, clusterCollection, clusterRoutes, clusterContext, clusterInstalledBackbone, clusterBounds } = collections;
-    const clusterMap = new maplibregl.Map({
-      ...mapOptions(cluster.map_id, clusterFeatures[0] ? clusterFeatures[0].geometry.coordinates : [43.5, 41.8], 8),
-      interactive: true,
-    });
-
-    activeClusterMaps.set(cluster.map_id, clusterMap);
-    container.dataset.mapMounted = 'true';
-    clusterMap.addControl(new BasemapControl(), 'top-left');
-    clusterMap.addControl(new maplibregl.FullscreenControl(), 'top-right');
-    clusterMap.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
-    runOnStyleReady(clusterMap, () => {
-      safeOverlayStep(`${cluster.map_id} bounds`, () => addClusterBoundLayers(clusterMap, `${cluster.map_id}-cluster-bounds`, clusterBounds, 'cluster'));
-      safeOverlayStep(`${cluster.map_id} connectors`, () => addContextLayers(clusterMap, `${cluster.map_id}-context-segments`, clusterContext, 'cluster'));
-      safeOverlayStep(`${cluster.map_id} installed links`, () => addInstalledBackboneLayers(clusterMap, `${cluster.map_id}-installed-backbone`, clusterInstalledBackbone, 'cluster'));
-      safeOverlayStep(`${cluster.map_id} nodes`, () => addNodeLayers(clusterMap, `${cluster.map_id}-nodes`, clusterCollection, 'cluster'));
-      safeOverlayStep(`${cluster.map_id} routes`, () => addRouteLayers(clusterMap, `${cluster.map_id}-route-segments`, clusterRoutes, 'cluster'));
-      safeOverlayStep(`${cluster.map_id} order markers`, () => addOrderMarkers(clusterMap, clusterCollection, 'cluster'));
-      requestAnimationFrame(() => { clusterMap.resize(); fitToFeatures(clusterMap, clusterRoutes.features.length ? [...clusterFeatures, ...clusterRoutes.features] : clusterFeatures); });
-    });
-    enforceClusterMapLimit(cluster.map_id);
-
-    return clusterMap;
-  };
-  const mountClusterMapsInPanel = (panel) => {
-    panel.querySelectorAll('.cluster-map').forEach((container) => {
-      const cluster = clusterByMapId.get(container.id);
-      if (!cluster) return;
-
-      requestAnimationFrame(() => {
-        const clusterMap = mountClusterMap(cluster);
-        if (clusterMap) clusterMap.resize();
-      });
-    });
-  };
   const setupClusterViewTabs = () => {
     document.querySelectorAll('.cluster-view-tabs').forEach((tabList) => {
       const tabs = Array.from(tabList.querySelectorAll('[role="tab"]'));
@@ -906,11 +854,14 @@ if (!payloadEl || !window.maplibregl) {
 
           panel.hidden = !selected;
           panel.classList.toggle('active', selected);
-          if (selected) mountClusterMapsInPanel(panel);
         });
 
+        updateSharedMap({
+          scope: 'cluster',
+          clusterKey: selectedTab.dataset.clusterKey || '',
+          viewMode: selectedTab.dataset.mapPhase || 'connect',
+        });
         if (focusTab) selectedTab.focus();
-        syncVisibleClusterMaps();
       };
 
       tabs.forEach((tab, index) => {
@@ -936,99 +887,17 @@ if (!payloadEl || !window.maplibregl) {
       });
     });
   };
-  const unmountClusterMap = (cluster) => {
-    unmountClusterMapById(cluster.map_id);
-  };
-  const clusterContainerIsVisible = (cluster) => {
-    return mapTargetIsVisible(cluster);
-  };
-  const clusterIsNearViewport = (cluster) => {
-    const container = document.getElementById(cluster.map_id);
-    if (!container) return false;
-
-    const rect = container.getBoundingClientRect();
-    const preloadMargin = 240;
-
-    return rect.bottom >= -preloadMargin && rect.top <= window.innerHeight + preloadMargin;
-  };
-  const syncVisibleClusterMaps = () => {
-    if (!prefersLazyClusterMaps()) {
-      clusterMapTargets.forEach((cluster) => {
-        if (clusterContainerIsVisible(cluster)) mountClusterMap(cluster);
+  const setupSharedMapButtons = () => {
+    document.querySelectorAll('.shared-map-button').forEach((button) => {
+      button.addEventListener('click', () => {
+        updateSharedMap({
+          scope: 'cluster',
+          clusterKey: button.dataset.clusterKey || '',
+          viewMode: button.dataset.mapPhase || 'connect',
+        });
+        document.getElementById('overview-map')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       });
-      return;
-    }
-
-    clusterMapTargets.forEach((cluster) => {
-      if (!clusterContainerIsVisible(cluster)) {
-        unmountClusterMap(cluster);
-        return;
-      }
-
-      if (clusterIsNearViewport(cluster)) {
-        mountClusterMap(cluster);
-        return;
-      }
-
-      unmountClusterMap(cluster);
     });
-    enforceClusterMapLimit();
-  };
-  window.__installPriorityMaps.syncVisibleClusterMaps = syncVisibleClusterMaps;
-  window.__installPriorityMaps.mountClusterMap = (mapId) => {
-    const cluster = clusterByMapId.get(mapId);
-    if (!cluster) return null;
-
-    return mountClusterMap(cluster);
-  };
-  const initializeClusterMaps = () => {
-    if (!window.IntersectionObserver || !prefersLazyClusterMaps()) {
-      syncVisibleClusterMaps();
-      setTimeout(syncVisibleClusterMaps, 250);
-      window.addEventListener('resize', syncVisibleClusterMaps);
-      window.addEventListener('orientationchange', syncVisibleClusterMaps);
-      window.addEventListener('focus', syncVisibleClusterMaps);
-      window.addEventListener('pageshow', syncVisibleClusterMaps);
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') syncVisibleClusterMaps();
-      });
-      document.addEventListener('fullscreenchange', syncVisibleClusterMaps);
-      return;
-    }
-
-    const mountClusterObserver = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        const cluster = clusterByMapId.get(entry.target.id);
-        if (!cluster) return;
-
-        if (entry.isIntersecting && clusterContainerIsVisible(cluster)) {
-          mountClusterMap(cluster);
-          return;
-        }
-
-        unmountClusterMap(cluster);
-      });
-    }, {
-      root: null,
-      rootMargin: '240px 0px',
-      threshold: 0.01,
-    });
-
-    clusterMapTargets.forEach((cluster) => {
-      const container = document.getElementById(cluster.map_id);
-      if (!container) return;
-      mountClusterObserver.observe(container);
-    });
-    syncVisibleClusterMaps();
-    setTimeout(syncVisibleClusterMaps, 250);
-    window.addEventListener('resize', syncVisibleClusterMaps);
-    window.addEventListener('orientationchange', syncVisibleClusterMaps);
-    window.addEventListener('focus', syncVisibleClusterMaps);
-    window.addEventListener('pageshow', syncVisibleClusterMaps);
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') syncVisibleClusterMaps();
-    });
-    document.addEventListener('fullscreenchange', syncVisibleClusterMaps);
   };
 
   overviewMap = new maplibregl.Map({ ...mapOptions('overview-map', [43.5, 41.8], 6) });
@@ -1044,12 +913,13 @@ if (!payloadEl || !window.maplibregl) {
     safeOverlayStep('overview seed/mqtt links', () => addSeedMqttLinkLayers(overviewMap, 'overview-seed-mqtt-links', initialOverviewCollections.seedMqttLinks));
     safeOverlayStep('overview nodes', () => addNodeLayers(overviewMap, 'overview-nodes', initialOverviewCollections.collection, 'overview'));
     safeOverlayStep('overview routes', () => addRouteLayers(overviewMap, 'overview-route-segments', initialOverviewCollections.routes, 'overview'));
-    safeOverlayStep('overview seed/mqtt markers', () => addSeedMqttMarkers(overviewMap, overviewSeedMqtt));
+    safeOverlayStep('overview seed/mqtt markers', () => { seedMqttMarkers = addSeedMqttMarkers(overviewMap, overviewSeedMqtt); });
     safeOverlayStep('overview order markers', () => { overviewOrderMarkers = addOrderMarkers(overviewMap, initialOverviewCollections.collection, 'overview'); });
     requestAnimationFrame(() => { overviewMap.resize(); fitToFeatures(overviewMap, initialOverviewCollections.fitFeatures); });
   });
   setupOverviewViewTabs();
   setupClusterViewTabs();
-  initializeClusterMaps();
+  setupSharedMapButtons();
+  window.__installPriorityMaps.setMapView = updateSharedMap;
 }
 """

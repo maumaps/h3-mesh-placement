@@ -480,7 +480,7 @@ def _prefer_seed_points_over_nearby_mqtt(
     points: list[dict[str, object]],
     tolerance_m: float = 1000.0,
 ) -> list[dict[str, object]]:
-    """Drop nearby MQTT overview points when a seed already covers the same place."""
+    """Drop duplicate overview MQTT points near a seed or earlier MQTT point."""
 
     seed_points = [
         point
@@ -488,10 +488,8 @@ def _prefer_seed_points_over_nearby_mqtt(
         if str(point.get("source")) == "seed"
     ]
 
-    if not seed_points:
-        return points
-
     filtered_points: list[dict[str, object]] = []
+    kept_mqtt_points: list[dict[str, object]] = []
 
     for point in points:
         if str(point.get("source")) != "mqtt":
@@ -509,8 +507,20 @@ def _prefer_seed_points_over_nearby_mqtt(
             ) <= tolerance_m
             for seed_point in seed_points
         )
-        if not has_nearby_seed:
-            filtered_points.append(point)
+        has_nearby_mqtt = any(
+            _local_distance_m(
+                point_lon,
+                point_lat,
+                float(mqtt_point["lon"]),
+                float(mqtt_point["lat"]),
+            ) <= tolerance_m
+            for mqtt_point in kept_mqtt_points
+        )
+        if has_nearby_seed or has_nearby_mqtt:
+            continue
+
+        filtered_points.append(point)
+        kept_mqtt_points.append(point)
 
     return filtered_points
 

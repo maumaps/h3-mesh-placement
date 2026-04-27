@@ -193,12 +193,24 @@ Inside one attempt, routing is anchored on the nearest tower-node pair between t
 After route towers are inserted, local surface visibility/reception refresh is deferred to the later route-refresh stage instead of being recomputed synchronously inside bridge.
 The stage then runs `scripts/assert_mesh_towers_single_los_component.sql`, which checks live `mesh_towers` against cached positive-clearance LOS links and fails if the route graph has more than one connected component.
 
+### Installer handout ownership (`mesh_install_priority_plan`)
+**Where:** `tables/mesh_install_priority_plan.sql`.
+**What:** Builds the export order for the installer handout from the live visibility graph, then assigns each reachable tower to the seed cluster it should belong to.
+**Why:** The handout must not jump a border bridge into a foreign cluster when the tower already has a reachable same-country seed queue.
+**Requirement:** If a tower has a known local country code and at least one reachable seed cluster in that same country, the planner must keep it in that same-country queue even when a cross-border seed path is slightly shorter.
+Only when no same-country seed queue is reachable may the planner fall back to the nearest visible cross-border queue.
+This is a hard handout invariant, not a cosmetic preference, and the SQL plan plus tests should both enforce it.
+
 ### Cluster slim (`mesh_route_cluster_slim`)
-**Where:** `procedures/mesh_route_cluster_slim.sql`, `tables/mesh_route_cluster_slim_failures.sql`.
+**Where:** `procedures/mesh_route_cluster_slim.sql`, `tables/mesh_route_cluster_slim_failures.sql`, `tables/mesh_route_cluster_slim_candidate_queue.sql`, `tables/mesh_route_cluster_slim_claims.sql`.
 **What:** For intra-cluster pairs exceeding 7 hops, routes candidate corridors and promotes intermediate towers so hop counts shrink.
 **Why:** The 7-hop budget is a hard design constraint, so the graph must be “tightened” before maximizing population.
-**Optimization:** Processes a bounded candidate batch per iteration and reuses existing towers on a corridor.
-The configured wrapper treats a newly logged failed or completed corridor as progress even when that specific invocation inserts no new tower, so one rejected corridor cannot make the whole slim stage look converged.
+**Optimization:** Each outer iteration rebuilds a ranked SQL queue, and parallel workers claim queue rows with `FOR UPDATE SKIP LOCKED`.
+Before running `pgr_dijkstra`, a worker reserves coarse H3 corridor buckets in `mesh_route_cluster_slim_claims`.
+The default claim grid is r4 with disk 1: r4 cells have about 26 km average edge length, so the effective bucket diameter is close to the 50 km Nyquist-style half-step for a 100 km LOS interaction radius.
+Candidates that collide on those coarse buckets are marked as iteration-local claim conflicts instead of being routed and then thrown away.
+After routing, the actual path is claimed again at the same coarse resolution before any towers are promoted, so approximate straight-line claims cannot hide a later path overlap.
+The configured wrapper treats a newly logged failed or completed corridor as progress even when that specific invocation inserts no new tower, while claim conflicts are retried by rebuilding the queue in the next outer iteration.
 The route search blocks only candidate cells inside the configured separation threshold; with the default zero separation, new relay cells remain available for actual corridor densification.
 Like bridge, it now defers local surface and visibility refresh to the later route-refresh stage instead of recomputing them synchronously inside each cluster-slim iteration.
 After each cluster-slim run, the same single-component assertion verifies that tightening did not strand any live tower.
@@ -243,10 +255,11 @@ The configured wrapper runs greedy iterations with `statement_timeout=0` so thos
 Before each resume loop, `scripts/fill_mesh_los_cache_queue_indexes.sql` ensures the live queue has both the exact-match `(src_h3, dst_h3)` btree for delete/join tails and the batch-order btree `(building_endpoint_count desc, disconnected_priority, priority, building_count desc, src_h3, dst_h3)` so each committed batch can pull its next slice without a full parallel sort of `mesh_route_missing_pairs`.
 
 ### Cluster slim (`mesh_route_cluster_slim`)
-**Where:** `procedures/mesh_route_cluster_slim.sql`, `tables/mesh_route_cluster_slim_failures.sql`.
+**Where:** `procedures/mesh_route_cluster_slim.sql`, `tables/mesh_route_cluster_slim_failures.sql`, `tables/mesh_route_cluster_slim_candidate_queue.sql`, `tables/mesh_route_cluster_slim_claims.sql`.
 **What:** For intra-cluster pairs exceeding 7 hops, routes candidate corridors and promotes intermediate towers so hop counts shrink.
 **Why:** The 7-hop budget is a hard design constraint, so the graph must be “tightened” before maximizing population.
-**Optimization:** Processes one corridor per invocation, stores failed pair attempts, and reuses `mesh_route_corridor_between_towers(...)` so the expensive pgRouting graph stays centralized.
+**Optimization:** Workers drain a shared SQL queue, pre-claim coarse r4 H3 corridor buckets before expensive `pgr_dijkstra`, and then claim the exact routed path before promotion.
+This keeps parallel workers from evaluating corridors whose 100 km LOS neighborhoods can interfere with each other.
 The configured wrapper keeps looping after non-promoting attempts when the failure/completion log advanced, because those rows remove bad corridors from the remaining queue.
 Like bridge, it now defers local surface and visibility refresh to the later route-refresh stage instead of recomputing them synchronously inside each cluster-slim iteration.
 

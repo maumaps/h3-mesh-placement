@@ -100,9 +100,9 @@ class InstallPriorityMobileTests(unittest.TestCase):
             msg="Cluster detail should include mobile card markup so narrow screens do not have to read a ten-column table.",
         )
         self.assertIn(
-            "role='img' aria-label='Map for Georgia / Batumi rollout cluster'",
+            "Show this phase on overview map",
             html_text,
-            msg="Each cluster mini map should include an accessible label describing which rollout cluster it shows.",
+            msg="Cluster detail should focus the shared overview map instead of embedding a separate mini map.",
         )
         self.assertIn(
             ".cluster-table-wrap{display:none}.cluster-cards{display:block}",
@@ -110,8 +110,8 @@ class InstallPriorityMobileTests(unittest.TestCase):
             msg="Responsive CSS should switch from the wide table to mobile cards on narrow screens.",
         )
 
-    def test_html_distinguishes_cluster_marker_sizes_from_overview(self) -> None:
-        """Mini maps should use smaller node visuals than the overview map."""
+    def test_html_uses_one_shared_map_on_mobile(self) -> None:
+        """The report should use one MapLibre context and switch its data for cluster drilldown."""
 
         html_text = render_html_document(
             [
@@ -140,22 +140,12 @@ class InstallPriorityMobileTests(unittest.TestCase):
         self.assertIn(
             ".order-marker.cluster{width:12px;height:12px;font-size:7px;border-width:1px",
             html_text,
-            msg="Cluster map badges should be smaller than overview badges so mini maps stay legible on phones.",
-        )
-        self.assertIn(
-            ".cluster-map{aspect-ratio:var(--cluster-map-aspect,1.6)/1;min-height:220px;height:auto",
-            html_text,
-            msg="Cluster mini maps should use per-cluster Web Mercator aspect ratios instead of a flat fixed-height strip.",
-        )
-        self.assertIn(
-            "style='--cluster-map-aspect:",
-            html_text,
-            msg="Rendered cluster map containers should carry their own bounded Mercator bbox aspect ratio.",
+            msg="Cluster-focused order badges should be smaller than overview badges on the shared map.",
         )
         self.assertIn(
             "mapMode === 'cluster' ? 4 : 7",
             html_text,
-            msg="Cluster point circles should use a smaller radius than overview points in the MapLibre bootstrap.",
+            msg="The shared map runtime should keep a cluster-focused marker sizing mode.",
         )
         self.assertIn(
             "addNodeLayers(overviewMap, 'overview-nodes', initialOverviewCollections.collection, 'overview')",
@@ -163,39 +153,24 @@ class InstallPriorityMobileTests(unittest.TestCase):
             msg="The overview map should still opt into the larger overview marker sizing path while using the active phase collection.",
         )
         self.assertIn(
-            "clusterCollection, 'cluster'",
+            "overviewOrderMarkers = addOrderMarkers(overviewMap, collections.collection, scope === 'cluster' ? 'cluster' : 'overview')",
             html_text,
-            msg="Cluster mini maps should explicitly opt into the smaller cluster marker sizing path.",
+            msg="Cluster drilldown should reuse the single overview map and switch marker label sizing by scope.",
         )
         self.assertIn(
-            "clusterRoutes.features.length ? [...clusterFeatures, ...clusterRoutes.features] : clusterFeatures",
+            "buildClusterCollections",
             html_text,
-            msg="Cluster mini maps should fit to their own points and rollout lines so huge Voronoi polygons do not zoom the later maps out to the country scale.",
+            msg="The runtime should build cluster-scoped collections for the shared map.",
         )
         self.assertNotIn(
-            "fitToFeatures(clusterMap, [...clusterBounds.features, ...clusterFeatures, ...clusterContext.features])",
+            "fitToFeatures(clusterMap",
             html_text,
-            msg="Cluster mini maps should not include context connector lines in their fit bounds because that makes later maps look empty.",
+            msg="Cluster drilldown should not create or fit separate cluster maps.",
         )
         self.assertNotIn(
-            "clusterBounds.features.length ? [...clusterBounds.features, ...clusterFeatures] : clusterFeatures",
+            ".cluster-map{",
             html_text,
-            msg="Cluster mini maps should not fit to the full Voronoi polygon extent because those merged bounds can dwarf the local rollout geometry.",
-        )
-        self.assertLess(
-            html_text.find("safeOverlayStep(`${cluster.map_id} bounds`"),
-            html_text.find("safeOverlayStep(`${cluster.map_id} nodes`"),
-            msg="Cluster bound polygons should be added before node circles so the lines and polygons stay visually underneath the point overlays.",
-        )
-        self.assertLess(
-            html_text.find("safeOverlayStep(`${cluster.map_id} nodes`"),
-            html_text.find("safeOverlayStep(`${cluster.map_id} routes`"),
-            msg="Cluster rollout lines should be added after the node circles so the local path stays visible even in dense marker groups.",
-        )
-        self.assertIn(
-            "requestAnimationFrame(() => { clusterMap.resize(); fitToFeatures(",
-            html_text,
-            msg="Cluster mini maps should resize after layout before fitting bounds so later maps do not keep stale canvas dimensions.",
+            msg="Rendered HTML should not carry mini-map containers that would create extra WebGL contexts.",
         )
         self.assertIn(
             "attributionControl: false",
@@ -205,72 +180,37 @@ class InstallPriorityMobileTests(unittest.TestCase):
         self.assertIn(
             "new maplibregl.AttributionControl({ compact: true })",
             html_text,
-            msg="Mini maps should add the compact attribution control explicitly so the required map credits stay visible without swallowing the map on phones.",
+            msg="The shared map should add compact attribution explicitly so credits stay visible without swallowing the map on phones.",
         )
-        self.assertIn(
-            "const activeClusterMaps = new Map();",
-            html_text,
-            msg="The mobile handout should keep explicit cluster-map state so later mini maps can be mounted and unmounted instead of leaking WebGL contexts.",
+        self.assertEqual(
+            html_text.count("new maplibregl.Map"),
+            1,
+            msg=f"The handout should create exactly one MapLibre WebGL context, got runtime HTML {html_text!r}",
         )
         self.assertIn(
             "window.__installPriorityMaps = {",
             html_text,
-            msg="The mobile handout should expose live map references on window so phone debugging can inspect which mini maps are currently mounted.",
-        )
-        self.assertIn(
-            "prefersLazyClusterMaps = () => window.matchMedia('(max-width: 920px)').matches",
-            html_text,
-            msg="Cluster-map lazy mounting should activate only on narrow screens where mobile Chrome is most likely to run out of rendering resources.",
-        )
-        self.assertIn(
-            "if (!prefersLazyClusterMaps()) return;",
-            html_text,
-            msg="The WebGL context cap should apply only on mobile-sized screens so desktop reports do not silently remove visible mini maps.",
-        )
-        self.assertIn(
-            "if (!prefersLazyClusterMaps()) {",
-            html_text,
-            msg="Wide reports should use an eager cluster-map sync path instead of the mobile offscreen unmounting behavior.",
-        )
-        self.assertIn(
-            "if (clusterContainerIsVisible(cluster)) mountClusterMap(cluster);",
-            html_text,
-            msg="The wide-screen sync path should mount every visible cluster map so overview and detail embeds do not appear blank.",
-        )
-        self.assertIn(
-            "new IntersectionObserver((entries) => {",
-            html_text,
-            msg="Cluster mini maps should be lazily mounted with IntersectionObserver so offscreen maps do not all initialize at once on phones.",
-        )
-        self.assertIn(
-            "clusterMap.remove();",
-            html_text,
-            msg="Offscreen cluster maps should be removed on mobile so later cards can render without inheriting stale or exhausted WebGL state.",
+            msg="The mobile handout should expose the shared map reference for phone-side debugging.",
         )
         self.assertNotIn(
-            "requestAnimationFrame(syncVisibleClusterMaps)",
+            "activeClusterMaps",
             html_text,
-            msg="Legacy requestAnimationFrame-only syncing should be gone because hidden mobile tabs can miss that callback and never mount later cluster maps.",
-        )
-        self.assertIn(
-            "window.addEventListener('pageshow', syncVisibleClusterMaps)",
-            html_text,
-            msg="The mobile handout should resync lazy cluster maps when an in-app browser shows the page again after backgrounding it.",
-        )
-        self.assertIn(
-            "document.addEventListener('visibilitychange', () => {",
-            html_text,
-            msg="The mobile handout should resync lazy cluster maps when the tab becomes visible so backgrounded Telegram or Chrome tabs still mount their overlays.",
-        )
-        self.assertIn(
-            "window.__installPriorityMaps.syncVisibleClusterMaps = syncVisibleClusterMaps;",
-            html_text,
-            msg="Phone-side debugging should be able to invoke the same cluster-map sync path that the runtime uses when overlays go missing.",
+            msg="The single-map report should not keep cluster-map WebGL state.",
         )
         self.assertNotIn(
-            "requestAnimationFrame(syncVisibleClusterMaps);",
+            "new IntersectionObserver",
             html_text,
-            msg="Initial cluster-map mounting should not rely only on requestAnimationFrame because that callback can be throttled away in hidden mobile tabs.",
+            msg="The single-map report should not lazily mount offscreen MapLibre maps.",
+        )
+        self.assertNotIn(
+            "mountClusterMap",
+            html_text,
+            msg="The report should switch data on the shared map instead of mounting cluster maps.",
+        )
+        self.assertNotIn(
+            "syncVisibleClusterMaps",
+            html_text,
+            msg="The old mini-map sync path should be gone with the extra WebGL contexts.",
         )
 
 

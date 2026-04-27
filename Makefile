@@ -122,6 +122,15 @@ db/table/mesh_towers: tables/mesh_towers.sql db/table/mesh_pipeline_settings | d
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/mesh_towers.sql
 	touch db/table/mesh_towers
 
+db/table/mesh_install_priority_plan: tables/mesh_install_priority_plan.sql db/table/mesh_pipeline_settings db/table/mesh_towers db/table/mesh_visibility_edges db/table/osm_for_mesh_placement db/table/mesh_initial_nodes_h3_r8 | db/table ## Build installer handout ordering from current tower visibility graph
+	PGOPTIONS="-c statement_timeout=0 -c work_mem=256MB" psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/mesh_install_priority_plan.sql
+	touch db/table/mesh_install_priority_plan
+
+db/table/mesh_install_priority_plan_current: tables/mesh_install_priority_plan.sql | db/table ## Rebuild installer handout ordering from already-current DB tables
+	PGOPTIONS="-c statement_timeout=0 -c work_mem=256MB" psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/mesh_install_priority_plan.sql
+	touch db/table/mesh_install_priority_plan
+	touch db/table/mesh_install_priority_plan_current
+
 db/table/mesh_los_cache: tables/mesh_los_cache.sql db/table/postgis_extension | db/table ## Store cached LOS evaluations
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/mesh_los_cache.sql
 	touch db/table/mesh_los_cache
@@ -410,7 +419,7 @@ db/test/mesh_route_integration: db/procedure/backup_mesh_los_cache tests/mesh_ro
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_route.sql
 	touch db/test/mesh_route_integration
 
-db/test/mesh_route_cluster_slim: tests/mesh_route_cluster_slim.sql procedures/mesh_route_cluster_slim.sql | db/test ## Verify cluster slim iterates once and prefers seed endpoints
+db/test/mesh_route_cluster_slim: tests/mesh_route_cluster_slim.sql procedures/mesh_route_cluster_slim.sql db/table/mesh_route_cluster_slim_failures db/table/mesh_route_cluster_slim_candidate_queue db/table/mesh_route_cluster_slim_claims | db/test ## Verify cluster slim iterates once and prefers seed endpoints
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_route_cluster_slim.sql
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tests/mesh_route_cluster_slim.sql
 	touch db/test/mesh_route_cluster_slim
@@ -451,7 +460,7 @@ db/procedure/mesh_population: procedures/mesh_population.sql db/procedure/mesh_c
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_population.sql
 	touch db/procedure/mesh_population
 
-db/procedure/mesh_placement_restart: scripts/mesh_placement_restart.sh procedures/mesh_coarse_grid.sql procedures/mesh_population.sql tables/mesh_route_bootstrap_pairs.sql scripts/mesh_route_bootstrap.sql scripts/mesh_route_bridge_configured.sh scripts/mesh_prune_unreached_mqtt.sql procedures/mesh_route_cluster_slim.sql scripts/mesh_route_cluster_slim_configured.sh procedures/mesh_population_anchor_contract.sql procedures/mesh_generated_pair_contract.sql procedures/mesh_route_segment_reroute.sql scripts/mesh_visibility_edges_refresh.sql scripts/mesh_run_greedy_configured.sh procedures/mesh_tower_wiggle.sql scripts/mesh_tower_wiggle_configured.sh scripts/mesh_route_manual_redundancy.sql scripts/assert_mesh_towers_single_los_component.sql db/table/mesh_greedy_iterations | db/procedure ## Safely replay configured placement stages without rebuilding cached tables
+db/procedure/mesh_placement_restart: scripts/mesh_placement_restart.sh procedures/mesh_coarse_grid.sql procedures/mesh_population.sql tables/mesh_route_bootstrap_pairs.sql scripts/mesh_route_bootstrap.sql scripts/mesh_route_bridge_configured.sh scripts/mesh_prune_unreached_mqtt.sql procedures/mesh_route_cluster_slim.sql scripts/mesh_route_cluster_slim_configured.sh procedures/mesh_population_anchor_contract.sql procedures/mesh_generated_pair_contract.sql procedures/mesh_route_segment_reroute.sql scripts/mesh_visibility_edges_refresh.sql scripts/mesh_run_greedy_configured.sh procedures/mesh_tower_wiggle.sql scripts/mesh_tower_wiggle_configured.sh scripts/mesh_route_manual_redundancy.sql scripts/assert_mesh_towers_single_los_component.sql db/table/mesh_greedy_iterations db/table/mesh_route_cluster_slim_candidate_queue db/table/mesh_route_cluster_slim_claims | db/procedure ## Safely replay configured placement stages without rebuilding cached tables
 	scripts/mesh_placement_restart.sh
 	touch db/procedure/mesh_population
 	touch db/table/mesh_route_bootstrap_pairs
@@ -558,13 +567,21 @@ db/table/mesh_route_cluster_slim_failures: tables/mesh_route_cluster_slim_failur
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/mesh_route_cluster_slim_failures.sql
 	touch db/table/mesh_route_cluster_slim_failures
 
-db/procedure/mesh_route_cluster_slim: procedures/mesh_route_cluster_slim.sql scripts/mesh_route_cluster_slim_configured.sh scripts/mesh_route_cluster_slim_worker.sh scripts/assert_mesh_towers_single_los_component.sql db/table/mesh_route_cluster_slim_failures db/procedure/mesh_route_bridge db/procedure/fill_mesh_los_cache_ready db/function/mesh_route_corridor_between_towers db/function/mesh_surface_refresh_reception_metrics db/function/mesh_surface_refresh_visible_tower_counts db/procedure/mesh_visibility_edges_refresh db/table/mesh_pipeline_settings | db/procedure ## Apply configured cluster-slim tower stage
+db/table/mesh_route_cluster_slim_candidate_queue: tables/mesh_route_cluster_slim_candidate_queue.sql | db/table ## Store cluster-slim candidate work queue
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/mesh_route_cluster_slim_candidate_queue.sql
+	touch db/table/mesh_route_cluster_slim_candidate_queue
+
+db/table/mesh_route_cluster_slim_claims: tables/mesh_route_cluster_slim_claims.sql | db/table ## Store cluster-slim coarse H3 work claims
+	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f tables/mesh_route_cluster_slim_claims.sql
+	touch db/table/mesh_route_cluster_slim_claims
+
+db/procedure/mesh_route_cluster_slim: procedures/mesh_route_cluster_slim.sql scripts/mesh_route_cluster_slim_configured.sh scripts/mesh_route_cluster_slim_worker.sh scripts/assert_mesh_towers_single_los_component.sql db/table/mesh_route_cluster_slim_failures db/table/mesh_route_cluster_slim_candidate_queue db/table/mesh_route_cluster_slim_claims db/procedure/mesh_route_bridge db/procedure/fill_mesh_los_cache_ready db/function/mesh_route_corridor_between_towers db/function/mesh_surface_refresh_reception_metrics db/function/mesh_surface_refresh_visible_tower_counts db/procedure/mesh_visibility_edges_refresh db/table/mesh_pipeline_settings | db/procedure ## Apply configured cluster-slim tower stage
 	bash -lc 'set -euo pipefail; PGOPTIONS="$${PGOPTIONS:-} -c statement_timeout=0" psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_route_cluster_slim.sql'
 	scripts/mesh_route_cluster_slim_configured.sh
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
 	touch db/procedure/mesh_route_cluster_slim
 
-db/procedure/mesh_route_cluster_slim_current: procedures/mesh_route_cluster_slim.sql scripts/mesh_route_cluster_slim_configured.sh scripts/mesh_route_cluster_slim_worker.sh scripts/assert_mesh_towers_single_los_component.sql db/table/mesh_route_cluster_slim_failures | db/procedure ## Apply cluster-slim on current route graph without replaying route bridge
+db/procedure/mesh_route_cluster_slim_current: procedures/mesh_route_cluster_slim.sql scripts/mesh_route_cluster_slim_configured.sh scripts/mesh_route_cluster_slim_worker.sh scripts/assert_mesh_towers_single_los_component.sql db/table/mesh_route_cluster_slim_failures db/table/mesh_route_cluster_slim_candidate_queue db/table/mesh_route_cluster_slim_claims db/table/mesh_pipeline_settings | db/procedure ## Apply cluster-slim on current route graph without replaying route bridge
 	bash -lc 'set -euo pipefail; PGOPTIONS="$${PGOPTIONS:-} -c statement_timeout=0" psql --no-psqlrc --set=ON_ERROR_STOP=1 -f procedures/mesh_route_cluster_slim.sql'
 	scripts/mesh_route_cluster_slim_configured.sh
 	psql --no-psqlrc --set=ON_ERROR_STOP=1 -f scripts/assert_mesh_towers_single_los_component.sql
@@ -642,7 +659,7 @@ db/procedure/mesh_run_greedy_full: scripts/mesh_run_greedy_configured.sh procedu
 data/out/visuals: | data/out ## Ensure visuals output directory exists
 	mkdir -p data/out/visuals
 
-data/out/install_priority.html: scripts/export_install_priority.py scripts/install_priority_cluster_bounds.py scripts/install_priority_cluster_helpers.py scripts/install_priority_connectors.py scripts/install_priority_enrichment.py scripts/install_priority_geocoder.py scripts/install_priority_graph.py scripts/install_priority_graph_support.py scripts/install_priority_lib.py scripts/install_priority_map_payload.py scripts/install_priority_maplibre.py scripts/install_priority_maplibre_runtime.py scripts/install_priority_maplibre_vendor.py scripts/install_priority_points.py scripts/install_priority_render.py scripts/install_priority_render_sections.py scripts/install_priority_sources.py | data/out ## Export installer-priority HTML handout and CSV table from current DB state
+data/out/install_priority.html: scripts/export_install_priority.py scripts/install_priority_cluster_bounds.py scripts/install_priority_enrichment.py scripts/install_priority_geocoder.py scripts/install_priority_graph.py scripts/install_priority_lib.py scripts/install_priority_map_payload.py scripts/install_priority_maplibre.py scripts/install_priority_maplibre_runtime.py scripts/install_priority_maplibre_vendor.py scripts/install_priority_render.py scripts/install_priority_render_sections.py db/table/mesh_install_priority_plan_current | data/out ## Export installer-priority HTML handout and CSV table from current DB state
 	PGOPTIONS="$${PGOPTIONS:-} -c temp_buffers=256MB -c work_mem=128MB" python scripts/export_install_priority.py --csv-output data/out/install_priority.csv --html-output data/out/install_priority.html
 
 data/out/install_priority.csv: data/out/install_priority.html | data/out ## Ensure installer-priority CSV exists after export

@@ -112,6 +112,34 @@
         "type": "Point"
       },
       "id": 8
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Semyon's mountain"
+      },
+      "geometry": {
+        "coordinates": [
+          41.7298,
+          41.6753
+        ],
+        "type": "Point"
+      },
+      "id": 9
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Mtirala"
+      },
+      "geometry": {
+        "coordinates": [
+          41.79845094680786,
+          41.65836453437805
+        ],
+        "type": "Point"
+      },
+      "id": 10
     }
   ]
 }

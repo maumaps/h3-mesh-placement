@@ -54,6 +54,13 @@ $$;
 
 -- Shadow mutable state with temporary versions for deterministic routing.
 create temporary table mesh_route_cluster_slim_failures (like public.mesh_route_cluster_slim_failures including all) on commit drop;
+create temporary table mesh_route_cluster_slim_candidate_queue (like public.mesh_route_cluster_slim_candidate_queue including all) on commit drop;
+create temporary table mesh_route_cluster_slim_claims (like public.mesh_route_cluster_slim_claims including all) on commit drop;
+
+create temporary table osm_for_mesh_placement (
+    tags jsonb,
+    geog public.geography
+) on commit drop;
 
 -- Shadow core tables with lightweight temporary versions for deterministic routing.
 create temporary table mesh_surface_h3_r8 (
@@ -188,6 +195,7 @@ begin
             ST_MakeLine(h3_cell_to_geometry(bridge_one)::geometry, h3_cell_to_geometry(bridge_two)::geometry));
 
     -- Process a single iteration so we can observe which corridor wins.
+    call mesh_route_cluster_slim_prepare_iteration(1);
     call mesh_route_cluster_slim(1, promoted);
 
     if coalesce(promoted, 0) = 0 then
@@ -222,6 +230,31 @@ begin
             seed_one_id,
             bridge_one_id,
             failure_snapshot;
+    end if;
+
+    if not exists (
+        select 1
+        from mesh_route_cluster_slim_candidate_queue
+        where source_id = seed_one_id
+          and target_id = bridge_one_id
+          and status = 'completed'
+    ) then
+        raise exception 'Expected queue row % -> % to be completed after worker promotion; queue snapshot %',
+            seed_one_id,
+            bridge_one_id,
+            (select coalesce(json_agg(row_to_json(mesh_route_cluster_slim_candidate_queue))::jsonb, '[]'::jsonb) from mesh_route_cluster_slim_candidate_queue);
+    end if;
+
+    if not exists (
+        select 1
+        from mesh_route_cluster_slim_claims
+        where source_id = seed_one_id
+          and target_id = bridge_one_id
+    ) then
+        raise exception 'Expected completed pair % -> % to leave coarse claim rows for iteration diagnostics; claims snapshot %',
+            seed_one_id,
+            bridge_one_id,
+            (select coalesce(json_agg(row_to_json(mesh_route_cluster_slim_claims))::jsonb, '[]'::jsonb) from mesh_route_cluster_slim_claims);
     end if;
 
     if exists (

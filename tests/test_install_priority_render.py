@@ -5,10 +5,7 @@ from __future__ import annotations
 import math
 import unittest
 
-from scripts.export_install_priority import (
-    build_output_row,
-    choose_primary_previous_tower_id,
-)
+from scripts.export_install_priority import build_output_row, fetch_ready_plan
 from scripts.assert_install_priority_edges import (
     invalid_primary_previous_order,
     missing_primary_previous_edges,
@@ -38,6 +35,76 @@ from scripts.install_priority_render_sections import render_cluster_section
 
 class InstallPriorityRenderTests(unittest.TestCase):
     """Verify display labels, output rows, and HTML rendering."""
+
+    def test_fetch_ready_plan_reads_sql_owned_order_without_replanning(self) -> None:
+        """Exporter should deserialize the precomputed SQL rows exactly as given."""
+
+        class FakeCursor:
+            def __init__(self) -> None:
+                self.queries: list[str] = []
+
+            def execute(self, query: str) -> None:
+                self.queries.append(query)
+
+            def fetchone(self) -> tuple[str]:
+                return ("mesh_install_priority_plan",)
+
+            def fetchall(self) -> list[tuple[object, ...]]:
+                return [
+                    (
+                        11,
+                        "seed:1",
+                        "Batumi",
+                        1,
+                        "connect",
+                        True,
+                        "next",
+                        False,
+                        "route",
+                        "Connector ridge",
+                        41.6,
+                        41.7,
+                        2500,
+                        2400,
+                        3,
+                        2,
+                        1,
+                        7,
+                        [7],
+                        [12],
+                        [21],
+                        "Batumi -> Tbilisi",
+                    )
+                ]
+
+        fake_cursor = FakeCursor()
+        plan_rows, towers_by_id, metadata_by_tower_id = fetch_ready_plan(fake_cursor)
+
+        self.assertEqual(
+            [query.strip().splitlines()[0] for query in fake_cursor.queries],
+            ["select to_regclass('mesh_install_priority_plan');", "select"],
+            msg=f"Exporter should only check and read mesh_install_priority_plan, got queries {fake_cursor.queries!r}",
+        )
+        self.assertEqual(
+            plan_rows[0].cluster_install_rank,
+            1,
+            msg=f"Exporter should preserve the SQL cluster rank, got row {plan_rows[0]!r}",
+        )
+        self.assertEqual(
+            plan_rows[0].previous_connection_ids,
+            (7,),
+            msg=f"Exporter should preserve SQL predecessor links, got row {plan_rows[0]!r}",
+        )
+        self.assertEqual(
+            towers_by_id[11].label,
+            "Connector ridge",
+            msg=f"Exporter should build tower records from SQL labels, got {towers_by_id!r}",
+        )
+        self.assertEqual(
+            metadata_by_tower_id[11]["inter_cluster_neighbor_ids"],
+            "21",
+            msg=f"Exporter should preserve SQL connector metadata, got {metadata_by_tower_id!r}",
+        )
 
     def test_cluster_section_splits_connector_and_coverage_tabs(self) -> None:
         """Cluster sections should default to connector-prefix rows and expose the full coverage view."""
@@ -98,22 +165,22 @@ class InstallPriorityRenderTests(unittest.TestCase):
         self.assertIn(
             "data-max-rank='1'",
             html_text,
-            msg=f"Compact cluster map should carry the rank cutoff for MapLibre filtering, got HTML {html_text!r}",
+            msg=f"Compact cluster map button should carry the rank cutoff for shared-map filtering, got HTML {html_text!r}",
         )
         self.assertEqual(
             html_text.count("data-max-rank='1'"),
             1,
-            msg=f"Only the compact map should carry the rank cutoff; the full map must stay unfiltered, got HTML {html_text!r}",
+            msg=f"Only the compact phase button should carry the rank cutoff; the full phase must stay unfiltered, got HTML {html_text!r}",
         )
         self.assertIn(
-            "style='--cluster-map-aspect:1.35'",
+            "Show this phase on overview map",
             html_text,
-            msg=f"Compact cluster map should carry its Web Mercator bbox aspect ratio, got HTML {html_text!r}",
+            msg=f"Compact cluster phase should focus the shared overview map, got HTML {html_text!r}",
         )
         self.assertIn(
-            "style='--cluster-map-aspect:1.75'",
+            "Show full phase on overview map",
             html_text,
-            msg=f"Full cluster map should carry its own Web Mercator bbox aspect ratio, got HTML {html_text!r}",
+            msg=f"Coverage phase should focus the shared overview map, got HTML {html_text!r}",
         )
         self.assertIn(
             "role='tablist'",
@@ -156,9 +223,9 @@ class InstallPriorityRenderTests(unittest.TestCase):
             msg=f"Cluster section should use top tabs instead of the old disclosure affordance, got HTML {html_text!r}",
         )
         self.assertIn(
-            "cluster-map-seed-1-full",
+            "data-map-phase='coverage'",
             html_text,
-            msg=f"Coverage tab should include a full unfiltered cluster map, got HTML {html_text!r}",
+            msg=f"Coverage tab should expose a full unfiltered shared-map phase, got HTML {html_text!r}",
         )
         self.assertIn(
             "Later ridge",
@@ -167,7 +234,7 @@ class InstallPriorityRenderTests(unittest.TestCase):
         )
 
     def test_cluster_map_aspect_ratio_uses_web_mercator_bbox(self) -> None:
-        """Cluster mini-map proportions should follow the visual Web Mercator bbox."""
+        """Cluster-focused map proportions should follow the visual Web Mercator bbox."""
 
         rows = [
             {"lon": 44.0, "lat": 40.0},
@@ -670,7 +737,7 @@ class InstallPriorityRenderTests(unittest.TestCase):
         )
 
     def test_nearby_seed_point_hides_duplicate_mqtt_overview_marker(self) -> None:
-        """A seed should win over a nearby MQTT point in the overview overlay."""
+        """A seed or earlier MQTT point should win over duplicate nearby MQTT markers."""
 
         filtered_points = _prefer_seed_points_over_nearby_mqtt(
             [
@@ -693,6 +760,24 @@ class InstallPriorityRenderTests(unittest.TestCase):
                     "country_name": "Georgia",
                 },
                 {
+                    "h3": "first-mqtt-h3",
+                    "name": "First MQTT",
+                    "source": "mqtt",
+                    "lon": 42.000000,
+                    "lat": 42.000000,
+                    "country_code": "ge",
+                    "country_name": "Georgia",
+                },
+                {
+                    "h3": "duplicate-mqtt-h3",
+                    "name": "Duplicate MQTT",
+                    "source": "mqtt",
+                    "lon": 42.004000,
+                    "lat": 42.001000,
+                    "country_code": "ge",
+                    "country_name": "Georgia",
+                },
+                {
                     "h3": "far-mqtt-h3",
                     "name": "Far MQTT",
                     "source": "mqtt",
@@ -706,8 +791,8 @@ class InstallPriorityRenderTests(unittest.TestCase):
 
         self.assertEqual(
             [point["name"] for point in filtered_points],
-            ["Komzpa", "Far MQTT"],
-            msg=f"Nearby MQTT overview points should disappear when a seed already covers that place, got {filtered_points!r}",
+            ["Komzpa", "First MQTT", "Far MQTT"],
+            msg=f"Nearby MQTT overview points should disappear when a seed or earlier MQTT already covers that place, got {filtered_points!r}",
         )
 
     def test_cluster_bound_query_uses_geodesic_buffer_mask_for_voronoi_clip(self) -> None:
@@ -815,86 +900,6 @@ class InstallPriorityRenderTests(unittest.TestCase):
             "::geography",
             fake_cursor.query,
             msg=f"Single-point cluster bounds should use geography meters, got SQL {fake_cursor.query!r}",
-        )
-
-    def test_choose_primary_previous_tower_id_prefers_latest_ranked_step(self) -> None:
-        """Map route segments should follow the rollout corridor instead of the smallest id."""
-
-        plan_row = PlanRow(
-            cluster_key="am:seed:1",
-            cluster_label="Armenia / Gyumri",
-            cluster_install_rank=5,
-            is_next_for_cluster=False,
-            rollout_status="planned",
-            installed=False,
-            tower_id=74,
-            label="cluster_slim #74",
-            source="cluster_slim",
-            impact_score=0,
-            impact_tower_count=0,
-            next_unlock_count=0,
-            backlink_count=2,
-            previous_connection_ids=(61, 73),
-            next_connection_ids=(),
-            lon=43.9,
-            lat=40.7,
-        )
-
-        primary_previous_tower_id = choose_primary_previous_tower_id(
-            plan_row,
-            {
-                61: 2,
-                73: 4,
-            },
-        )
-
-        self.assertEqual(
-            primary_previous_tower_id,
-            73,
-            msg=f"Primary map predecessor should prefer the latest earlier rollout step, got {primary_previous_tower_id!r} for row {plan_row!r}",
-        )
-
-    def test_choose_primary_previous_tower_id_prefers_nearest_visible_backlink(self) -> None:
-        """Map route segments should draw the nearest direct predecessor when several are visible."""
-
-        plan_row = PlanRow(
-            cluster_key="ge:seed:1",
-            cluster_label="Georgia / Batumi",
-            cluster_install_rank=5,
-            is_next_for_cluster=False,
-            rollout_status="planned",
-            installed=False,
-            tower_id=74,
-            label="route #74",
-            source="route",
-            impact_score=0,
-            impact_tower_count=0,
-            next_unlock_count=0,
-            backlink_count=2,
-            previous_connection_ids=(61, 73),
-            next_connection_ids=(),
-            lon=41.61,
-            lat=41.71,
-        )
-        towers_by_id = {
-            61: TowerRecord(61, "seed", 41.60, 41.70, "near seed", True),
-            73: TowerRecord(73, "route", 42.60, 42.70, "latest far route", False),
-            74: TowerRecord(74, "route", 41.61, 41.71, "route #74", False),
-        }
-
-        primary_previous_tower_id = choose_primary_previous_tower_id(
-            plan_row,
-            {
-                61: 0,
-                73: 4,
-            },
-            towers_by_id,
-        )
-
-        self.assertEqual(
-            primary_previous_tower_id,
-            61,
-            msg=f"Primary map predecessor should use the nearest visible backlink to avoid zigzag route lines, got {primary_previous_tower_id!r} for row {plan_row!r}",
         )
 
     def test_build_display_name_prefers_place_road_and_hides_raw_numbering(self) -> None:
@@ -1222,7 +1227,7 @@ class InstallPriorityRenderTests(unittest.TestCase):
         self.assertIn(
             "overviewConnectCutoffByCluster",
             html_text,
-            msg="Overview map runtime should read the exporter-provided connector-prefix cutoff used by cluster mini maps.",
+            msg="Overview map runtime should read the exporter-provided connector-prefix cutoff used by cluster-focused views.",
         )
         self.assertIn(
             "cluster.connect_max_rank",
@@ -1235,9 +1240,14 @@ class InstallPriorityRenderTests(unittest.TestCase):
             msg="HTML handout should embed the exact connector-tree edges for phase-one overview context lines.",
         )
         self.assertIn(
-            "phaseOneConnectorEdges.features.filter",
+            "overviewPhaseOneLocalContextFeatures",
             html_text,
-            msg="Overview phase one should draw only explicit inter-cluster connector lines, not every same-phase context edge.",
+            msg="Overview phase one should draw local visible side links between included phase-one nodes, such as an isolated installed MQTT root reached by a connector step.",
+        )
+        self.assertIn(
+            "overviewPhaseOneConnectorFeatures",
+            html_text,
+            msg="Overview phase one should still draw explicit inter-cluster connector lines alongside local phase-one side links.",
         )
         self.assertIn(
             "seedMqttLinks: viewMode === 'coverage'",
@@ -1265,49 +1275,54 @@ class InstallPriorityRenderTests(unittest.TestCase):
             msg="Overview phase-one connector foreground should stay dark enough to be visible during review.",
         )
         self.assertIn(
-            "updateOverviewView",
+            "updateSharedMap",
             html_text,
             msg="Overview map runtime should switch sources and order markers when the phase tab changes.",
         )
         self.assertIn(
-            "cluster-map-seed-1",
+            "shared-map-button",
             html_text,
-            msg="HTML handout should include the per-cluster mini map container.",
+            msg="HTML handout should include controls that focus the shared map for a cluster.",
         )
         self.assertIn(
-            "clusterMapTargets",
+            "buildClusterCollections",
             html_text,
-            msg="HTML handout should mount both compact and full cluster map containers from one payload.",
+            msg="HTML handout should derive cluster-scoped map collections from one payload.",
         )
-        self.assertIn(
+        self.assertEqual(
+            html_text.count("new maplibregl.Map"),
+            1,
+            msg=f"HTML handout should create one MapLibre WebGL context, got HTML {html_text!r}",
+        )
+        self.assertNotIn(
             "const maxActiveClusterMaps = 4;",
             html_text,
-            msg="HTML handout should cap active cluster WebGL maps so browsers do not lose contexts on reports with many clusters.",
+            msg="HTML handout should not need a cluster-map cap after removing mini maps.",
         )
-        self.assertIn(
+        self.assertNotIn(
             "enforceClusterMapLimit",
             html_text,
-            msg="HTML handout should unmount older offscreen cluster maps when too many MapLibre contexts are active.",
+            msg="HTML handout should not unmount maps because there is only one map.",
         )
-        self.assertIn(
+        self.assertNotIn(
             "if (!prefersLazyClusterMaps()) {",
             html_text,
-            msg="Desktop reports should eagerly mount visible cluster maps so the opened handout does not show blank detail embeds.",
+            msg="Desktop reports should not have a separate cluster-map mounting path.",
         )
-        self.assertIn(
+        self.assertNotIn(
             "if (!prefersLazyClusterMaps()) return;",
             html_text,
-            msg="The active WebGL map cap should remain scoped to narrow mobile screens where browser context loss is the real constraint.",
+            msg="The active WebGL map cap should be gone because only one context is created.",
         )
         self.assertIn(
             "setupClusterViewTabs",
             html_text,
-            msg="HTML handout should switch cluster maps through explicit rollout phase tabs.",
+            msg="HTML handout should switch cluster tables and shared-map scope through explicit rollout phase tabs.",
         )
         self.assertIn(
-            "dataset.maxRank",
+            "dataset.mapPhase",
             html_text,
-            msg="HTML handout should let compact cluster maps filter points by the connector-prefix rank cutoff.",
+            msg="HTML handout should let cluster phase controls switch the shared map between connect and coverage views.",
         )
         self.assertIn(
             "addRouteLayers",
@@ -1332,7 +1347,7 @@ class InstallPriorityRenderTests(unittest.TestCase):
         self.assertIn(
             "addContextLayers",
             html_text,
-            msg="HTML handout should render dashed context connectors so neighboring rollout clusters are easier to understand.",
+            msg="HTML handout should render dashed context connectors and local side links so neighboring rollout clusters and installed-root joins are easier to understand.",
         )
         self.assertIn(
             "\"previous_connection_ids\": [1]",
@@ -1400,9 +1415,9 @@ class InstallPriorityRenderTests(unittest.TestCase):
             msg="Basemap switcher labels should stay readable inside the control instead of wrapping into the map.",
         )
         self.assertIn(
-            "Earliest cluster connector",
+            "Direct visible side link",
             html_text,
-            msg="HTML handout should explain that dashed connector lines show the earliest cluster corridor used for phase-one cutoff.",
+            msg="HTML handout should explain that dashed connector lines also show direct phase-one side links such as isolated installed MQTT roots.",
         )
         self.assertIn(
             "Cluster bounds",

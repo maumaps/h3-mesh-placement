@@ -82,11 +82,11 @@ def render_cluster_section(
     heading_id = f"{cluster_dom_id}-heading"
     table_region_id = f"{cluster_dom_id}-table"
     cards_region_id = f"{cluster_dom_id}-cards"
-    full_map_id = f"{cluster_dom_id}-full"
     connect_tab_id = f"{cluster_dom_id}-connect-tab"
     coverage_tab_id = f"{cluster_dom_id}-coverage-tab"
     connect_panel_id = f"{cluster_dom_id}-connect-panel"
     coverage_panel_id = f"{cluster_dom_id}-coverage-panel"
+    cluster_key = str(cluster_rows[0]["cluster_key"])
     compact_rows = [
         row
         for row in cluster_rows
@@ -119,14 +119,16 @@ def render_cluster_section(
         (
             f"<button type='button' id='{escape(connect_tab_id)}' "
             "class='cluster-view-tab phase-tab active' role='tab' aria-selected='true' "
+            f"data-cluster-key='{escape(cluster_key)}' data-map-phase='connect' "
             f"aria-controls='{escape(connect_panel_id)}'><strong>Phase 1: Connect clusters</strong>"
             "<span>Install through the current cluster-join prefix.</span></button>"
         ),
         (
             f"<button type='button' id='{escape(coverage_tab_id)}' "
             "class='cluster-view-tab phase-tab' role='tab' aria-selected='false' "
+            f"data-cluster-key='{escape(cluster_key)}' data-map-phase='coverage' "
             f"aria-controls='{escape(coverage_panel_id)}'><strong>Phase 2: Improve coverage</strong>"
-            "<span>Show every later row and the full local map.</span></button>"
+            "<span>Show every later row on the shared map.</span></button>"
         ),
         "</div>",
         "</div>",
@@ -135,10 +137,9 @@ def render_cluster_section(
             f"role='tabpanel' aria-labelledby='{escape(connect_tab_id)}'>"
         ),
         (
-            f"<div id='{escape(cluster_dom_id)}' class='cluster-map' "
-            f"style='--cluster-map-aspect:{compact_map_aspect_ratio:.2f}' "
-            f"data-max-rank='{escape(str(compact_max_rank))}' role='img' "
-            f"aria-label='Map for {escape(cluster_label)} rollout cluster'></div>"
+            "<button type='button' class='shared-map-button' "
+            f"data-cluster-key='{escape(cluster_key)}' data-map-phase='connect' "
+            f"data-max-rank='{escape(str(compact_max_rank))}'>Show this phase on overview map</button>"
         ),
         (
             f"<div class='table-wrap cluster-table-wrap' id='{escape(table_region_id)}' "
@@ -253,9 +254,8 @@ def render_cluster_section(
                 f"role='tabpanel' aria-labelledby='{escape(coverage_tab_id)}' hidden>"
             ),
             (
-                f"<div id='{escape(full_map_id)}' class='cluster-map full-cluster-map' "
-                f"style='--cluster-map-aspect:{full_map_aspect_ratio:.2f}' "
-                f"role='img' aria-label='Full map for {escape(cluster_label)} rollout cluster'></div>"
+                "<button type='button' class='shared-map-button full-cluster-map-button' "
+                f"data-cluster-key='{escape(cluster_key)}' data-map-phase='coverage'>Show full phase on overview map</button>"
             ),
             (
                 f"<div class='table-wrap cluster-table-wrap full-cluster-table' "

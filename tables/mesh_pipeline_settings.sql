@@ -18,7 +18,8 @@ alter table mesh_pipeline_settings
         setting not in (
             'enable_coarse', 'enable_population', 'enable_population_anchor_contract',
             'enable_generated_pair_contract', 'enable_route_segment_reroute',
-            'enable_route_bridge', 'enable_cluster_slim', 'enable_greedy', 'enable_wiggle'
+            'enable_route_bridge', 'enable_cluster_slim', 'enable_greedy', 'enable_wiggle',
+            'enable_install_priority_plan'
         )
         or value in ('true', 'false')
     );
@@ -59,12 +60,17 @@ values
     ('enable_route_bridge', 'true'),
     ('enable_cluster_slim', 'true'),
     ('cluster_slim_iterations', '0'),
+    ('cluster_slim_claim_resolution', '4'),
+    ('cluster_slim_claim_disk', '1'),
     ('enable_greedy', 'false'),
     ('greedy_iterations', '100'),
     ('enable_wiggle', 'true'),
     ('wiggle_iterations', '0'),
     ('wiggle_parallel_workers', '8'),
-    ('wiggle_candidate_limit', '256')
+    ('wiggle_candidate_limit', '256'),
+    ('enable_install_priority_plan', 'true'),
+    ('install_priority_phase1_cost', 'distance'),
+    ('install_priority_phase2_metric', 'population')
 on conflict (setting) do update
 set value = excluded.value,
     updated_at = now();

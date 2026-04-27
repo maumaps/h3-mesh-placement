@@ -48,3 +48,10 @@ Population-anchor stars are now handled by the applied `mesh_population_anchor_c
 
 The MQTT import fix now inserts `source in ('seed', 'mqtt')` into `mesh_towers`, but the remote 100 km database still needs a safe resume path before rerunning it.
 `make -n db/table/mesh_initial_nodes_h3_r8` on geocint unexpectedly wants to replay OSM merge/import and `georgia_boundary` before the seed/MQTT table, so do not run that target until the dependencies are narrowed or an explicit reviewed resume target is added.
+
+## 2026-04-26 placement restart follow-up
+The remote 100 km restart after adding `Semyon's mountain` and `Mtirala` completed route, cluster-slim, contraction, wiggle, manual redundancy anchors, and install export without rebuilding `mesh_los_cache`.
+The final single-component invariant passed with 92 live towers and 654 directed visible links, but `scripts/assert_mesh_visibility_no_bridges.sql` still reported 20 bridge/cut-node findings.
+Because the failure happened at the final redundancy assert, the run used `MESH_PLACEMENT_RESTART_KEEP_FAILED=1` so the calculated state was preserved for diagnostics instead of rolling back.
+Cluster-slim now defaults `SLIM_PARALLEL_WORKERS` from `nproc`, which uses the remote CPU count, but full 32-shard mode can over-promote corridors before later contraction/wiggle.
+Review whether cluster-slim should default to fewer workers, one promoted corridor per iteration, or a deterministic merge phase before treating the redundancy assertion as a field-review gate again.

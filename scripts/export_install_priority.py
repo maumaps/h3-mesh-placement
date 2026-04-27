@@ -11,11 +11,9 @@ from __future__ import annotations
 
 import argparse
 import csv
-import math
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 # Ensure the repo root is in sys.path so `scripts.*` imports work when this
 # script is invoked directly (e.g. `python scripts/export_install_priority.py`).
@@ -28,7 +26,6 @@ except ImportError as exc:
 
 from scripts.pg_connect import add_db_args, pg_conn_kwargs
 from scripts.install_priority_cluster_bounds import fetch_cluster_bound_features
-from scripts.install_priority_connectors import select_inter_cluster_connectors
 from scripts.install_priority_enrichment import (
     build_output_row,
     enrich_tower_records,
@@ -39,19 +36,9 @@ from scripts.install_priority_enrichment import (
 from scripts.install_priority_geocoder import extract_admin_context, fetch_geocoder_batch
 from scripts.install_priority_lib import (
     CSV_COLUMNS,
-    build_adjacency,
-    build_cluster_plan,
-    format_display_label,
+    PlanRow,
+    TowerRecord,
     render_html_document,
-)
-from scripts.install_priority_sources import (
-    build_tower_records,
-    choose_visible_edge_table,
-    fetch_seed_points,
-    fetch_tower_metadata,
-    fetch_tower_points,
-    fetch_visible_edges,
-    match_seed_names,
 )
 
 
@@ -109,6 +96,7 @@ def write_html(
     cluster_bound_features: list[dict[str, object]],
     seed_mqtt_points: list[dict[str, object]],
     seed_mqtt_links: list[dict[str, object]],
+    phase_one_tower_ids: list[int],
 ) -> None:
     """Write the mobile-friendly HTML output."""
 
@@ -120,6 +108,7 @@ def write_html(
         cluster_bound_features=cluster_bound_features,
         seed_mqtt_points=seed_mqtt_points,
         seed_mqtt_links=seed_mqtt_links,
+        phase_one_tower_ids=phase_one_tower_ids,
     )
     output_path.write_text(html_text, encoding="utf-8")
 
@@ -139,134 +128,127 @@ def summarize_connector_summaries(
     return f"{'; '.join(summaries[:max_items])} and {remaining_count} more"
 
 
-def choose_primary_previous_tower_id(
-    plan_row,
-    rank_by_tower_id: dict[int, int | None],
-    towers_by_id: dict[int, Any] | None = None,
-) -> int | str:
-    """Pick the previous node that best represents the rollout corridor on the map."""
+def fetch_ready_plan(
+    cursor,
+) -> tuple[list[PlanRow], dict[int, TowerRecord], dict[int, dict[str, object]]]:
+    """Read the precomputed SQL installer plan."""
 
-    if not plan_row.previous_connection_ids:
-        return ""
-
-    def predecessor_distance_m(tower_id: int) -> float:
-        if not towers_by_id:
-            return float("inf")
-        current_tower = towers_by_id.get(plan_row.tower_id)
-        previous_tower = towers_by_id.get(tower_id)
-        if not current_tower or not previous_tower:
-            return float("inf")
-
-        current_lat = math.radians(current_tower.lat)
-        previous_lat = math.radians(previous_tower.lat)
-        delta_lat = previous_lat - current_lat
-        delta_lon = math.radians(previous_tower.lon - current_tower.lon)
-        haversine = (
-            math.sin(delta_lat / 2) ** 2
-            + math.cos(current_lat)
-            * math.cos(previous_lat)
-            * math.sin(delta_lon / 2) ** 2
+    cursor.execute("select to_regclass('mesh_install_priority_plan');")
+    if cursor.fetchone()[0] is None:
+        raise RuntimeError(
+            "mesh_install_priority_plan is missing; run make db/table/mesh_install_priority_plan_current before exporting."
         )
 
-        return 2 * 6_371_000 * math.asin(math.sqrt(haversine))
+    query = """
+        select
+            tower_id,
+            cluster_key,
+            cluster_label,
+            cluster_install_rank,
+            install_phase,
+            is_next_for_cluster,
+            rollout_status,
+            installed,
+            source,
+            label,
+            lon,
+            lat,
+            impact_score,
+            impact_people_est,
+            impact_tower_count,
+            next_unlock_count,
+            backlink_count,
+            primary_previous_tower_id,
+            previous_connection_ids,
+            next_connection_ids,
+            inter_cluster_neighbor_ids,
+            inter_cluster_connections
+        from mesh_install_priority_plan
+        order by
+            cluster_label,
+            cluster_install_rank nulls last,
+            tower_id;
+    """
+    cursor.execute(query)
 
-    def predecessor_score(tower_id: int) -> tuple[float, int, int]:
-        rank = rank_by_tower_id.get(tower_id)
-        rank_value = -1 if rank is None else rank
+    plan_rows: list[PlanRow] = []
+    towers_by_id: dict[int, TowerRecord] = {}
+    metadata_by_tower_id: dict[int, dict[str, object]] = {}
 
-        return (-predecessor_distance_m(tower_id), rank_value, -tower_id)
+    for row in cursor.fetchall():
+        (
+            tower_id,
+            cluster_key,
+            cluster_label,
+            cluster_install_rank,
+            install_phase,
+            is_next_for_cluster,
+            rollout_status,
+            installed,
+            source,
+            label,
+            lon,
+            lat,
+            impact_score,
+            impact_people_est,
+            impact_tower_count,
+            next_unlock_count,
+            backlink_count,
+            primary_previous_tower_id,
+            previous_connection_ids,
+            next_connection_ids,
+            inter_cluster_neighbor_ids,
+            inter_cluster_connections,
+        ) = row
+        previous_ids = tuple(int(item) for item in (previous_connection_ids or []))
+        next_ids = tuple(int(item) for item in (next_connection_ids or []))
+        tower_id = int(tower_id)
+        installed_bool = bool(installed)
 
-    return max(
-        plan_row.previous_connection_ids,
-        key=predecessor_score,
-    )
-
-
-def build_inter_cluster_metadata(
-    *,
-    plan_rows,
-    towers_by_id,
-    adjacency,
-) -> dict[int, dict[str, str]]:
-    """Attach canonical inter-cluster connector summaries to connector endpoints."""
-
-    connector_metadata: dict[int, dict[str, list[str] | list[int]]] = {}
-    connectors = select_inter_cluster_connectors(
-        plan_rows=plan_rows,
-        adjacency=adjacency,
-    )
-
-    for connector in connectors:
-        left_summary = (
-            f"{connector.right_cluster_label} via "
-            f"{format_display_label(towers_by_id[connector.right_tower_id])}"
-        )
-        right_summary = (
-            f"{connector.left_cluster_label} via "
-            f"{format_display_label(towers_by_id[connector.left_tower_id])}"
-        )
-        connector_pairs = [
-            (connector.left_tower_id, connector.right_tower_id, left_summary),
-            (connector.right_tower_id, connector.left_tower_id, right_summary),
-        ]
-
-        for tower_id, neighbor_id, summary in connector_pairs:
-            row_metadata = connector_metadata.setdefault(
-                tower_id,
-                {
-                    "neighbor_ids": [],
-                    "summaries": [],
-                },
+        plan_rows.append(
+            PlanRow(
+                cluster_key=str(cluster_key),
+                cluster_label=str(cluster_label),
+                cluster_install_rank=(
+                    None if cluster_install_rank is None else int(cluster_install_rank)
+                ),
+                is_next_for_cluster=bool(is_next_for_cluster),
+                rollout_status=str(rollout_status),
+                installed=installed_bool,
+                tower_id=tower_id,
+                label=str(label),
+                source=str(source),
+                impact_score=int(impact_score or impact_people_est or 0),
+                impact_tower_count=int(impact_tower_count or 0),
+                next_unlock_count=int(next_unlock_count or 0),
+                backlink_count=int(backlink_count or 0),
+                previous_connection_ids=previous_ids,
+                next_connection_ids=next_ids,
+                lon=float(lon),
+                lat=float(lat),
             )
-            row_metadata["neighbor_ids"].append(neighbor_id)
-            row_metadata["summaries"].append(summary)
-
-    return {
-        tower_id: {
+        )
+        towers_by_id[tower_id] = TowerRecord(
+            tower_id=tower_id,
+            source=str(source),
+            lon=float(lon),
+            lat=float(lat),
+            label=str(label),
+            installed=installed_bool,
+        )
+        metadata_by_tower_id[tower_id] = {
+            "install_phase": str(install_phase),
+            "impact_people_est": int(impact_people_est or impact_score or 0),
+            "primary_previous_tower_id": (
+                "" if primary_previous_tower_id is None else int(primary_previous_tower_id)
+            ),
             "inter_cluster_neighbor_ids": ",".join(
-                str(neighbor_id)
-                for neighbor_id in sorted(row_metadata["neighbor_ids"])
+                str(int(item)) for item in (inter_cluster_neighbor_ids or [])
             ),
-            "inter_cluster_connections": " | ".join(
-                sorted(row_metadata["summaries"])
-            ),
+            "inter_cluster_connections": str(inter_cluster_connections or ""),
         }
-        for tower_id, row_metadata in connector_metadata.items()
-    }
 
-
-def build_neighbor_cluster_summaries(
-    *,
-    plan_rows,
-    towers_by_id,
-    adjacency,
-) -> dict[int, list[str]]:
-    """Describe every visible neighboring cluster that touches a tower."""
-
-    row_by_tower_id = {
-        plan_row.tower_id: plan_row
-        for plan_row in plan_rows
-    }
-    summaries_by_tower_id: dict[int, list[str]] = {}
-
-    for tower_id, plan_row in row_by_tower_id.items():
-        cluster_summaries = {
-            (
-                row_by_tower_id[neighbor_id].cluster_label,
-                format_display_label(towers_by_id[neighbor_id]),
-            )
-            for neighbor_id in adjacency.get(tower_id, {})
-            if (
-                neighbor_id in row_by_tower_id
-                and row_by_tower_id[neighbor_id].cluster_key != plan_row.cluster_key
-            )
-        }
-        summaries_by_tower_id[tower_id] = [
-            f"{cluster_label} via {neighbor_label}"
-            for cluster_label, neighbor_label in sorted(cluster_summaries)
-        ]
-
-    return summaries_by_tower_id
+    return plan_rows, towers_by_id, metadata_by_tower_id
 
 
 def export_rows(
@@ -277,32 +259,12 @@ def export_rows(
     list[dict[str, object]],
     list[dict[str, object]],
     list[dict[str, object]],
+    list[int],
 ]:
     """Build the final flat rows for CSV and HTML outputs."""
 
-    print(">> Loading tower registry and visibility graph", file=sys.stderr)
-    tower_points = fetch_tower_points(cursor)
-    tower_metadata = fetch_tower_metadata(cursor)
-    visible_edge_table = choose_visible_edge_table(
-        cursor=cursor,
-        tower_count=len(tower_metadata),
-    )
-    visible_edges = fetch_visible_edges(cursor, visible_edge_table)
-    seed_tower_ids = [
-        tower_id for tower_id, source, _ in tower_metadata if source == "seed"
-    ]
-    seed_points = fetch_seed_points(cursor)
-    seed_name_by_tower_id = match_seed_names(
-        cursor=cursor,
-        seed_tower_ids=seed_tower_ids,
-        tower_points=tower_points,
-        seed_points=seed_points,
-    )
-    towers_by_id = build_tower_records(
-        tower_metadata=tower_metadata,
-        tower_points=tower_points,
-        seed_name_by_tower_id=seed_name_by_tower_id,
-    )
+    print(">> Loading precomputed installer plan", file=sys.stderr)
+    plan_rows, towers_by_id, metadata_by_tower_id = fetch_ready_plan(cursor)
 
     print(">> Preparing local road and terrain context tables", file=sys.stderr)
     prepare_context_tables(cursor)
@@ -316,25 +278,10 @@ def export_rows(
     )
     seed_mqtt_points, seed_mqtt_links = fetch_reachable_seed_mqtt_overview(
         cursor=cursor,
-        visible_edge_table=visible_edge_table,
-    )
-    adjacency = build_adjacency(visible_edges)
-    plan_rows = build_cluster_plan(
-        towers_by_id=towers_by_id,
-        adjacency=adjacency,
-    )
-    connector_metadata_by_tower_id = build_inter_cluster_metadata(
-        plan_rows=plan_rows,
-        towers_by_id=towers_by_id,
-        adjacency=adjacency,
-    )
-    neighbor_cluster_summaries_by_tower_id = build_neighbor_cluster_summaries(
-        plan_rows=plan_rows,
-        towers_by_id=towers_by_id,
-        adjacency=adjacency,
+        visible_edge_table="mesh_visibility_edges",
     )
     print(
-        f">> Loaded {len(towers_by_id)} towers and {len(visible_edges)} visible edges from {visible_edge_table}",
+        f">> Loaded {len(towers_by_id)} precomputed installer plan rows",
         file=sys.stderr,
     )
 
@@ -348,10 +295,6 @@ def export_rows(
 
     print(">> Assembling final installer handout rows", file=sys.stderr)
     final_rows: list[dict[str, object]] = []
-    rank_by_tower_id = {
-        plan_row.tower_id: plan_row.cluster_install_rank
-        for plan_row in plan_rows
-    }
 
     for plan_row in plan_rows:
         local_context = local_context_by_tower_id[plan_row.tower_id]
@@ -363,7 +306,7 @@ def export_rows(
         admin_context_ru = extract_admin_context(geocoder_payload_ru)
 
         tower = towers_by_id[plan_row.tower_id]
-        connector_metadata = connector_metadata_by_tower_id.get(
+        connector_metadata = metadata_by_tower_id.get(
             plan_row.tower_id,
             {
                 "inter_cluster_neighbor_ids": "",
@@ -377,10 +320,6 @@ def export_rows(
             ).split(" | ")
             if summary.strip()
         ]
-        visible_neighbor_cluster_summaries = neighbor_cluster_summaries_by_tower_id.get(
-            plan_row.tower_id,
-            [],
-        )
         blocked_reason = ""
 
         if plan_row.rollout_status == "blocked":
@@ -389,11 +328,6 @@ def export_rows(
                     "No visible path from an installed seed yet. "
                     "Earliest cluster connector: "
                     f"{summarize_connector_summaries(connector_summaries)}."
-                )
-            elif visible_neighbor_cluster_summaries:
-                blocked_reason = (
-                    "No visible path from an installed seed yet. "
-                    f"Visible into {summarize_connector_summaries(visible_neighbor_cluster_summaries)}."
                 )
             else:
                 blocked_reason = "No visible path from an installed seed yet."
@@ -409,11 +343,9 @@ def export_rows(
         )
         output_row.update(
             {
-                "primary_previous_tower_id": choose_primary_previous_tower_id(
-                    plan_row,
-                    rank_by_tower_id,
-                    towers_by_id,
-                ),
+                "primary_previous_tower_id": metadata_by_tower_id[plan_row.tower_id][
+                    "primary_previous_tower_id"
+                ],
                 "previous_connection_ids": list(plan_row.previous_connection_ids),
                 "inter_cluster_neighbor_ids": connector_metadata[
                     "inter_cluster_neighbor_ids"
@@ -432,7 +364,20 @@ def export_rows(
         final_rows,
     )
 
-    return final_rows, cluster_bound_features, seed_mqtt_points, seed_mqtt_links
+    phase_one_tower_ids = [
+        int(row["tower_id"])
+        for row in final_rows
+        if row["rollout_status"] == "installed"
+        or metadata_by_tower_id[int(row["tower_id"])]["install_phase"] == "connect"
+    ]
+
+    return (
+        final_rows,
+        cluster_bound_features,
+        seed_mqtt_points,
+        seed_mqtt_links,
+        phase_one_tower_ids,
+    )
 
 
 def main() -> None:
@@ -444,7 +389,13 @@ def main() -> None:
 
     with open_connection(args) as connection:
         with connection.cursor() as cursor:
-            rows, cluster_bound_features, seed_mqtt_points, seed_mqtt_links = export_rows(cursor, args)
+            (
+                rows,
+                cluster_bound_features,
+                seed_mqtt_points,
+                seed_mqtt_links,
+                phase_one_tower_ids,
+            ) = export_rows(cursor, args)
 
     write_csv(rows, csv_output)
     write_html(
@@ -454,6 +405,7 @@ def main() -> None:
         cluster_bound_features,
         seed_mqtt_points,
         seed_mqtt_links,
+        phase_one_tower_ids,
     )
     print(f">> Wrote {len(rows)} rows to {csv_output}", file=sys.stderr)
     print(f">> Wrote {len(rows)} rows to {html_output}", file=sys.stderr)
